@@ -731,7 +731,7 @@ def _sheet_name(model, sheet):
         plat = "全家" if sheet["platform"] == ac.PLATFORM_FAMILY else "萬家福"
         name = f"{a}-{b}-{plat}-{wan}萬-{sheet['seconds']}秒"
     else:
-        name = f"{sheet['platform']} {a}-{b}"
+        name = f"{sheet['platform']} {a}-{b} {sheet.get('seconds','')}秒"
     for ch in ':\\/?*[]':
         name = name.replace(ch, "")
     return name[:31]
