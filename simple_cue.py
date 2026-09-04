@@ -12,18 +12,21 @@ Phase 1：重用既有已驗證的計算與渲染管線
 
 Phase 2（未做）：子公司改「一檔四分頁」+ 範本加強欄、家樂福→萬家福/樂家康改名、全面美化。
 """
+import io
 from datetime import date, timedelta
 
 import streamlit as st
+import streamlit.components.v1 as components
+from openpyxl import load_workbook
 
 import config
-from utils import get_remarks_text, safe_filename
+from utils import get_remarks_text, safe_filename, html_escape
 from calculator import calculate_plan_data
 from simple_render import render_subsidiary_workbook
 
 import agency_cue as ac
 from agency_excel import generate_agency_excel
-from data_loader import load_agency_pricing_from_cloud
+from data_loader import load_config_from_cloud, load_agency_pricing_from_cloud
 
 
 # =============================================================================
@@ -146,6 +149,75 @@ def _gen_agency(combo, budget, start_dt, end_dt, client, product, campaign, agen
 
 
 # =============================================================================
+# Excel → 網頁表格預覽（讓業務直接在頁面上看到範本長相）
+# =============================================================================
+def _sheet_to_html(ws):
+    merged = {}
+    skip = set()
+    for rng in ws.merged_cells.ranges:
+        merged[(rng.min_row, rng.min_col)] = (rng.max_row - rng.min_row + 1,
+                                              rng.max_col - rng.min_col + 1)
+        for rr in range(rng.min_row, rng.max_row + 1):
+            for cc in range(rng.min_col, rng.max_col + 1):
+                if (rr, cc) != (rng.min_row, rng.min_col):
+                    skip.add((rr, cc))
+    out = ['<table style="border-collapse:collapse;font-family:微軟正黑體;font-size:12px">']
+    for r in range(1, ws.max_row + 1):
+        out.append("<tr>")
+        for c in range(1, ws.max_column + 1):
+            if (r, c) in skip:
+                continue
+            cell = ws.cell(row=r, column=c)
+            v = cell.value
+            if v is None:
+                v = ""
+            elif isinstance(v, float):
+                v = f"{v:,.0f}" if v == int(v) else f"{v:,.2f}"
+            elif isinstance(v, int):
+                v = f"{v:,}" if abs(v) >= 1000 else str(v)
+            span = merged.get((r, c))
+            rs = f' rowspan="{span[0]}"' if span and span[0] > 1 else ""
+            cs = f' colspan="{span[1]}"' if span and span[1] > 1 else ""
+            style = "border:1px solid #d0d0d0;padding:2px 6px;text-align:center;white-space:nowrap"
+            if cell.font and cell.font.bold:
+                style += ";font-weight:700"
+            try:
+                if cell.fill and cell.fill.patternType == "solid":
+                    rgb = cell.fill.fgColor.rgb
+                    if isinstance(rgb, str) and len(rgb) == 8 and rgb[2:] not in ("000000", "FFFFFF"):
+                        style += f";background:#{rgb[2:]}"
+            except Exception:
+                pass
+            out.append(f'<td{rs}{cs} style="{style}">{html_escape(str(v))}</td>')
+        out.append("</tr>")
+    out.append("</table>")
+    return "".join(out)
+
+
+def _workbook_to_html(xlsx_bytes):
+    wb = load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
+    return [(ws.title, _sheet_to_html(ws)) for ws in wb.worksheets]
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _generate(combo_key, budget, start_iso, end_iso, share_first,
+              client, tax_id, product, sales, prod_cost, campaign):
+    """依條件產生 CUE（含 Excel bytes、各分頁 HTML 預覽、檔次摘要）；同條件走快取不重算。"""
+    start_dt = date.fromisoformat(start_iso)
+    end_dt = date.fromisoformat(end_iso)
+    if combo_key in SUB_COMBOS:
+        _, scn, pdb, sf, _sm, _err = load_config_from_cloud(config.GSHEET_SHARE_URL)
+        out = _gen_subsidiary(SUB_COMBOS[combo_key], budget, start_dt, end_dt, share_first,
+                              client, tax_id, product, sales, prod_cost, pdb, sf, scn)
+    else:
+        ap = load_agency_pricing_from_cloud(config.GSHEET_SHARE_URL)
+        out = _gen_agency(AGENCY_COMBOS[combo_key], budget, start_dt, end_dt,
+                          client, product, campaign, ap)
+    out["preview"] = _workbook_to_html(out["bytes"])
+    return out
+
+
+# =============================================================================
 # Streamlit UI
 # =============================================================================
 def render_simple_cue(store_counts_num, pricing_db, sec_factors, regions_order, sales_map=None):
@@ -203,43 +275,41 @@ def render_simple_cue(store_counts_num, pricing_db, sec_factors, regions_order, 
             0, 100, 50, step=5)
 
     combo = SUB_COMBOS[combo_key] if is_sub else AGENCY_COMBOS[combo_key]
-    st.caption(f"將產出一個 Excel 檔，內含 {len(combo['seconds'])} 個秒數分頁："
-               f"{'、'.join(f'{s}秒' for s in combo['seconds'])}（客戶挑秒數）。")
 
     st.divider()
-    if not st.button("🚀 產生 CUE", type="primary"):
-        return
-
     if budget <= 0:
-        st.error("請先輸入預算金額。")
+        st.info("輸入預算金額後，範本會自動顯示於下方。")
         return
 
-    with st.spinner("計算並產生各秒數 CUE 中…"):
-        try:
-            if is_sub:
-                out = _gen_subsidiary(
-                    SUB_COMBOS[combo_key], budget, start_dt, end_dt, int(share_first),
-                    client, tax_id, product, sales, prod_cost,
-                    pricing_db, sec_factors, store_counts_num,
-                )
-            else:
-                agency_pricing = load_agency_pricing_from_cloud(config.GSHEET_SHARE_URL)
-                out = _gen_agency(
-                    AGENCY_COMBOS[combo_key], budget, start_dt, end_dt,
-                    client, product, campaign, agency_pricing,
-                )
-        except Exception as e:
-            st.error(f"產生失敗：{e}")
-            st.exception(e)
-            return
+    # 條件選完即自動產生 + 即時預覽（同條件走快取，不重算）
+    try:
+        with st.spinner("產生範本中…"):
+            out = _generate(combo_key, int(budget),
+                            start_dt.isoformat(), end_dt.isoformat(), int(share_first),
+                            client, tax_id, product, sales, int(prod_cost), campaign)
+    except Exception as e:
+        st.error(f"產生失敗：{e}")
+        st.exception(e)
+        return
 
-    st.success(f"已產生（{all_combos[combo_key]}，預算 {int(budget)//10000}萬，走期 {start_dt}~{end_dt}，"
-               f"含 {len(combo['seconds'])} 個秒數分頁）")
-    st.download_button("⬇ 下載 CUE（Excel）", data=out["bytes"], file_name=out["fname"],
+    st.success(f"{all_combos[combo_key]}｜預算 {int(budget)//10000}萬｜走期 {start_dt}～{end_dt}"
+               f"｜{len(combo['seconds'])} 個秒數版本（客戶挑秒數）")
+    st.download_button("⬇ 下載此 CUE（Excel）", data=out["bytes"], file_name=out["fname"],
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                        type="primary")
+
+    # --- 即時範本預覽（每個秒數一個分頁）---
+    st.markdown("#### 📄 範本預覽")
+    preview = out.get("preview") or []
+    if preview:
+        tabs = st.tabs([title for title, _ in preview])
+        for tab, (_title, html) in zip(tabs, preview):
+            with tab:
+                components.html(
+                    f'<div style="overflow:auto">{html}</div>',
+                    height=520, scrolling=True)
     if out.get("summary"):
-        with st.expander("檔次摘要（各秒數）", expanded=True):
+        with st.expander("檔次摘要（各秒數）"):
             st.dataframe(out["summary"], use_container_width=True, hide_index=True)
 
 
