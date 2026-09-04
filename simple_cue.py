@@ -38,13 +38,16 @@ from data_loader import load_config_from_cloud, load_agency_pricing_from_cloud
 SUB_COMBOS = {
     "sub_qp_fv":  {"label": "① 企頻 ＋ 新鮮視",
                    "media": ["全家廣播", "新鮮視"], "seconds": [10, 15, 20, 30],
-                   "medium": "全家企頻 / 新鮮視　專案"},
+                   "medium": "全家企頻 / 新鮮視　專案",
+                   "default_share": 45},   # 企頻45 / 新鮮視55（依範例反推）
     "sub_qp_wjf": {"label": "② 全家 ＋ 萬家福．樂家康",
                    "media": ["全家廣播", "家樂福"], "seconds": [10, 15, 20, 30],
-                   "medium": "全家企頻 / 萬家福‧樂家康　專案"},
+                   "medium": "全家企頻 / 萬家福‧樂家康　專案",
+                   "default_share": 60},   # 全家60 / 萬家福40
     "sub_fv_wjf": {"label": "③ 新鮮視 ＋ 萬家福．樂家康",
                    "media": ["新鮮視", "家樂福"], "seconds": [10, 15, 20, 30],
-                   "medium": "新鮮視 / 萬家福‧樂家康　專案"},
+                   "medium": "新鮮視 / 萬家福‧樂家康　專案",
+                   "default_share": 58},   # 新鮮視58 / 萬家福42
 }
 
 # 代理商組合：platform = "family"（全家單組）或 "wjf"（萬家福.樂家康單組）
@@ -266,13 +269,8 @@ def render_simple_cue(store_counts_num, pricing_db, sec_factors, regions_order, 
         prod_cost = cc2.number_input("製作費（未稅）", min_value=0, value=0, step=1000)
         campaign = cc3.text_input("Campaign（2008 用）", "")
 
-    # 子公司專屬：預算佔比（兩平台）
-    share_first = 50
-    if is_sub:
-        media_keys = SUB_COMBOS[combo_key]["media"]
-        share_first = st.slider(
-            f"預算佔比：{_disp_media(media_keys[0])} ％（其餘給 {_disp_media(media_keys[1])}）",
-            0, 100, 50, step=5)
+    # 子公司兩平台預算分配：依範例反推的固定比例（不讓業務選）
+    share_first = SUB_COMBOS[combo_key]["default_share"] if is_sub else 50
 
     combo = SUB_COMBOS[combo_key] if is_sub else AGENCY_COMBOS[combo_key]
 
@@ -311,7 +309,3 @@ def render_simple_cue(store_counts_num, pricing_db, sec_factors, regions_order, 
     if out.get("summary"):
         with st.expander("檔次摘要（各秒數）"):
             st.dataframe(out["summary"], use_container_width=True, hide_index=True)
-
-
-def _disp_media(m):
-    return {"全家廣播": "全家企頻", "家樂福": "萬家福‧樂家康"}.get(m, m)
