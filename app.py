@@ -101,6 +101,7 @@ from excel_renderer import generate_excel_from_scratch
 from pdf_converter import xlsx_bytes_to_pdf_bytes
 from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even
 from agency_ui import render_agency_cue
+from simple_cue import render_simple_cue
 from ragic_api import (
     search_ragic_records,
     upload_to_ragic,
@@ -762,15 +763,19 @@ def main():
         except:
             fmt_idx = 0
         
-        # 製作模式（先分流：代理商CUE 與「選擇格式／交換合約」無關，須在其之前分流）
-        mode_options = ["一般CUE", "年約季約細CUE", "代理商CUE"]
+        # 製作模式（先分流：簡易模式／代理商CUE 與「選擇格式／交換合約」無關，須在其之前分流）
+        mode_options = ["簡易模式", "一般CUE", "年約季約細CUE", "代理商CUE"]
         cur_mode = st.session_state.get("cue_mode", "一般CUE")
         try:
             mode_idx = mode_options.index(cur_mode)
         except ValueError:
             mode_idx = 0
         cue_mode = st.radio("製作模式", mode_options, index=mode_idx, key="cue_mode", horizontal=True,
-                            help="年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式。")
+                            help="簡易模式：只選平台組合＋輸入預算，自動產各秒數版 CUE。年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式。")
+
+        if cue_mode == "簡易模式":
+            render_simple_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, SALES_MAP)
+            return
 
         if cue_mode == "代理商CUE":
             render_agency_cue(SALES_MAP)
