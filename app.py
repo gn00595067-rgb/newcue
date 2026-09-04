@@ -765,7 +765,7 @@ def main():
         
         # 製作模式（先分流：簡易模式／代理商CUE 與「選擇格式／交換合約」無關，須在其之前分流）
         mode_options = ["簡易模式", "一般CUE", "年約季約細CUE", "代理商CUE"]
-        cur_mode = st.session_state.get("cue_mode", "一般CUE")
+        cur_mode = st.session_state.get("cue_mode", "簡易模式")
         try:
             mode_idx = mode_options.index(cur_mode)
         except ValueError:
