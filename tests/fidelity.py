@@ -146,7 +146,8 @@ def _print_last_row(ws):
 
 
 def compare_strict(tw, ow, *, first, out_first, tmpl_days, out_days, right_cols=0,
-                   print_last=None, data_last=None, identity_merge=False):
+                   print_last=None, data_last=None, identity_merge=False,
+                   check_borders=True):
     """
     first/out_first：第一個日期欄（1-based）；tmpl_days/out_days：範本/我方日期欄數。
     right_cols：日期欄右側固定欄數（子公司檔次欄 V = 1；代理商 0）。
@@ -220,8 +221,8 @@ def compare_strict(tw, ow, *, first, out_first, tmpl_days, out_days, right_cols=
             oc = ow.cell(row=r, column=oc_col)
             loc = f"{get_column_letter(tc_col)}{r}"
             ta, oa = _attrs(tc), _attrs(oc)
-            # 空格也比 border / fill
-            if ta["bd"] != oa["bd"]:
+            # 空格也比 border / fill（框線因已做 seal 升級，預設 check_borders 由呼叫端決定）
+            if check_borders and ta["bd"] != oa["bd"]:
                 diffs.append(f"BD {loc}: tmpl={ta['bd']} ours={oa['bd']}")
             if ta["bg"] != oa["bg"]:
                 diffs.append(f"BG {loc}: tmpl={ta['bg']} ours={oa['bg']}")

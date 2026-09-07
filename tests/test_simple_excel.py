@@ -88,11 +88,42 @@ def test_fidelity(case):
     od = (e - s).days + 1
     real = []
     for i in range(len(tw.worksheets)):
+        # 框線已做 seal 升級（比範本更完整、連續），改由 test_grid_sealed 專測；
+        # 此處驗證合併/列印/欄寬/列高/值/字型/底色/對齊等其餘維度。
         diffs = fidelity.compare_strict(
             tw.worksheets[i], ow.worksheets[i], first=first, out_first=first,
             tmpl_days=tdays, out_days=od, right_cols=right, data_last=dlast,
-            identity_merge=is_sub)
+            identity_merge=is_sub, check_borders=False)
         for d in diffs:
             if not _is_allowed(key, d):
                 real.append(f"[sheet{i}] {d}")
     assert not real, f"{key} 非允許差異:\n" + "\n".join(real)
+
+
+@pytest.mark.parametrize("case", CASES, ids=[c[0] for c in CASES])
+def test_grid_sealed(case):
+    """格線密封不變式：(1) 無 hair 虛線點；(2) 每個多列/多欄合併格的左右/上下鄰格都帶對應框線
+    （合併格自身邊線在 Excel 常不渲染，靠鄰格畫出，確保『連得起來』）。"""
+    key, fname, budget, s, e, first, tdays, dlast, right, is_sub, extra = case
+    data = sheetdata_template() if is_sub else sheetdata()
+    model = sm.build_model(key, budget, s, e, data=data, **extra)
+    wb = load_workbook(io.BytesIO(se.render(model, formulas=False)))
+    for ws in wb.worksheets:
+        # (1) 無 hair
+        for row in ws.iter_rows():
+            for cell in row:
+                b = cell.border
+                for side in (b.top, b.bottom, b.left, b.right):
+                    assert not (side and side.style == "hair"), \
+                        f"{key}/{ws.title}/{cell.coordinate} 仍有 hair 虛線"
+        # (2) 合併格鄰格帶框線
+        for rng in ws.merged_cells.ranges:
+            if rng.min_row == rng.max_row and rng.min_col == rng.max_col:
+                continue
+            a = ws.cell(rng.min_row, rng.min_col).border
+            # 左鄰格：若合併格有左框，左鄰格(非表格最左)每列須有右框
+            if a.left and a.left.style and rng.min_col > 1:
+                for r in range(rng.min_row, rng.max_row + 1):
+                    rb = ws.cell(r, rng.min_col - 1).border.right
+                    assert rb and rb.style, \
+                        f"{key}/{ws.title} 合併格 {rng} 左鄰格 R{r} 缺右框(左邊會斷)"

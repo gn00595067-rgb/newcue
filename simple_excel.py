@@ -59,6 +59,72 @@ def _merge(ws, r1, c1, r2, c2):
     ws.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
 
 
+_BORDER_RANK = {None: 0, "hair": 1, "dotted": 1, "thin": 2, "mediumDashed": 3,
+                "medium": 3, "thick": 4, "double": 5}
+
+
+def seal_grid(ws, r1, r2, c1, c2):
+    """把 [r1..r2]×[c1..c2] 表格區的『每一條共用格線』同時畫在相鄰兩格上（取較粗者），
+    合併格內部邊線清除。這樣不論 Excel 怎麼渲染合併格，格線都連續、不會斷。"""
+    # 合併格歸屬
+    cell2m = {}
+    for rng in ws.merged_cells.ranges:
+        key = (rng.min_row, rng.min_col, rng.max_row, rng.max_col)
+        for rr in range(rng.min_row, rng.max_row + 1):
+            for cc in range(rng.min_col, rng.max_col + 1):
+                cell2m[(rr, cc)] = key
+
+    def same_merge(p, q):
+        return p in cell2m and cell2m.get(p) == cell2m.get(q)
+
+    def stl(side):
+        return side.style if (side and side.style) else None
+
+    # 快照「有效四邊」：合併格構成格的『外框側』一律取左上角(anchor)的框，內側視為無。
+    # （openpyxl 只在存檔時把 anchor 樣式套到構成格，記憶體中構成格是空的；
+    #   故直接以 anchor 推算，才能把邊線正確畫到相鄰的非合併格上。）
+    def eff(r, c):
+        b = ws.cell(row=r, column=c).border
+        own = (stl(b.top), stl(b.bottom), stl(b.left), stl(b.right))
+        key = cell2m.get((r, c))
+        if not key:
+            return own
+        mr1, mc1, mr2, mc2 = key
+        ab = ws.cell(row=mr1, column=mc1).border
+        return (stl(ab.top) if r == mr1 else None,
+                stl(ab.bottom) if r == mr2 else None,
+                stl(ab.left) if c == mc1 else None,
+                stl(ab.right) if c == mc2 else None)
+
+    orig = {(r, c): eff(r, c) for r in range(r1, r2 + 1) for c in range(c1, c2 + 1)}
+
+    def stronger(a, b):
+        return a if _BORDER_RANK.get(a, 0) >= _BORDER_RANK.get(b, 0) else b
+
+    def vedge(r, a, bb):        # a,bb 相鄰兩欄的共用垂直邊
+        if same_merge((r, a), (r, bb)):
+            return None
+        return stronger(orig[(r, a)][3], orig[(r, bb)][2])   # a.right vs bb.left
+
+    def hedge(a, bb, c):        # a,bb 相鄰兩列的共用水平邊
+        if same_merge((a, c), (bb, c)):
+            return None
+        return stronger(orig[(a, c)][1], orig[(bb, c)][0])   # a.bottom vs bb.top
+
+    for r in range(r1, r2 + 1):
+        for c in range(c1, c2 + 1):
+            t, b, l, rr = orig[(r, c)]
+            left = vedge(r, c - 1, c) if c > c1 else l
+            right = vedge(r, c, c + 1) if c < c2 else rr
+            top = hedge(r - 1, r, c) if r > r1 else t
+            bottom = hedge(r, r + 1, c) if r < r2 else b
+
+            def mk(s):
+                return Side(style=s) if s else Side(style=None)
+            ws.cell(row=r, column=c).border = Border(top=mk(top), bottom=mk(bottom),
+                                                     left=mk(left), right=mk(right))
+
+
 def thicken_hairlines(ws):
     """把所有 hair(極細)框線升級成 thin —— hair 在 Excel 編輯畫面顯示成虛線點、看起來『連不起來』；
     thin 為連續實線。整份輸出跑一次，範本的 hair 內線全部變連續格線。"""
@@ -239,8 +305,9 @@ def _subsidiary_sheet(ws, model, sheet, formulas):
     # ---- 備註與簽章（§5.6）----
     _subsidiary_remarks(ws, model, r_remark_hd, r_remark0, r_sign0, formulas, C_V)
 
-    # ---- 內部 hair 格線升級 thin（讓格線在 Excel 連續，不再『連不起來』）----
+    # ---- 內部 hair 格線升級 thin + 格線密封（相鄰兩格共畫、合併格內邊清除）----
     thicken_hairlines(ws)
+    seal_grid(ws, 7, r_grand, 1, C_V)
 
 
 def _hdr_border(c, C_V):
