@@ -76,7 +76,7 @@ class CueRow:
     market_per: float = None
     uni_per: float = None
     uni_total: float = None
-    net_display = None          # 合計/專案價：數字 或 "專案回饋"/"計價於量販"
+    net_display: object = None  # 合計/專案價：數字 或 "專案回饋"/"計價於量販"
     material: str = None
     hidden_net: float = 0.0     # 內部：spots × unit_net（僅 UI/測試，不寫 Excel）
 
@@ -257,10 +257,9 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data):
                 reach_traffic += (stores_mag * n + stores_super * sn) * sc.TRAFFIC_FACTOR
             else:
                 f = factor(media, sec, data)
-                std_region = 480 if media == "全家廣播" else 1008
                 daypart = sc.DAYPART_SUBSIDIARY[media]
                 for ri, region in enumerate(sc.REGIONS_ORDER):
-                    reg = data.pricing[media][region]
+                    reg = data.pricing[media][region]           # 各區 Std 依 Pricing 表（§4.6）
                     stores_r = data.stores[media][region]
                     rows.append(CueRow(
                         kind="main",
@@ -268,7 +267,7 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data):
                         region=region, location=sc.REGION_LABELS[region],
                         stores=stores_r, daypart=daypart, seconds=sec,
                         spots=n, schedule=sch,
-                        rate_num=(reg["List"], std_region, f),
+                        rate_num=(reg["List"], reg["Std"], f),
                         hidden_net=(n * unit if ri == 0 else 0.0)))
                     reach_spots += n
                     reach_imp += stores_r * n
@@ -428,9 +427,9 @@ def _build_carat(combo, budget, start, end, data):
         fees = _fees_carat(budget)
         fees["media_value"] = media_value
         fees["discount_value"] = media_value - budget
-        sheets.append(CueSheet(
-            title=f"{'全家' if combo['platform']=='family' else '萬家福 & 樂家康'}-{sec}秒",
-            seconds=sec, blocks=blocks, days=days, budget=budget, fees=fees))
+        title = f"全家-{sec}秒" if combo["platform"] == "family" else f"萬家福 & 樂家康 {sec}秒"
+        sheets.append(CueSheet(title=title, seconds=sec, blocks=blocks, days=days,
+                               budget=budget, fees=fees))
     return sheets
 
 
@@ -472,7 +471,7 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
     pay = f"{start.year - 1911}.XX.XX"
 
     remarks = _subsidiary_remarks(combo, sign, billing, pay) if fam == "subsidiary" else \
-        _agency_remarks(combo, start, budget)
+        _agency_remarks(combo, start, end, budget)
 
     model = CueModel(
         combo_key=combo_key, combo_label=combo["label"], family=fam,
@@ -481,7 +480,7 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
         medium_label=combo.get("medium", ""), remarks=remarks,
         sign_deadline=sign, material_due=material_due, billing_month=billing,
         payment_date_text=pay, sheets=sheets)
-    model.filename = _filename(combo, budget, sales, client)
+    model.filename = _filename(combo, budget, sales, client, today)
     return model
 
 
@@ -497,27 +496,49 @@ def _subsidiary_remarks(combo, sign, billing, pay):
     return out
 
 
-def _agency_remarks(combo, start, budget):
+def _agency_remarks(combo, start, end, budget):
     agency = combo["agency"]
     if agency == "凱絡":
         sign = start - timedelta(days=7)
-        pay = f"{start.month}月媒體費${budget:,}(Net)"
+        pay = _carat_payment(start, end, budget)
         lines = ac.default_remarks("凱絡", sign_date=sign, payment_note=pay)
         return [(t, i == 4) for i, t in enumerate(lines)]  # 第5行(請款)紅字
     lines = sc.REMARKS_2008_WJF if combo["platform"] == "wjf" else sc.REMARKS_2008_FAMILY
     return [(t, False) for t in lines]
 
 
-def _filename(combo, budget, sales, client):
+def _carat_payment(start, end, budget):
+    """凱絡請款說明：依各月天數比例拆分（千元四捨五入、尾月吃餘數），
+    格式 {M}月媒體費${x:,}(Net)，多月用「、」串接（§3-2）。"""
+    total_days = (end - start).days + 1
+    months = []
+    cur = start
+    while cur <= end:
+        if cur.month == 12:
+            mlast = date(cur.year, 12, 31)
+        else:
+            mlast = date(cur.year, cur.month + 1, 1) - timedelta(days=1)
+        seg_end = min(mlast, end)
+        months.append((cur.month, (seg_end - cur).days + 1))
+        cur = seg_end + timedelta(days=1)
+    parts, allocated = [], 0
+    for i, (m, dcnt) in enumerate(months):
+        amt = budget - allocated if i == len(months) - 1 else rhu(budget * dcnt / total_days / 1000) * 1000
+        allocated += amt
+        parts.append(f"{m}月媒體費${amt:,}(Net)")
+    return "、".join(parts)
+
+
+def _filename(combo, budget, sales, client, today):
+    """§3-1 檔名：MMDD 前綴 + 半形組合名 + 業務暱稱。"""
     man = budget // 10000
     secs = ".".join(str(s) for s in sorted(combo["seconds"]))
+    mmdd = today.strftime("%m%d")
     if combo["family"] == "subsidiary":
-        name = combo["label"].split(" ", 1)[-1].replace("①", "").replace("②", "") \
-            .replace("③", "").strip()
         suffix = f"-{sales}" if sales else ""
-        # 例：0904 企頻+新鮮視(10.15.20.30秒) 25萬專案-宜
-        base = combo["label"][1:].strip()  # 去掉圈號
-        return f"{base}({secs}秒) {man}萬專案{suffix}.xlsx"
+        # 例：0907 企頻+新鮮視(10.15.20.30秒) 25萬專案-宜.xlsx
+        return f"{mmdd} {combo['fname']}({secs}秒) {man}萬專案{suffix}.xlsx"
     plat = "全家" if combo["platform"] == "family" else "萬家福&樂家康"
     cli = f"-{client}" if client else ""
-    return f"{combo['agency']}{cli} {plat}單組 ({secs}秒) {man}萬專案.xlsx"
+    # 例：0907 2008傳媒-統一企業 全家單組 (10.15.20.30秒) 25萬專案.xlsx
+    return f"{mmdd} {combo['agency']}{cli} {plat}單組 ({secs}秒) {man}萬專案.xlsx"
