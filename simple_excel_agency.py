@@ -52,6 +52,9 @@ def render_2008(wb, model, formulas):
         nd = len(sheet.days)
         info = sm.apply(ws, nd)
         FIRST, LAST = info["first"], info["last"]
+        # 全家母版「定價」欄(D)過窄，7 位數(如 1,440,000)在 22pt 會 ###；加寬(§7.4)
+        if not is_wjf:
+            ws.column_dimensions["D"].width = 33.0
         _2008_dateheader(ws, sheet, FIRST)
         if is_wjf:
             _fill_2008_wjf(ws, model, sheet, FIRST, LAST, formulas)

@@ -70,7 +70,9 @@ _ALLOWED = [
 
 def _is_allowed(key, d):
     if key.startswith("ag_carat") and re.match(r"^WIDTH I ", d):
-        return True    # 總價欄加寬避免大數字 ###（§7.4，覆寫範本過窄欄寬）
+        return True    # 凱絡總價欄加寬避免大數字 ###（§7.4，覆寫範本過窄欄寬）
+    if key == "ag_2008_fam" and re.match(r"^WIDTH D ", d):
+        return True    # 2008全家定價欄加寬避免 7 位數 ###（§7.4）
     return any(re.search(p, d) for p, _ in _ALLOWED)
 
 

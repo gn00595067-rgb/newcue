@@ -128,6 +128,16 @@ def test_carat_total_col_wide_enough(key):
         assert (ws.column_dimensions["I"].width or 0) >= 16, f"{key} 總價欄過窄會 ###"
 
 
+def test_2008_family_price_col_wide_enough():
+    """2008 全家『定價』欄(D)須夠寬容 7 位數(牌價×次數)，避免 ###（§7.4，已用真 Excel 驗證）。"""
+    from datetime import date as _d
+    m = sm.build_model("ag_2008_fam", 400000, _d(2026, 6, 8), _d(2026, 6, 28),
+                       client="統一", product="統一", data=sheetdata())
+    wb = load_workbook(io.BytesIO(se.render(m, formulas=False)))
+    for ws in wb.worksheets:
+        assert (ws.column_dimensions["D"].width or 0) >= 30, "2008全家定價欄過窄會 ###"
+
+
 @pytest.mark.parametrize("key,s,e,n", AGENCY_CASES)
 def test_agency_schedule_length(key, s, e, n):
     """逐日排檔長度 = 走期天數（value 版逐日皆為數字）。"""
