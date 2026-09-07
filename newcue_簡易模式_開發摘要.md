@@ -10,10 +10,13 @@
 | `simple_config.py` | 所有常數（七組合、40/60 比例、秒數係數、代理商牌價、備註模板、樣式），每條標來源與 §11 |
 | `simple_model.py` | 純計算：`build_model` 唯一入口、`allocate_spots`（貪婪填滿不超預算）、`distribute`（餘數放前）、子公司/2008/凱絡建模 → `CueModel` |
 | `simple_excel.py` | 版型 A 子公司 Media Schedule（①②③）；`render(model, formulas=)` 對外入口 |
-| `simple_excel_agency.py` | 版型 B 2008（④⑤）、版型 C 凱絡（⑥⑦） |
+| `simple_excel_agency.py` | 版型 B 2008（④⑤）、版型 C 凱絡（⑥⑦）—— 用樣式母版填值 |
+| `simple_style_master.py` | 樣式母版轉印（欄寬/列高/合併/框線/列印 100% 來自範本） |
 | `simple_html.py` | `CueModel` → HTML 即時預覽（自動等比縮放、六日底色、紅/藍字） |
+| `simple_preview.py` | Excel→LibreOffice PDF→PyMuPDF PNG 頁面影像預覽（無 soffice 退回 HTML） |
 | `simple_cue.py` | Streamlit UI（三步、自動產生、下載 Excel/PDF、秒數分頁預覽） |
 | `tools/dump_template.py` | 範本逐格傾印（開發輔助） |
+| `tools/make_style_masters.py` | 從範本產生 `assets/style_masters/*.xlsx` 樣式母版 |
 
 ## 商業規則重點
 - 檔次自己算（不呼叫 `calculator.calculate_plan_data`）：可為奇數、不超預算盡量填滿（≥99%）、每日平均餘數放前。
@@ -23,10 +26,10 @@
 
 ## 測試
 - `tests/test_simple_model.py`：112 條數字規則（§4.4 參考向量精確相等、代理商 25 萬七組、費用、日期）。
-- `tests/test_simple_excel.py` + `tests/fidelity.py`：子公司三組合×4 分頁逐格對齊範本，`ALLOWED_DIFF` 之外零差異。
+- `tests/test_simple_excel.py` + `tests/fidelity.py`：**七組合**逐格 strict 對齊範本（空格也比框線/底色、列印設定、日期欄映射），`ALLOWED` 之外零差異。
 - `tests/test_simple_excel_agency.py`：代理商版型結構＋商業數值（分頁/標籤/費用/回饋/媒體總價值）。
-- `tests/test_simple_smoke.py`：七組合×5 預算×4 走期全部能產出、排檔加總＝檔次、分頁名唯一 ≤31 字。
+- `tests/test_simple_smoke.py`：七組合×5 預算×4 走期全部能產出、排檔加總＝檔次、分頁名唯一 ≤31 字、母版無值、客戶檔無內部成本。
 
 ## 已知後續（見驗收回報）
-- 代理商（2008/凱絡）版型目前為「結構＋數值正確」，逐格像素 fidelity 仍在收斂（子公司已嚴格對齊）。
+- 代理商版型改「樣式母版」後已與子公司同樣達 strict fidelity 零差異（框線/字級/合併/列印全來自範本）。
 - 視覺 PDF 對照（`visual_check_simple.py`）需環境有 LibreOffice（本機 Windows 無 `soffice`，Streamlit Cloud/devcontainer 的 `packages.txt` 已含）。

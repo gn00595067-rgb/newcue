@@ -83,6 +83,18 @@ def test_no_internal_cost_leak(key):
                         assert f not in sval, f"{key}/{ws.title}/{c.coordinate} 洩漏 {f}"
 
 
+def test_style_masters_no_values():
+    """母版檔只有樣式、無值、無圖片（§7-6）。"""
+    import os
+    d = os.path.join(os.path.dirname(__file__), "..", "assets", "style_masters")
+    for key in ["ag_2008_fam", "ag_2008_wjf", "ag_carat_fam", "ag_carat_wjf"]:
+        wb = load_workbook(os.path.join(d, f"{key}.xlsx"))
+        for ws in wb.worksheets:
+            vals = [c.value for row in ws.iter_rows() for c in row if c.value is not None]
+            assert not vals, f"{key} 母版含殘值 {vals[:3]}"
+            assert not ws._images, f"{key} 母版含圖片"
+
+
 def test_smoke_filenames():
     for key in KEYS:
         model = sm.build_model(key, 250000, date(2026, 9, 21), date(2026, 10, 4),
