@@ -1,311 +1,235 @@
 # -*- coding: utf-8 -*-
 """
-簡易模式 (Simple / 一鍵 CUE)
+簡易模式 v2 UI（Streamlit）—— 三步：選組合 → 輸預算 → 選開始日，自動出預覽（§9）
 
-目標：業務只需「選平台組合 + 輸入預算」，系統以聰明預設（全省、標準走期、
-各秒數各出一版）自動產出對應 CUE，讓業務先看到範本、再回頭調走期與細節。
-
-Phase 1：重用既有已驗證的計算與渲染管線
-  - 子公司三組  → calculator.calculate_plan_data → excel_renderer.generate_excel_from_scratch
-  - 代理商 2008/凱絡 → agency_cue.build_agency_model → agency_excel.generate_agency_excel
-  對每個秒數各產一張 CUE（子公司 10/15/20/30；代理商依平台），提供逐張下載與 ZIP。
-
-Phase 2（未做）：子公司改「一檔四分頁」+ 範本加強欄、家樂福→萬家福/樂家康改名、全面美化。
+計算走 simple_model.build_model；Excel 走 simple_excel.render；預覽走 simple_html。
+內部成本不出現在客戶檔案；Google Sheet 斷線用內建備援並警示，不 crash。
 """
-import io
 from datetime import date, timedelta
 
 import streamlit as st
 import streamlit.components.v1 as components
-from openpyxl import load_workbook
 
-import config
-from utils import get_remarks_text, safe_filename, html_escape
-from calculator import calculate_plan_data
-from simple_render import render_subsidiary_workbook
+import simple_config as sc
+import simple_model as sm
+import simple_excel as se
+import simple_html as shtml
+from utils import safe_filename
+from pdf_converter import find_soffice_path, xlsx_bytes_to_pdf_bytes
 
-import agency_cue as ac
-from agency_excel import generate_agency_excel
-from data_loader import load_config_from_cloud, load_agency_pricing_from_cloud
-
-
-# =============================================================================
-# 平台組合定義
-# =============================================================================
-# 子公司組合：media = calculator 用的媒體 key（"全家廣播"/"新鮮視"/"家樂福"）
-#   註：範本中「企頻」與「全家」皆指全家店內廣播＝內部 key "全家廣播"。
-#   家樂福已改名萬家福/樂家康，Phase 2 會改內部 key，Phase 1 先只改顯示。
-SUB_COMBOS = {
-    "sub_qp_fv":  {"label": "① 企頻 ＋ 新鮮視",
-                   "media": ["全家廣播", "新鮮視"], "seconds": [10, 15, 20, 30],
-                   "medium": "全家企頻 / 新鮮視　專案",
-                   "default_share": 45},   # 企頻45 / 新鮮視55（依範例反推）
-    "sub_qp_wjf": {"label": "② 全家 ＋ 萬家福．樂家康",
-                   "media": ["全家廣播", "家樂福"], "seconds": [10, 15, 20, 30],
-                   "medium": "全家企頻 / 萬家福‧樂家康　專案",
-                   "default_share": 60},   # 全家60 / 萬家福40
-    "sub_fv_wjf": {"label": "③ 新鮮視 ＋ 萬家福．樂家康",
-                   "media": ["新鮮視", "家樂福"], "seconds": [10, 15, 20, 30],
-                   "medium": "新鮮視 / 萬家福‧樂家康　專案",
-                   "default_share": 58},   # 新鮮視58 / 萬家福42
-}
-
-# 代理商組合：platform = "family"（全家單組）或 "wjf"（萬家福.樂家康單組）
-AGENCY_COMBOS = {
-    "ag_2008_fam":   {"label": "④ 2008傳媒 － 全家單組",
-                      "agency": "2008傳媒", "platform": "family", "seconds": [10, 15, 20, 30]},
-    "ag_2008_wjf":   {"label": "⑤ 2008傳媒 － 萬家福．樂家康單組",
-                      "agency": "2008傳媒", "platform": "wjf", "seconds": [10, 15, 20]},
-    "ag_carat_fam":  {"label": "⑥ 凱絡 － 全家單組",
-                      "agency": "凱絡", "platform": "family", "seconds": [10, 15, 20, 30]},
-    "ag_carat_wjf":  {"label": "⑦ 凱絡 － 萬家福．樂家康單組",
-                      "agency": "凱絡", "platform": "wjf", "seconds": [10, 15, 20]},
-}
-
-BUDGET_PRESETS = [200000, 250000, 300000, 400000]   # 常用預算快捷（20/25/30/40萬）
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 # =============================================================================
-# 子公司：組 config + 逐秒數產表
+# 資料來源：把 app 傳入的雲端設定轉成 SheetData；缺漏處以內建備援補
 # =============================================================================
-def _build_sub_config(media_keys, second, share_first):
-    """組出 calculate_plan_data 需要的 config：全省、單一秒數 100%、兩平台預算佔比。"""
-    shares = {media_keys[0]: share_first, media_keys[1]: 100 - share_first} if len(media_keys) == 2 \
-        else {media_keys[0]: 100}
-    cfg = {}
-    for m in media_keys:
-        cfg[m] = {
-            "share": shares[m],
-            "is_national": True,
-            "regions": list(config.REGIONS_ORDER),
-            "sec_shares": {second: 100},
-        }
-    return cfg
-
-
-def _gen_subsidiary(combo, budget, start_dt, end_dt, share_first,
-                    client, tax_id, product, sales, prod_cost,
-                    pricing_db, sec_factors, store_counts_num):
-    """回傳 {bytes, fname, summary}：一檔多分頁（各秒數一版，範本版面）。"""
-    days = (end_dt - start_dt).days + 1
-    remarks = get_remarks_text(start_dt - timedelta(days=5),
-                               f"{start_dt.year - 1911}年{start_dt.month}月", end_dt)
-    seconds_rows = {}
-    summary = []
-    for sec in combo["seconds"]:
-        cfg = _build_sub_config(combo["media"], sec, share_first)
-        rows, _tla, _logs = calculate_plan_data(
-            cfg, float(budget), days, pricing_db, sec_factors,
-            store_counts_num, list(config.REGIONS_ORDER),
-        )
-        seconds_rows[sec] = rows
-        for m in combo["media"]:
-            tot = sum(int(r["spots"]) for r in rows
-                      if r["media"] == m and "超市" not in str(r.get("region", "")))
-            summary.append({"秒數": f"{sec}秒", "平台": m, "每區檔次×區數合計": tot})
-    xlsx_bytes = render_subsidiary_workbook(
-        combo, seconds_rows, float(budget), float(prod_cost),
-        start_dt, end_dt, client, tax_id, product, remarks,
-    )
-    fname = safe_filename(f"{combo['label']}_{int(budget)//10000}萬.xlsx")
-    return {"bytes": xlsx_bytes, "fname": fname, "summary": summary}
-
-
-# =============================================================================
-# 代理商：組 fam/wjf cfg + 逐秒數產表
-# =============================================================================
-def _gen_agency(combo, budget, start_dt, end_dt, client, product, campaign, agency_pricing):
-    """回傳 {bytes, fname, summary}：各秒數合併成一檔（每秒數一分頁）。"""
-    material_due = start_dt - timedelta(days=7)
-    made = date.today()
-    ac_pct = config.AGENCY_AC_DEFAULT.get(combo["agency"]) or 0
-    base_model = None
-    all_sheets = []
-    summary = []
-    for sec in combo["seconds"]:
-        if combo["platform"] == "family":
-            fam_cfg = {"enabled": True, "seconds": sec, "share": 100,
-                       "rebate_pct": 0, "spots_override": 0, "auto_rebate": True}
-            wjf_cfg = {"enabled": False}
-        else:
-            fam_cfg = {"enabled": False}
-            wjf_cfg = {"enabled": True, "seconds": sec, "share": 100,
-                       "rebate_pct": 0, "mag_override": 0, "is_rebate_wave": False}
-        model = ac.build_agency_model(
-            combo["agency"], client, product, campaign,
-            start_dt, end_dt, float(budget),
-            fam_cfg, wjf_cfg, ac.COMP_MOVE50, material_due, ac_pct,
-            agency_pricing=agency_pricing,
-        )
-        if base_model is None:
-            base_model = model
-        all_sheets.extend(model["sheets"])
-        for sh in model["sheets"]:
-            main = sum(int(r.get("spots", 0)) for r in sh.get("rows", []) if r.get("kind") == "main")
-            summary.append({"秒數": f"{sec}秒", "分頁": sh.get("platform", ""), "主檔次": main})
-    combined = dict(base_model)
-    combined["sheets"] = all_sheets
-    xlsx = generate_agency_excel(combined, made)
-    xlsx_bytes = xlsx.getvalue() if hasattr(xlsx, "getvalue") else xlsx
-    fname = safe_filename(f"{combo['label']}_{int(budget)//10000}萬.xlsx")
-    return {"bytes": xlsx_bytes, "fname": fname, "summary": summary}
-
-
-# =============================================================================
-# Excel → 網頁表格預覽（讓業務直接在頁面上看到範本長相）
-# =============================================================================
-def _sheet_to_html(ws):
-    merged = {}
-    skip = set()
-    for rng in ws.merged_cells.ranges:
-        merged[(rng.min_row, rng.min_col)] = (rng.max_row - rng.min_row + 1,
-                                              rng.max_col - rng.min_col + 1)
-        for rr in range(rng.min_row, rng.max_row + 1):
-            for cc in range(rng.min_col, rng.max_col + 1):
-                if (rr, cc) != (rng.min_row, rng.min_col):
-                    skip.add((rr, cc))
-    out = ['<table style="border-collapse:collapse;font-family:微軟正黑體;font-size:12px">']
-    for r in range(1, ws.max_row + 1):
-        out.append("<tr>")
-        for c in range(1, ws.max_column + 1):
-            if (r, c) in skip:
+def _to_sheetdata(store_counts_num, pricing_db, sec_factors):
+    fb = sm.fallback_sheetdata()
+    try:
+        pricing = {}
+        # 全家廣播 / 新鮮視
+        for media in ("全家廣播", "新鮮視"):
+            md = pricing_db.get(media) if pricing_db else None
+            if not md:
+                pricing[media] = fb.pricing[media]
                 continue
-            cell = ws.cell(row=r, column=c)
-            v = cell.value
-            if v is None:
-                v = ""
-            elif isinstance(v, float):
-                v = f"{v:,.0f}" if v == int(v) else f"{v:,.2f}"
-            elif isinstance(v, int):
-                v = f"{v:,}" if abs(v) >= 1000 else str(v)
-            span = merged.get((r, c))
-            rs = f' rowspan="{span[0]}"' if span and span[0] > 1 else ""
-            cs = f' colspan="{span[1]}"' if span and span[1] > 1 else ""
-            style = "border:1px solid #d0d0d0;padding:2px 6px;text-align:center;white-space:nowrap"
-            if cell.font and cell.font.bold:
-                style += ";font-weight:700"
-            try:
-                if cell.fill and cell.fill.patternType == "solid":
-                    rgb = cell.fill.fgColor.rgb
-                    if isinstance(rgb, str) and len(rgb) == 8 and rgb[2:] not in ("000000", "FFFFFF"):
-                        style += f";background:#{rgb[2:]}"
-            except Exception:
-                pass
-            out.append(f'<td{rs}{cs} style="{style}">{html_escape(str(v))}</td>')
-        out.append("</tr>")
-    out.append("</table>")
-    return "".join(out)
+            std_map = md.get("_Region_Std_Spots", {})
+            regs = {}
+            for region in ["全省"] + list(sc.REGIONS_ORDER):
+                cell = md.get(region)
+                if isinstance(cell, list) and len(cell) >= 2:
+                    regs[region] = {"List": cell[0], "Net": cell[1],
+                                    "Std": std_map.get(region, fb.pricing[media][region]["Std"])}
+                elif region in fb.pricing[media]:
+                    regs[region] = fb.pricing[media][region]
+            pricing[media] = regs
+        # 家樂福
+        cf = pricing_db.get("家樂福") if pricing_db else None
+        if cf:
+            pricing["家樂福"] = {}
+            for k in ("量販_全省", "超市_全省"):
+                c = cf.get(k)
+                if c:
+                    pricing["家樂福"][k] = {"List": c["List"], "Net": c["Net"], "Std": c["Std_Spots"]}
+                else:
+                    pricing["家樂福"][k] = fb.pricing["家樂福"][k]
+        else:
+            pricing["家樂福"] = fb.pricing["家樂福"]
 
+        stores = {}
+        scn = store_counts_num or {}
+        stores["全家廣播"] = {r: int(scn.get(r, fb.stores["全家廣播"][r])) for r in sc.REGIONS_ORDER}
+        stores["新鮮視"] = {r: int(scn.get(f"新鮮視_{r}", fb.stores["新鮮視"][r])) for r in sc.REGIONS_ORDER}
+        stores["家樂福"] = {"量販": int(scn.get("家樂福_量販", fb.stores["家樂福"]["量販"])),
+                          "超市": int(scn.get("家樂福_超市", fb.stores["家樂福"]["超市"]))}
 
-def _workbook_to_html(xlsx_bytes):
-    wb = load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
-    return [(ws.title, _sheet_to_html(ws)) for ws in wb.worksheets]
+        factors = {m: dict(sec_factors.get(m, fb.factors[m])) for m in ("全家廣播", "新鮮視", "家樂福")} \
+            if sec_factors else {m: dict(fb.factors[m]) for m in fb.factors}
+        return sm.SheetData(pricing=pricing, factors=factors, stores=stores,
+                            agency_pricing=None, from_fallback=False), None
+    except Exception as e:  # noqa: BLE001 — 任何轉換失敗都退回備援，不可 crash
+        return fb, str(e)
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def _generate(combo_key, budget, start_iso, end_iso, share_first,
-              client, tax_id, product, sales, prod_cost, campaign):
-    """依條件產生 CUE（含 Excel bytes、各分頁 HTML 預覽、檔次摘要）；同條件走快取不重算。"""
-    start_dt = date.fromisoformat(start_iso)
-    end_dt = date.fromisoformat(end_iso)
-    if combo_key in SUB_COMBOS:
-        _, scn, pdb, sf, _sm, _err = load_config_from_cloud(config.GSHEET_SHARE_URL)
-        out = _gen_subsidiary(SUB_COMBOS[combo_key], budget, start_dt, end_dt, share_first,
-                              client, tax_id, product, sales, prod_cost, pdb, sf, scn)
-    else:
-        ap = load_agency_pricing_from_cloud(config.GSHEET_SHARE_URL)
-        out = _gen_agency(AGENCY_COMBOS[combo_key], budget, start_dt, end_dt,
-                          client, product, campaign, ap)
-    out["preview"] = _workbook_to_html(out["bytes"])
-    return out
+def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
+              sales, campaign, prod_cost, made_iso, _data):
+    start = date.fromisoformat(start_iso)
+    end = date.fromisoformat(end_iso)
+    model = sm.build_model(combo_key, budget, start, end, client=client, tax_id=tax_id,
+                           product=product, sales=sales, campaign=campaign,
+                           prod_cost=prod_cost, today=date.fromisoformat(made_iso), data=_data)
+    xlsx = se.render(model, formulas=True)
+    xlsx_val = se.render(model, formulas=False)
+    htmls = shtml.render_html(model)
+    return model, xlsx, xlsx_val, htmls
+
+
+def _next_monday_after(days_ahead=10):
+    d = date.today() + timedelta(days=days_ahead)
+    while d.weekday() != 0:
+        d += timedelta(days=1)
+    return d
+
+
+def _pills(label, options, fmt, key, default_index=0):
+    """st.pills（Streamlit≥1.40）；不支援時退回 radio。"""
+    try:
+        val = st.pills(label, options, format_func=fmt, key=key,
+                       default=options[default_index], selection_mode="single")
+        return val if val is not None else options[default_index]
+    except Exception:
+        return st.radio(label, options, format_func=fmt, key=key + "_r",
+                        index=default_index, horizontal=True)
 
 
 # =============================================================================
-# Streamlit UI
+# 主 UI
 # =============================================================================
-def render_simple_cue(store_counts_num, pricing_db, sec_factors, regions_order, sales_map=None):
-    st.title("⚡ 簡易模式（一鍵產 CUE）")
-    st.caption("只要選平台組合＋輸入預算，系統以標準走期與全省投放自動產出各秒數版本 CUE；先看範本，再回頭調走期與細節。")
+def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
+                      regions_order=None, sales_map=None):
+    st.title("⚡ 一鍵 CUE")
+    st.caption("選平台組合 → 輸入預算 → 選開始日，立即顯示與公司範本一致的預覽，可下載 Excel／PDF。")
 
-    # --- 平台組合 ---
-    all_combos = {**{k: v["label"] for k, v in SUB_COMBOS.items()},
-                  **{k: v["label"] for k, v in AGENCY_COMBOS.items()}}
-    combo_key = st.radio("平台組合", list(all_combos.keys()),
-                         format_func=lambda k: all_combos[k])
-    is_sub = combo_key in SUB_COMBOS
+    data, err = _to_sheetdata(store_counts_num, pricing_db, sec_factors)
+    if err or data.from_fallback:
+        st.warning(f"設定檔讀取異常，改用內建備援價格（{sc.SHEET_FALLBACK_DATE}）。"
+                   + (f"（{err}）" if err else ""))
 
-    # --- 預算：自由輸入 + 常用快捷 ---
-    st.markdown("**預算（未稅 Net）**")
-    if "simple_budget" not in st.session_state:
-        st.session_state["simple_budget"] = 250000
-    pcols = st.columns(len(BUDGET_PRESETS) + 1)
-    for i, amt in enumerate(BUDGET_PRESETS):
-        if pcols[i].button(f"{amt // 10000}萬", key=f"preset_{amt}"):
-            st.session_state["simple_budget"] = amt
-    budget = pcols[-1].number_input("自訂金額", min_value=0,
-                                    value=int(st.session_state["simple_budget"]), step=10000,
-                                    label_visibility="collapsed")
-    st.session_state["simple_budget"] = int(budget)
+    # 【1】平台組合
+    st.markdown("**【1】平台組合**")
+    all_keys = sc.SUBSIDIARY_COMBOS + sc.AGENCY_COMBOS
+    combo_key = _pills("平台組合", all_keys, lambda k: sc.COMBOS[k]["label"],
+                       key="simple_combo")
+    st.caption("　" + sc.COMBOS[combo_key]["hint"])
 
-    # --- 走期：開始日 + 週數 ---
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        start_dt = st.date_input("開始日", value=date.today())
-    with c2:
-        weeks = st.number_input("走期（週）", min_value=1, max_value=12, value=2, step=1)
-    end_dt = start_dt + timedelta(days=int(weeks) * 7 - 1)
-    with c3:
-        st.text_input("結束日（自動）", value=end_dt.strftime("%Y-%m-%d"), disabled=True)
+    # 【2】預算
+    st.markdown("**【2】預算（未稅 Net）**")
+    if "simple_budget2" not in st.session_state:
+        st.session_state["simple_budget2"] = 250000
+    bc = st.columns(len(sc.BUDGET_PRESETS) + 2)
+    for i, amt in enumerate(sc.BUDGET_PRESETS):
+        if bc[i].button(f"{amt // 10000}萬", key=f"bp_{amt}"):
+            st.session_state["simple_budget2"] = amt
+    budget = bc[len(sc.BUDGET_PRESETS)].number_input(
+        "金額", min_value=10000, step=10000,
+        value=int(st.session_state["simple_budget2"]), format="%d",
+        label_visibility="collapsed")
+    st.session_state["simple_budget2"] = int(budget)
+    grand_hint = int(round(budget * 1.05))
+    bc[-1].markdown(f"含 5% 稅約 **${grand_hint:,}**")
 
-    # --- 客戶/產品/業務（可留白，先產範本）---
-    with st.expander("客戶／產品資訊（可留白，先產範本再補）", expanded=False):
-        cc1, cc2, cc3 = st.columns(3)
-        client = cc1.text_input("客戶名稱", "")
-        product = cc2.text_input("產品名稱", "")
+    # 【3】走期
+    st.markdown("**【3】走期**")
+    d1, d2, d3 = st.columns([2, 2, 2])
+    with d1:
+        start = st.date_input("開始日", value=_next_monday_after(), format="YYYY-MM-DD")
+    with d2:
+        weeks = st.select_slider("週數", options=list(range(1, 9)), value=2)
+    default_end = start + timedelta(days=weeks * 7 - 1)
+    with d3:
+        end = st.date_input("結束日", value=default_end, format="YYYY-MM-DD")
+    if end < start:
+        end = default_end
+    ndays = (end - start).days + 1
+    sign = start - timedelta(days=7)
+    st.caption(f"　共 {ndays} 天，回簽 {sign:%m/%d}、素材 {sign:%m/%d} 前")
+    if start < date.today() + timedelta(days=7):
+        st.warning("距上檔不足 7 天，回簽／素材時程可能來不及。")
+
+    # 客戶／其他（收合）
+    with st.expander("客戶／產品／其他（可留白）"):
+        e1, e2, e3 = st.columns(3)
+        client = e1.text_input("客戶名稱", "")
+        tax_id = e1.text_input("統一編號", "")
+        product = e2.text_input("產品名稱", "")
         sales_options = list(sales_map.keys()) if sales_map else []
-        sales = cc3.selectbox("業務", ["—"] + sales_options) if sales_options else ""
+        sales = e2.selectbox("業務", ["—"] + sales_options) if sales_options else ""
         sales = "" if sales == "—" else sales
-        tax_id = cc1.text_input("統一編號", "")
-        prod_cost = cc2.number_input("製作費（未稅）", min_value=0, value=0, step=1000)
-        campaign = cc3.text_input("Campaign（2008 用）", "")
-
-    # 子公司兩平台預算分配：依範例反推的固定比例（不讓業務選）
-    share_first = SUB_COMBOS[combo_key]["default_share"] if is_sub else 50
-
-    combo = SUB_COMBOS[combo_key] if is_sub else AGENCY_COMBOS[combo_key]
+        prod_cost = e3.number_input("製作費（未稅）", min_value=0, value=0, step=1000)
+        campaign = e3.text_input("Campaign（2008 用）", "")
 
     st.divider()
-    if budget <= 0:
-        st.info("輸入預算金額後，範本會自動顯示於下方。")
+    if budget <= 0 or ndays <= 0:
+        st.error("請輸入正確的預算與走期。")
+        return
+    if weeks > 8:
+        st.error("走期最長 8 週。")
         return
 
-    # 條件選完即自動產生 + 即時預覽（同條件走快取，不重算）
     try:
-        with st.spinner("產生範本中…"):
-            out = _generate(combo_key, int(budget),
-                            start_dt.isoformat(), end_dt.isoformat(), int(share_first),
-                            client, tax_id, product, sales, int(prod_cost), campaign)
-    except Exception as e:
+        with st.spinner("產生中…"):
+            model, xlsx, xlsx_val, htmls = _generate(
+                combo_key, int(budget), start.isoformat(), end.isoformat(),
+                client, tax_id, product, sales, campaign, int(prod_cost),
+                date.today().isoformat(), data)
+    except Exception as e:  # noqa: BLE001
         st.error(f"產生失敗：{e}")
         st.exception(e)
         return
 
-    st.success(f"{all_combos[combo_key]}｜預算 {int(budget)//10000}萬｜走期 {start_dt}～{end_dt}"
-               f"｜{len(combo['seconds'])} 個秒數版本（客戶挑秒數）")
-    st.download_button("⬇ 下載此 CUE（Excel）", data=out["bytes"], file_name=out["fname"],
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                       type="primary")
+    # 摘要
+    s0 = model.sheets[0]
+    grand = s0.fees.get("grand") or s0.fees.get("total")
+    main_daily = s0.blocks[0].rows[0].schedule
+    m = st.columns(5)
+    m[0].metric("秒數版本", f"{len(model.sheets)}")
+    m[1].metric("走期天數", f"{ndays}")
+    m[2].metric("Package (Net)", f"${int(budget):,}")
+    m[3].metric("Grand Total", f"${int(grand):,}")
+    m[4].metric("每日檔次(主/首版)", f"{main_daily[0] if main_daily else 0}")
 
-    # --- 即時範本預覽（每個秒數一個分頁）---
-    st.markdown("#### 📄 範本預覽")
-    preview = out.get("preview") or []
-    if preview:
-        tabs = st.tabs([title for title, _ in preview])
-        for tab, (_title, html) in zip(tabs, preview):
-            with tab:
-                components.html(
-                    f'<div style="overflow:auto">{html}</div>',
-                    height=520, scrolling=True)
-    if out.get("summary"):
-        with st.expander("檔次摘要（各秒數）"):
-            st.dataframe(out["summary"], use_container_width=True, hide_index=True)
+    # 下載
+    fname = safe_filename(model.filename)
+    dc = st.columns(3)
+    dc[0].download_button("⬇ 下載 Excel（多分頁）", data=xlsx, file_name=fname,
+                          mime=_XLSX_MIME, type="primary")
+    if find_soffice_path():
+        pdf, _tag, _msg = xlsx_bytes_to_pdf_bytes(xlsx_val)
+        if pdf:
+            dc[1].download_button("⬇ 下載 PDF", data=pdf,
+                                  file_name=fname.replace(".xlsx", ".pdf"),
+                                  mime="application/pdf")
+    else:
+        dc[1].caption("（伺服器未裝 LibreOffice，暫無 PDF）")
+    if dc[2].button("🔁 重新整理設定檔"):
+        st.cache_data.clear()
+        st.rerun()
+
+    # 預覽（每秒數一個 tab）
+    tabs = st.tabs([f"{s.seconds}秒版" for s in model.sheets])
+    for tab, (title, html), sheet in zip(tabs, htmls, model.sheets):
+        with tab:
+            components.html(html, height=shtml.estimate_height(sheet), scrolling=True)
+            with st.expander("檔次明細（僅供業務/主管，不進客戶檔案）"):
+                for blk in sheet.blocks:
+                    disp = sc.PLATFORM_DISPLAY.get(
+                        {"全家廣播": "全家廣播", "新鮮視": "新鮮視", "家樂福": "家樂福量販"}
+                        .get(blk.platform, blk.platform), blk.platform)
+                    main = next((r for r in blk.rows if r.kind == "main"), blk.rows[0])
+                    st.write(f"**{disp}**：主檔次 {main.spots:,}／每日 {main.schedule[0] if main.schedule else 0}")
+                if model.family == "subsidiary":
+                    fill = sheet.hidden_net_total / sheet.budget * 100 if sheet.budget else 0
+                    st.caption(f"隱藏實收 ${int(sheet.hidden_net_total):,}／填滿率 {fill:.1f}%"
+                               f"｜總曝光 {sheet.reach['impressions']:,}"
+                               f"｜預估人流 {sheet.reach['traffic']:,}")
