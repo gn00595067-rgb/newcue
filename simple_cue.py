@@ -209,19 +209,24 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     m[4].metric("總檔次（首版）", f"{total_spots0:,}")
 
     # 下載
+    #   主要：值版 —— 開啟即見數字（公式版在 Excel 受保護檢視/未重算時 rate 會空白）
+    #   次要：公式版 —— 業務可改每日檔次讓 rate/Total 自動更新
     fname = safe_filename(model.filename)
-    dc = st.columns(3)
-    dc[0].download_button("⬇ 下載 Excel（多分頁）", data=xlsx, file_name=fname,
+    edit_fname = safe_filename(fname.replace(".xlsx", "-可編輯.xlsx"))
+    dc = st.columns(4)
+    dc[0].download_button("⬇ 下載 Excel（開啟即見數字）", data=xlsx_val, file_name=fname,
                           mime=_XLSX_MIME, type="primary")
+    dc[1].download_button("⬇ 可編輯版（改檔次自動加總）", data=xlsx, file_name=edit_fname,
+                          mime=_XLSX_MIME)
     if find_soffice_path():
         pdf, _tag, _msg = xlsx_bytes_to_pdf_bytes(xlsx_val)
         if pdf:
-            dc[1].download_button("⬇ 下載 PDF", data=pdf,
-                                  file_name=fname.replace(".xlsx", ".pdf"),
+            dc[2].download_button("⬇ 下載 PDF", data=pdf,
+                                  file_name=safe_filename(fname.replace(".xlsx", ".pdf")),
                                   mime="application/pdf")
     else:
-        dc[1].caption("（伺服器未裝 LibreOffice，暫無 PDF）")
-    if dc[2].button("🔁 重新整理設定檔"):
+        dc[2].caption("（伺服器未裝 LibreOffice，暫無 PDF）")
+    if dc[3].button("🔁 重新整理設定檔"):
         st.cache_data.clear()
         st.rerun()
 

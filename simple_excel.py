@@ -266,7 +266,7 @@ def _subsidiary_data_row(ws, r, row, ri, b_first, b_last, blk, C_H, nd, C_V,
         if formulas:
             val = f"={lst}/{std}*{vcol}{row}*{fac:g}"    # 係數 *0.85 不寫 *0.85… (§1.5)
         else:
-            val = lst / std * r.spots * fac
+            val = round(lst / std * r.spots * fac)       # 值版取整，開啟即見數字（無浮點尾數）
         _set(ws, row, 6, val, size=22, wrap=True, nf=sc.NF_MONEY,
              border=_bd(t=tb, b=hb, l="thin", r="thin"))
     # 每日欄
@@ -298,7 +298,7 @@ def _subsidiary_totals(ws, sheet, r_first, r_last, r_total, r_prod, r_vat, r_gra
     if formulas:
         fsum = f"=SUM(F{r_first}:F{r_last})"
     else:
-        fsum = sum(lst / std * rr.spots * fac
+        fsum = sum(round(lst / std * rr.spots * fac)
                    for b in sheet.blocks for rr in b.rows
                    if rr.rate_num for (lst, std, fac) in [rr.rate_num])
     _set(ws, r_total, 6, fsum, size=22, nf=sc.NF_MONEY_TOTAL, wrap=True,

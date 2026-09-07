@@ -83,6 +83,24 @@ def test_no_internal_cost_leak(key):
                         assert f not in sval, f"{key}/{ws.title}/{c.coordinate} 洩漏 {f}"
 
 
+@pytest.mark.parametrize("key", KEYS)
+def test_value_version_all_numbers(key):
+    """值版（下載給客戶，開啟即見數字）：不得殘留任何公式，rate/檔次/合計皆為數值。
+
+    公式版在 Excel 受保護檢視/未重算時公式格會空白（rate(Net) 空白 bug 的根因），
+    故下載主檔用值版；本測試確保值版沒有公式格。"""
+    m = sm.build_model(key, 250000, date(2026, 9, 21), date(2026, 10, 4), data=sheetdata())
+    wb = load_workbook(io.BytesIO(se.render(m, formulas=False)))
+    for ws in wb.worksheets:
+        bad = [c.coordinate for row in ws.iter_rows() for c in row
+               if isinstance(c.value, str) and c.value.startswith("=")]
+        assert not bad, f"{key}/{ws.title} 值版殘留公式 {bad[:5]}"
+    # 子公司：首張表 rate(Net) F9 必為數字且 > 0
+    if key.startswith("sub"):
+        ws0 = wb.worksheets[0]
+        assert isinstance(ws0["F9"].value, (int, float)) and ws0["F9"].value > 0
+
+
 def test_style_masters_no_values():
     """母版檔只有樣式、無值、無圖片（§7-6）。"""
     import os
