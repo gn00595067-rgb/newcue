@@ -4,3 +4,4 @@ openpyxl
 xlsxwriter
 requests
 weasyprint
+pymupdf

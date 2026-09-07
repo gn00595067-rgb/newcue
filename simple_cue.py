@@ -14,6 +14,7 @@ import simple_config as sc
 import simple_model as sm
 import simple_excel as se
 import simple_html as shtml
+import simple_preview as spv
 from utils import safe_filename
 from pdf_converter import find_soffice_path, xlsx_bytes_to_pdf_bytes
 
@@ -127,17 +128,24 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     st.markdown("**【2】預算（未稅 Net）**")
     if "simple_budget2" not in st.session_state:
         st.session_state["simple_budget2"] = 250000
-    bc = st.columns(len(sc.BUDGET_PRESETS) + 2)
-    for i, amt in enumerate(sc.BUDGET_PRESETS):
-        if bc[i].button(f"{amt // 10000}萬", key=f"bp_{amt}"):
-            st.session_state["simple_budget2"] = amt
-    budget = bc[len(sc.BUDGET_PRESETS)].number_input(
+    try:
+        pick = st.pills("常用預算", sc.BUDGET_PRESETS,
+                        format_func=lambda a: f"{a // 10000}萬",
+                        selection_mode="single", key="budget_pills")
+        if pick:
+            st.session_state["simple_budget2"] = pick
+    except Exception:
+        bc0 = st.columns(len(sc.BUDGET_PRESETS))
+        for i, amt in enumerate(sc.BUDGET_PRESETS):
+            if bc0[i].button(f"{amt // 10000}萬", key=f"bp_{amt}"):
+                st.session_state["simple_budget2"] = amt
+    bc = st.columns([2, 3])
+    budget = bc[0].number_input(
         "金額", min_value=10000, step=10000,
         value=int(st.session_state["simple_budget2"]), format="%d",
         label_visibility="collapsed")
     st.session_state["simple_budget2"] = int(budget)
-    grand_hint = int(round(budget * 1.05))
-    bc[-1].markdown(f"含 5% 稅約 **${grand_hint:,}**")
+    bc[1].markdown(f"含 5% 稅約 **${int(round(budget * 1.05)):,}**")
 
     # 【3】走期
     st.markdown("**【3】走期**")
@@ -164,8 +172,9 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
         tax_id = e1.text_input("統一編號", "")
         product = e2.text_input("產品名稱", "")
         sales_options = list(sales_map.keys()) if sales_map else []
-        sales = e2.selectbox("業務", ["—"] + sales_options) if sales_options else ""
-        sales = "" if sales == "—" else sales
+        sales_name = e2.selectbox("業務", ["—"] + sales_options) if sales_options else "—"
+        # 下拉顯示姓名、傳暱稱給 model（檔名用暱稱，§3-1）
+        sales = "" if sales_name == "—" else (sales_map.get(sales_name) or sales_name)
         prod_cost = e3.number_input("製作費（未稅）", min_value=0, value=0, step=1000)
         campaign = e3.text_input("Campaign（2008 用）", "")
 
@@ -191,13 +200,13 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     # 摘要
     s0 = model.sheets[0]
     grand = s0.fees.get("grand") or s0.fees.get("total")
-    main_daily = s0.blocks[0].rows[0].schedule
+    total_spots0 = sum(r.spots for b in s0.blocks for r in b.rows)
     m = st.columns(5)
     m[0].metric("秒數版本", f"{len(model.sheets)}")
     m[1].metric("走期天數", f"{ndays}")
     m[2].metric("Package (Net)", f"${int(budget):,}")
     m[3].metric("Grand Total", f"${int(grand):,}")
-    m[4].metric("每日檔次(主/首版)", f"{main_daily[0] if main_daily else 0}")
+    m[4].metric("總檔次（首版）", f"{total_spots0:,}")
 
     # 下載
     fname = safe_filename(model.filename)
@@ -216,11 +225,25 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
         st.cache_data.clear()
         st.rerun()
 
-    # 預覽（每秒數一個 tab）
+    # 預覽（每秒數一個 tab）：優先 PDF 頁面影像，否則退回 HTML
+    pngs = None
+    if spv.has_soffice():
+        with st.spinner("產生預覽（LibreOffice 轉檔約 5–10 秒）…"):
+            pngs = spv.xlsx_to_page_pngs(xlsx_val)
+        if pngs is not None and len(pngs) != len(model.sheets):
+            st.info(f"PDF 頁數（{len(pngs)}）與分頁數（{len(model.sheets)}）不符，改用網頁預覽。")
+            pngs = None
+
     tabs = st.tabs([f"{s.seconds}秒版" for s in model.sheets])
-    for tab, (title, html), sheet in zip(tabs, htmls, model.sheets):
+    for idx, (tab, (title, html), sheet) in enumerate(zip(tabs, htmls, model.sheets)):
         with tab:
-            components.html(html, height=shtml.estimate_height(sheet), scrolling=True)
+            total_spots = sum(r.spots for b in sheet.blocks for r in b.rows)
+            g = sheet.fees.get("grand") or sheet.fees.get("total")
+            st.caption(f"{sheet.seconds}秒版 ｜ 總檔次 {total_spots:,} ｜ Grand Total ${int(g):,}")
+            if pngs is not None:
+                st.image(pngs[idx], use_container_width=True)
+            else:
+                components.html(html, height=shtml.estimate_height(sheet), scrolling=True)
             with st.expander("檔次明細（僅供業務/主管，不進客戶檔案）"):
                 for blk in sheet.blocks:
                     disp = sc.PLATFORM_DISPLAY.get(
