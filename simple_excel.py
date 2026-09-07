@@ -102,7 +102,8 @@ def _subsidiary_sheet(ws, model, sheet, formulas):
     ws.page_setup.paperSize = 8   # A3
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 0
+    ws.page_setup.fitToHeight = 1
+    ws.sheet_format.defaultRowHeight = 27.7
     ws.print_options.horizontalCentered = True
     ws.print_options.verticalCentered = True
     ws.page_margins.left = 0.2
@@ -144,9 +145,10 @@ def _subsidiary_sheet(ws, model, sheet, formulas):
     # ---- 抬頭（§5.2）----
     _merge(ws, 1, 1, 1, C_V)
     _set(ws, 1, 1, "Media Schedule", size=48, bold=True)
-    # 第 2 列整列下框線 medium
-    for c in range(1, C_V + 1):
+    # 第 2 列底線 medium（A..U，V 除外；V3 上緣 medium，對齊範本 §1.6）
+    for c in range(1, C_V):
         _set(ws, 2, c, border=_bd(b="medium"))
+    _set(ws, 3, C_V, border=_bd(t="medium"))
     _set(ws, 3, 1, "客戶名稱：", size=26, bold=True, halign="left")
     _set(ws, 3, 2, model.client or "", size=26, bold=True, halign="left")
     _set(ws, 4, 1, "Product：", size=26, bold=True, halign="left")
@@ -217,7 +219,7 @@ def _subsidiary_sheet(ws, model, sheet, formulas):
                        C_H, nd, C_V, budget, formulas)
 
     # ---- 備註與簽章（§5.6）----
-    _subsidiary_remarks(ws, model, r_remark_hd, r_remark0, r_sign0, formulas)
+    _subsidiary_remarks(ws, model, r_remark_hd, r_remark0, r_sign0, formulas, C_V)
 
 
 def _hdr_border(c, C_V):
@@ -262,7 +264,7 @@ def _subsidiary_data_row(ws, r, row, ri, b_first, b_last, blk, C_H, nd, C_V,
     else:
         lst, std, fac = r.rate_num
         if formulas:
-            val = f"={lst}/{std}*{vcol}{row}*{fac}"
+            val = f"={lst}/{std}*{vcol}{row}*{fac:g}"    # 係數 *0.85 不寫 *0.85… (§1.5)
         else:
             val = lst / std * r.spots * fac
         _set(ws, row, 6, val, size=22, wrap=True, nf=sc.NF_MONEY,
@@ -288,9 +290,9 @@ def _subsidiary_data_row(ws, r, row, ri, b_first, b_last, blk, C_H, nd, C_V,
 
 def _subsidiary_totals(ws, sheet, r_first, r_last, r_total, r_prod, r_vat, r_grand,
                        C_H, nd, C_V, budget, formulas):
-    # A:B 合併空白（Total 列）
+    # A:B 合併空白（Total 列）；左緣 medium（費用區外框起點）
     _merge(ws, r_total, 1, r_total, 2)
-    _set(ws, r_total, 1, border=_bd(b="medium"))
+    _set(ws, r_total, 1, border=_bd(b="medium", l="medium"))
     _set(ws, r_total, 5, "Total", size=22, border=_bd(b="medium", l="hair", r="hair"))
     # F Total
     if formulas:
@@ -336,19 +338,36 @@ def _subsidiary_totals(ws, sheet, r_first, r_last, r_total, r_prod, r_vat, r_gra
     _set(ws, r_grand, 7, grand, size=22, bold=True, nf=sc.NF_MONEY,
          border=_bd(b="medium", r="medium"))
 
+    # 費用區外框（§1.1）：左緣 A、右緣 V、Total 列下緣補 C/D、製作列上緣 A..E、Grand 下緣
+    _set(ws, r_total, 3, border=_bd(b="medium"))            # C21
+    _set(ws, r_total, 4, border=_bd(b="medium", r="hair"))  # D21
+    for c in range(1, 6):        # 製作列上緣 A..E（A 另加左緣）
+        _set(ws, r_prod, c, border=_bd(t="medium", l="medium") if c == 1 else _bd(t="medium"))
+    _set(ws, r_vat, 1, border=_bd(l="medium"))
+    for c in range(1, 6):        # A..E 下緣（A 另加左緣）
+        _set(ws, r_grand, c, border=_bd(b="medium", l="medium") if c == 1 else _bd(b="medium"))
+    for c in range(C_H, C_V):    # H..U 下緣
+        _set(ws, r_grand, c, border=_bd(b="medium"))
+    _set(ws, r_prod, C_V, border=_bd(r="medium"))
+    _set(ws, r_vat, C_V, border=_bd(r="medium"))
+    _set(ws, r_grand, C_V, border=_bd(b="medium", r="medium"))
 
-def _subsidiary_remarks(ws, model, r_hd, r0, r_sign, formulas):
+
+def _subsidiary_remarks(ws, model, r_hd, r0, r_sign, formulas, C_V):
     _set(ws, r_hd, 1, "Remarks：", size=26, bold=True, halign=None)   # 範本用預設對齊
     for i, (txt, red) in enumerate(model.remarks):
         _set(ws, r0 + i, 1, txt, size=26, bold=True,
              color=sc.COLOR_RED if red else None, halign="left")
+    # 簽章上方空白列（r_sign-1）A..V 下框線 thin（§1.2）
+    for c in range(1, C_V + 1):
+        _set(ws, r_sign - 1, c, border=_bd(b="thin"))
     # 簽章三列（§5.6）
     _merge(ws, r_sign, 1, r_sign, 3)
     _set(ws, r_sign, 1, "甲       方 ：", size=26, halign="left", wrap=True)
     _set(ws, r_sign, 9, "乙    方：", size=26, halign="left", wrap=True, border=_bd(t="thin"))
     _merge(ws, r_sign, 9, r_sign, 11)
     _merge(ws, r_sign, 12, r_sign, 15)
-    client_val = "=B3" if formulas else (model.client or "")
+    client_val = '=IF(B3="","",B3)' if formulas else (model.client or "")   # §1.4 空白不顯示 0
     _set(ws, r_sign, 12, client_val, size=26, wrap=True, border=_bd(t="thin"))
     _merge(ws, r_sign + 1, 1, r_sign + 1, 3)
     _set(ws, r_sign + 1, 1, "統一編號：", size=26, halign="left", wrap=True)
