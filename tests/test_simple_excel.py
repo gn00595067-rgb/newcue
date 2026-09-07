@@ -68,7 +68,9 @@ _ALLOWED = [
 ]
 
 
-def _is_allowed(d):
+def _is_allowed(key, d):
+    if key.startswith("ag_carat") and re.match(r"^WIDTH I ", d):
+        return True    # 總價欄加寬避免大數字 ###（§7.4，覆寫範本過窄欄寬）
     return any(re.search(p, d) for p, _ in _ALLOWED)
 
 
@@ -89,6 +91,6 @@ def test_fidelity(case):
             tmpl_days=tdays, out_days=od, right_cols=right, data_last=dlast,
             identity_merge=is_sub)
         for d in diffs:
-            if not _is_allowed(d):
+            if not _is_allowed(key, d):
                 real.append(f"[sheet{i}] {d}")
     assert not real, f"{key} 非允許差異:\n" + "\n".join(real)

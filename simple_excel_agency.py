@@ -214,6 +214,10 @@ def render_carat(wb, model, formulas):
         nd = len(sheet.days)
         info = sm.apply(ws, nd)
         FIRST, LAST = info["first"], info["last"]
+        # 加寬日期欄與「總價」欄，避免大數字顯示 ###（範本原欄寬過窄；§7.4）
+        for c in range(FIRST, LAST + 1):
+            ws.column_dimensions[get_column_letter(c)].width = 9.0
+        ws.column_dimensions["I"].width = 17.0   # 總價欄(7~8 位數會計格式)
         _carat_dateheader(ws, sheet, FIRST)
         if is_wjf:
             _fill_carat_wjf(ws, model, sheet, FIRST, LAST, formulas)

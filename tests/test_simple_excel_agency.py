@@ -118,6 +118,16 @@ def test_carat_wjf_structure():
     assert "萬家福(量販)" in txt and "樂家康(超市)" in txt
 
 
+@pytest.mark.parametrize("key", ["ag_carat_fam", "ag_carat_wjf"])
+def test_carat_total_col_wide_enough(key):
+    """凱絡『總價』欄(I)須夠寬容 7~8 位數會計格式，避免 ###（§7.4，已用真 Excel 驗證）。"""
+    from datetime import date as _d
+    m = sm.build_model(key, 400000, _d(2026, 9, 18), _d(2026, 9, 24), data=sheetdata())
+    wb = load_workbook(io.BytesIO(se.render(m, formulas=False)))
+    for ws in wb.worksheets:
+        assert (ws.column_dimensions["I"].width or 0) >= 16, f"{key} 總價欄過窄會 ###"
+
+
 @pytest.mark.parametrize("key,s,e,n", AGENCY_CASES)
 def test_agency_schedule_length(key, s, e, n):
     """逐日排檔長度 = 走期天數（value 版逐日皆為數字）。"""
