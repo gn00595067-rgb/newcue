@@ -61,6 +61,28 @@ def test_smoke_subsidiary_budget_invariants(key, budget):
         assert s.fees["grand"] == budget + s.fees["prod"] + s.fees["vat"]
 
 
+FORBIDDEN = ["320000/480", "120000/504", "250000/420", "計價模式", "格蘭英語"]
+
+
+@pytest.mark.parametrize("key", KEYS)
+def test_no_internal_cost_leak(key):
+    """客戶 Excel 不得出現內部實作價／計價模式（§1.4 / §12.6）。"""
+    from fixtures_simple import sheetdata_template
+    start = date(2026, 9, 21)
+    model = sm.build_model(key, 250000, start, start + timedelta(days=13),
+                           data=sheetdata_template())
+    for formulas in (True, False):
+        wb = load_workbook(io.BytesIO(se.render(model, formulas=formulas)))
+        for ws in wb.worksheets:
+            for row in ws.iter_rows():
+                for c in row:
+                    if c.value is None:
+                        continue
+                    sval = str(c.value)
+                    for f in FORBIDDEN:
+                        assert f not in sval, f"{key}/{ws.title}/{c.coordinate} 洩漏 {f}"
+
+
 def test_smoke_filenames():
     for key in KEYS:
         model = sm.build_model(key, 250000, date(2026, 9, 21), date(2026, 10, 4),
