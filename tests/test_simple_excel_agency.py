@@ -87,7 +87,8 @@ def test_2008_wjf_structure():
     txt = _all_text(ws)
     assert "計於量販店" in txt
     assert "回饋" in txt
-    assert "84(走期內執行完畢)" in txt      # 10秒回饋量販10%=84
+    # 10秒回饋量販10%=84（萬家福回饋列日期區只寫數字，§2.4）
+    assert m.sheets[0].blocks[0].rows[2].spots == 84
 
 
 def test_carat_family_structure():
@@ -100,8 +101,8 @@ def test_carat_family_structure():
                 "統一價\n(檔/Net)", "檔數", "總價", "媒體總價值(NET)", "優惠總價值(NET)",
                 "Sub-Total", "A.C     3%", "VAT    5%", "Grand-Total", "專案回饋"]:
         assert lab in txt, f"缺標籤 {lab}"
-    # 媒體總價值/優惠 30 秒 = 1,739,250 / 1,489,250
-    vals = set(_cells(ws).values())
+    # 媒體總價值/優惠 30 秒 = 1,739,250 / 1,489,250（公式版為 =SUM，改查值版）
+    vals = set(_cells(load_workbook(io.BytesIO(se.render(m, formulas=False))).worksheets[0]).values())
     assert 1739250 in vals and 1489250 in vals
     # A.C 顯示 -（免收）
     assert "-" in txt

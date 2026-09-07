@@ -37,9 +37,9 @@ def _fillc(cell):
     if isinstance(rgb, str) and rgb not in ("00000000", "FFFFFFFF"):
         return rgb
     t = getattr(fg, "theme", None)
-    if t == 0:
-        return "NONE"
-    return f"theme{t}" if t is not None else "NONE"
+    if isinstance(t, int) and t != 0:      # theme0=白≈NONE；非 int(auto/特殊) 一律 NONE
+        return f"theme{t}"
+    return "NONE"
 
 
 def _bd(cell):
@@ -131,3 +131,139 @@ def compare(tmpl_ws, out_ws, cv=None):
 
 def load(path):
     return load_workbook(path)
+
+
+# =========================================================================== #
+# strict 比對（§5 / 附錄 B）：空格也比 border/fill；日期欄映射；列印設定
+# =========================================================================== #
+def _print_last_row(ws):
+    pa = ws.print_area
+    if not pa:
+        return ws.max_row
+    m = re.search(r"\$?[A-Z]+\$?(\d+)\s*$", str(pa).split("!")[-1])
+    return int(m.group(1)) if m else ws.max_row
+
+
+def compare_strict(tw, ow, *, first, out_first, tmpl_days, out_days, right_cols=0,
+                   print_last=None, data_last=None, identity_merge=False):
+    """
+    first/out_first：第一個日期欄（1-based）；tmpl_days/out_days：範本/我方日期欄數。
+    right_cols：日期欄右側固定欄數（子公司檔次欄 V = 1；代理商 0）。
+    """
+    diffs = []
+    tmpl_last = first + tmpl_days - 1
+    out_last = out_first + out_days - 1
+    plast = print_last or _print_last_row(tw)
+
+    # --- 列印設定 ---
+    ps_t, ps_o = tw.page_setup, ow.page_setup
+    if str(ps_t.orientation) != str(ps_o.orientation):
+        diffs.append(f"PRINT-orientation tmpl={ps_t.orientation} ours={ps_o.orientation}")
+    if str(ps_t.paperSize) != str(ps_o.paperSize):
+        diffs.append(f"PRINT-paper tmpl={ps_t.paperSize} ours={ps_o.paperSize}")
+    if str(ow.page_setup.fitToWidth) not in ("1", "None") or str(ow.page_setup.fitToHeight) not in ("1", "None"):
+        # 我方一律 fitToWidth=1 fitToHeight=1
+        if ow.page_setup.fitToWidth != 1 or ow.page_setup.fitToHeight != 1:
+            diffs.append(f"PRINT-fit ours=W{ow.page_setup.fitToWidth}/H{ow.page_setup.fitToHeight}")
+    if str(tw.print_title_rows) != str(ow.print_title_rows):
+        diffs.append(f"PRINT-title_rows tmpl={tw.print_title_rows} ours={ow.print_title_rows}")
+    for a in ("horizontalCentered", "verticalCentered"):
+        if bool(getattr(tw.print_options, a)) != bool(getattr(ow.print_options, a)):
+            diffs.append(f"PRINT-{a} tmpl={getattr(tw.print_options,a)} ours={getattr(ow.print_options,a)}")
+    for a in ("left", "right", "top", "bottom"):
+        tv, ov = getattr(tw.page_margins, a), getattr(ow.page_margins, a)
+        if tv is not None and ov is not None and abs(tv - ov) > 0.05:
+            diffs.append(f"MARGIN-{a} tmpl={tv:.2f} ours={ov:.2f}")
+    if bool(tw.sheet_view.showGridLines) != bool(ow.sheet_view.showGridLines):
+        diffs.append(f"gridlines tmpl={tw.sheet_view.showGridLines} ours={ow.sheet_view.showGridLines}")
+    if _print_last_row(ow) != plast:
+        diffs.append(f"PRINT-last-row tmpl={plast} ours={_print_last_row(ow)}")
+
+    # --- 欄寬（固定欄，展開 min..max）---
+    tw_w = {}
+    for d in tw.column_dimensions.values():
+        if d.width:
+            for c in range(d.min, d.max + 1):
+                tw_w[c] = d.width
+    ow_w = {}
+    for d in ow.column_dimensions.values():
+        if d.width:
+            for c in range(d.min, d.max + 1):
+                ow_w[c] = d.width
+    for c in range(1, first):
+        if c in tw_w:
+            ov = ow_w.get(c)
+            if ov is None or abs(ov - tw_w[c]) > 0.5:
+                diffs.append(f"WIDTH {get_column_letter(c)} tmpl={tw_w[c]:.1f} ours={ov}")
+
+    # --- 列高 1..plast ---
+    for r in range(1, plast + 1):
+        th = tw.row_dimensions[r].height
+        if th:
+            oh = ow.row_dimensions[r].height
+            if oh is None or abs(oh - th) > 0.5:
+                diffs.append(f"HEIGHT {r} tmpl={th:.1f} ours={oh}")
+
+    # --- 欄配對 ---
+    pairs = [(c, c) for c in range(1, first)]
+    if tmpl_days == out_days:
+        pairs += [(first + k, out_first + k) for k in range(out_days)]
+    else:
+        pairs += [(first, out_first), (first + 1, out_first + 1), (tmpl_last, out_last)]
+    for k in range(1, right_cols + 1):
+        pairs.append((tmpl_last + k, out_last + k))
+
+    for r in range(1, plast + 1):
+        for tc_col, oc_col in pairs:
+            tc = tw.cell(row=r, column=tc_col)
+            oc = ow.cell(row=r, column=oc_col)
+            loc = f"{get_column_letter(tc_col)}{r}"
+            ta, oa = _attrs(tc), _attrs(oc)
+            # 空格也比 border / fill
+            if ta["bd"] != oa["bd"]:
+                diffs.append(f"BD {loc}: tmpl={ta['bd']} ours={oa['bd']}")
+            if ta["bg"] != oa["bg"]:
+                diffs.append(f"BG {loc}: tmpl={ta['bg']} ours={oa['bg']}")
+            if tc.value in (None, "") or (isinstance(tc.value, str) and _norm_ws(tc.value) == ""):
+                continue    # 範本空白/純空白字元格：只比 border/fill（上面已比）
+            txt = _is_text(tc.value)
+            if txt and _norm_ws(tc.value) != _norm_ws(oc.value):
+                diffs.append(f"VALUE {loc}: tmpl={tc.value!r} ours={oc.value!r}")
+            elif not txt and (oc.value is None or oc.value == ""):
+                diffs.append(f"EMPTY {loc}: tmpl has {tc.value!r}")
+            keys = ("sz", "bold", "fc", "al") if txt else ("sz", "bold", "fc", "nf", "al")
+            for kk in keys:
+                if ta[kk] != oa[kk]:
+                    diffs.append(f"{kk.upper()} {loc}: tmpl={ta[kk]} ours={oa[kk]}")
+
+    # --- 合併 ---
+    dlast = data_last if data_last is not None else plast
+    off = out_last - tmpl_last
+
+    def _map(rng):
+        if rng.max_col < first:                      # 全在左側固定欄
+            return (rng.min_row, rng.min_col, rng.max_row, rng.max_col)
+        if rng.min_col > tmpl_last:                  # 全在右側固定欄（子公司 V）
+            return (rng.min_row, rng.min_col + off, rng.max_row, rng.max_col + off)
+        if rng.min_col < first:                      # 由左側跨入日期/右側（如標題 A1:V1）
+            if rng.max_col > tmpl_last:
+                mc = rng.max_col + off
+            elif rng.max_col >= first:
+                mc = out_last
+            else:
+                mc = rng.max_col
+            return (rng.min_row, rng.min_col, rng.max_row, mc)
+        if rng.min_row <= dlast:                     # 日期區內、資料列 → 映射整段
+            return (rng.min_row, out_first, rng.max_row, out_last)
+        return None
+
+    if identity_merge:                               # 子公司：天數相符且無殘留合併 → 原座標
+        tmpl_m = {(r.min_row, r.min_col, r.max_row, r.max_col) for r in tw.merged_cells.ranges}
+    else:                                            # 代理商：用映射並略過日期區殘留合併
+        tmpl_m = {_map(r) for r in tw.merged_cells.ranges if _map(r)}
+    ours_m = {(r.min_row, r.min_col, r.max_row, r.max_col) for r in ow.merged_cells.ranges}
+    for m in sorted(tmpl_m - ours_m):
+        diffs.append(f"MERGE-MISSING {m}")
+    for m in sorted(ours_m - tmpl_m):
+        diffs.append(f"MERGE-EXTRA {m}")
+    return diffs
