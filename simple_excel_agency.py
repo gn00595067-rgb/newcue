@@ -8,8 +8,32 @@
 import os
 
 from openpyxl.drawing.image import Image as XLImage
-from openpyxl.styles import PatternFill, Alignment
+from openpyxl.styles import PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+
+def _set_side(ws, r, c, **sides):
+    """只改指定邊，其餘保留。sides 例：top='thin', bottom='double'。"""
+    b = ws.cell(row=r, column=c).border
+    kw = dict(top=b.top, bottom=b.bottom, left=b.left, right=b.right)
+    for k, v in sides.items():
+        kw[k] = Side(style=v)
+    ws.cell(row=r, column=c).border = Border(**kw)
+
+
+def _box(ws, r1, c1, r2, c2, style="medium"):
+    """畫一個外框方框（含合併格：四邊都設在構成格上，Excel 才連續）。"""
+    for c in range(c1, c2 + 1):
+        _set_side(ws, r1, c, top=style)
+        _set_side(ws, r2, c, bottom=style)
+    for r in range(r1, r2 + 1):
+        _set_side(ws, r, c1, left=style)
+        _set_side(ws, r, c2, right=style)
+
+
+def _table_bottom(ws, r, c1, c2, style="medium"):
+    for c in range(c1, c2 + 1):
+        _set_side(ws, r, c, bottom=style)
 
 import simple_config as sc
 import agency_cue as ac
@@ -63,7 +87,11 @@ def render_2008(wb, model, formulas):
             _fill_2008_fam(ws, model, sheet, FIRST, LAST, formulas)
         _add_logo_2008(ws, LAST)
         thicken_hairlines(ws)
-        seal_grid(ws, 8, sm.print_last, 1, LAST)   # 格線密封，合併格連續
+        seal_grid(ws, 8, sm.data_last, 1, LAST)    # 只密封資料表；下方另畫
+        _table_bottom(ws, sm.data_last, 1, LAST, "double")   # 合計列底邊 double(全寬)
+        for r in range(17, 21):                    # 費用四列 F:G 上下 thin
+            for c in (6, 7):
+                _set_side(ws, r, c, top="thin", bottom="thin")
 
 
 def _2008_dateheader(ws, sheet, FIRST):
@@ -230,7 +258,26 @@ def render_carat(wb, model, formulas):
         else:
             _fill_carat_fam(ws, model, sheet, FIRST, LAST, formulas)
         thicken_hairlines(ws)
-        seal_grid(ws, 5, sm.print_last, 1, LAST)   # 格線密封，合併格連續
+        seal_grid(ws, 5, sm.data_last, 1, LAST)    # 只密封資料表(表頭5-7+資料)；下方另畫
+        _carat_below_borders(ws, sm.data_last, is_wjf, LAST)
+
+
+def _carat_below_borders(ws, data_last, is_wjf, out_last):
+    """凱絡資料表以下的框線（其餘殘留已於母版清除）：資料表底邊、媒體總價值框、費用底線、備註框。"""
+    _table_bottom(ws, data_last, 1, out_last, "medium")
+    # 媒體總價值/優惠 框 A14:B15（中間細線）
+    _box(ws, 14, 1, 15, 2, "medium")
+    _set_side(ws, 14, 1, bottom="thin")
+    _set_side(ws, 14, 2, bottom="thin")
+    _set_side(ws, 15, 1, top="thin")
+    _set_side(ws, 15, 2, top="thin")
+    # 費用：Grand-Total 上細線、下雙線（I:J）
+    gr = 14 if is_wjf else 17
+    for c in (9, 10):
+        _set_side(ws, gr - 1, c, bottom="thin")
+        _set_side(ws, gr, c, top="thin", bottom="double")
+    # 備註框 A24:A32（標籤欄）
+    _box(ws, 24, 1, 32, 1, "medium")
 
 
 def _carat_dateheader(ws, sheet, FIRST):

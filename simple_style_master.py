@@ -103,10 +103,10 @@ class StyleMaster:
         ws.print_title_rows = tw.print_title_rows
         ws.sheet_view.showGridLines = False
         ws.sheet_view.zoomScale = tw.sheet_view.zoomScale
-        # 清除「資料列以下、日期區」的殘留框線：範本在資料下方留有空白合併(如凱絡 K10:U10)，
-        # 其框線被轉印後會變成懸空的直線/橫線（費用區/媒體總價值都在 FIRST 左側，不受影響）。
+        # 清除「資料列以下」整區的殘留框線（範本在資料下方留有各種空白合併/分隔線，會變成懸空線）；
+        # 需要的下方框線（費用底線、媒體總價值框、備註框、資料表底邊）由渲染器另行明確畫出。
         for r in range(self.data_last + 1, self.print_last + 1):
-            for c in range(FIRST, out_last + 1):
+            for c in range(1, out_last + 1):
                 ws.cell(row=r, column=c).border = Border()
 
         ws.print_area = f"A1:{get_column_letter(out_last)}{self.print_last}"
