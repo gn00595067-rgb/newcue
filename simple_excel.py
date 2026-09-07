@@ -59,6 +59,24 @@ def _merge(ws, r1, c1, r2, c2):
     ws.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
 
 
+def thicken_hairlines(ws):
+    """把所有 hair(極細)框線升級成 thin —— hair 在 Excel 編輯畫面顯示成虛線點、看起來『連不起來』；
+    thin 為連續實線。整份輸出跑一次，範本的 hair 內線全部變連續格線。"""
+    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+        for cell in row:
+            b = cell.border
+            if "hair" not in (getattr(b.top, "style", None), getattr(b.bottom, "style", None),
+                              getattr(b.left, "style", None), getattr(b.right, "style", None)):
+                continue
+
+            def _fix(side):
+                if side is not None and side.style == "hair":
+                    return Side(style="thin", color=side.color)
+                return side
+            cell.border = Border(top=_fix(b.top), bottom=_fix(b.bottom),
+                                 left=_fix(b.left), right=_fix(b.right))
+
+
 def _col(idx):
     return get_column_letter(idx)
 
@@ -220,6 +238,9 @@ def _subsidiary_sheet(ws, model, sheet, formulas):
 
     # ---- 備註與簽章（§5.6）----
     _subsidiary_remarks(ws, model, r_remark_hd, r_remark0, r_sign0, formulas, C_V)
+
+    # ---- 內部 hair 格線升級 thin（讓格線在 Excel 連續，不再『連不起來』）----
+    thicken_hairlines(ws)
 
 
 def _hdr_border(c, C_V):

@@ -45,7 +45,8 @@ def _fillc(cell):
 def _bd(cell):
     b = cell.border
     def s(x):
-        return x.style if (x and x.style) else "."
+        st = x.style if (x and x.style) else "."
+        return "thin" if st == "hair" else st   # 內部格線 hair 一律視同 thin（我方升級為 thin 讓格線連續）
     return f"{s(b.top)},{s(b.bottom)},{s(b.left)},{s(b.right)}"
 
 

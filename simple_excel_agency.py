@@ -14,6 +14,7 @@ from openpyxl.utils import get_column_letter
 import simple_config as sc
 import agency_cue as ac
 from simple_style_master import StyleMaster
+from simple_excel import thicken_hairlines
 
 _WD = "一二三四五六日"
 _WD_EN = ["M", "T", "W", "T", "F", "S", "S"]
@@ -61,6 +62,7 @@ def render_2008(wb, model, formulas):
         else:
             _fill_2008_fam(ws, model, sheet, FIRST, LAST, formulas)
         _add_logo_2008(ws, LAST)
+        thicken_hairlines(ws)   # hair 內線升級 thin，格線連續
 
 
 def _2008_dateheader(ws, sheet, FIRST):
@@ -226,6 +228,7 @@ def render_carat(wb, model, formulas):
             _fill_carat_wjf(ws, model, sheet, FIRST, LAST, formulas)
         else:
             _fill_carat_fam(ws, model, sheet, FIRST, LAST, formulas)
+        thicken_hairlines(ws)   # hair 內線升級 thin，格線連續
 
 
 def _carat_dateheader(ws, sheet, FIRST):
