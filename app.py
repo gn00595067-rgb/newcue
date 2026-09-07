@@ -149,7 +149,7 @@ DEFAULT_STATES = {
     "apply_rebate": False,
     "bonus_rebate_pct": 0,
     "is_barter_contract": False,
-    "cue_mode": "一般CUE",
+    "cue_mode": "簡易模式",
 }
 
 def _init_session_state():
