@@ -148,3 +148,29 @@ def test_agency_schedule_length(key, s, e, n):
             for r in blk.rows:
                 if r.schedule is not None:
                     assert len(r.schedule) == ndays
+
+
+# --------------------------------------------------------------------------- #
+# 凱絡外圍一圈外框（照母版 A5:末欄:32 medium；曾因母版清除下半部而斷框）
+# --------------------------------------------------------------------------- #
+def _style(side):
+    return side.style if side and side.style else None
+
+
+@pytest.mark.parametrize("key,s,e", [
+    ("ag_carat_fam", date(2026, 9, 21), date(2026, 10, 4)),
+    ("ag_carat_wjf", date(2026, 9, 21), date(2026, 10, 4)),
+])
+def test_carat_outer_frame_is_continuous_medium(key, s, e):
+    """凱絡整份最外圈四邊皆應為連續 medium（A5 到末欄、到第 32 列）。"""
+    import re
+    from openpyxl.utils import column_index_from_string as CI
+    m = sm.build_model(key, 250000, s, e, client="X", data=sheetdata())
+    ws = load_workbook(io.BytesIO(se.render(m, formulas=False))).worksheets[0]
+    last = ws.print_area.split("!")[-1].split(":")[1].replace("$", "")
+    out_last = CI(re.match(r"([A-Z]+)", last).group(1))
+    TOP, BOT = 5, 32
+    assert all(_style(ws.cell(r, 1).border.left) == "medium" for r in range(TOP, BOT + 1)), "左框斷"
+    assert all(_style(ws.cell(r, out_last).border.right) == "medium" for r in range(TOP, BOT + 1)), "右框斷"
+    assert all(_style(ws.cell(TOP, c).border.top) == "medium" for c in range(1, out_last + 1)), "頂框斷"
+    assert all(_style(ws.cell(BOT, c).border.bottom) == "medium" for c in range(1, out_last + 1)), "底框斷"

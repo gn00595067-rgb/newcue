@@ -260,6 +260,8 @@ def render_carat(wb, model, formulas):
         thicken_hairlines(ws)
         seal_grid(ws, 5, sm.data_last, 1, LAST)    # 只密封資料表(表頭5-7+資料)；下方另畫
         _carat_below_borders(ws, sm.data_last, is_wjf, LAST)
+        # 外圍一圈外框（照母版 A5:末欄:print_last 一圈 medium；母版清除下半部後需補回）
+        _box(ws, 5, 1, sm.print_last, LAST, "medium")
 
 
 def _carat_below_borders(ws, data_last, is_wjf, out_last):
