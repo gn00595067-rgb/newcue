@@ -231,12 +231,13 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     #   主要：值版 —— 開啟即見數字（公式版在 Excel 受保護檢視/未重算時 rate 會空白）
     #   次要：公式版 —— 業務可改每日檔次讓 rate/Total 自動更新
     fname = safe_filename(model.filename)
-    edit_fname = safe_filename(fname.replace(".xlsx", "-可編輯.xlsx"))
+    # edit_fname = safe_filename(fname.replace(".xlsx", "-可編輯.xlsx"))  # 可編輯版隱藏中
     dc = st.columns(4)
     dc[0].download_button("⬇ 下載 Excel（開啟即見數字）", data=xlsx_val, file_name=fname,
                           mime=_XLSX_MIME, type="primary")
-    dc[1].download_button("⬇ 可編輯版（改檔次自動加總）", data=xlsx, file_name=edit_fname,
-                          mime=_XLSX_MIME)
+    # 「可編輯版（改檔次自動加總）」先隱藏（保留產出與程式碼，恢復即取消註解）
+    # dc[1].download_button("⬇ 可編輯版（改檔次自動加總）", data=xlsx, file_name=edit_fname,
+    #                       mime=_XLSX_MIME)
     if spv.has_soffice():
         pdf, _tag, _msg = xlsx_bytes_to_pdf_bytes(xlsx_val)
         if pdf:
