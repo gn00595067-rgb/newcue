@@ -74,12 +74,13 @@ def _to_sheetdata(store_counts_num, pricing_db, sec_factors):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
-              sales, campaign, prod_cost, made_iso, _data):
+              sales, campaign, prod_cost, made_iso, _data, regions=None):
     start = date.fromisoformat(start_iso)
     end = date.fromisoformat(end_iso)
     model = sm.build_model(combo_key, budget, start, end, client=client, tax_id=tax_id,
                            product=product, sales=sales, campaign=campaign,
-                           prod_cost=prod_cost, today=date.fromisoformat(made_iso), data=_data)
+                           prod_cost=prod_cost, today=date.fromisoformat(made_iso), data=_data,
+                           regions=list(regions) if regions else None)
     xlsx = se.render(model, formulas=True)
     xlsx_val = se.render(model, formulas=False)
     htmls = shtml.render_html(model)
@@ -178,6 +179,24 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
         prod_cost = e3.number_input("製作費（未稅）", min_value=0, value=0, step=1000)
         campaign = e3.text_input("Campaign（2008 用）", "")
 
+    # 進階：指定投放區域（僅子公司；含全家企頻／新鮮視的區塊才有分區）
+    regions = ()
+    combo_def = sc.COMBOS[combo_key]
+    region_medias = [m for m in combo_def.get("blocks", []) if m in ("全家廣播", "新鮮視")]
+    if region_medias and combo_def["family"] == "subsidiary":
+        disp = "／".join(sc.PLATFORM_DISPLAY[m] for m in region_medias)
+        with st.expander("🌏 進階：指定投放區域（預設全省）"):
+            st.caption(f"僅影響 {disp} 區塊。留空＝全省（套裝價）；勾選特定區域＝只投該區，"
+                       "預算集中、以各區牌價加總試算檔次。（家樂福不分區，不受影響）")
+            picked = st.multiselect(
+                "投放區域", options=list(sc.REGIONS_ORDER),
+                format_func=lambda r: sc.REGION_LABELS.get(r, r),
+                default=[], key="simple_regions")
+            regions = tuple(r for r in sc.REGIONS_ORDER if r in picked)
+            if regions and len(regions) < len(sc.REGIONS_ORDER):
+                st.info("已指定 " + "、".join(sc.REGION_LABELS[r] for r in regions)
+                        + f"（共 {len(regions)} 區）—— 非全省，分區聚合規則待老闆確認。")
+
     st.divider()
     if budget <= 0 or ndays <= 0:
         st.error("請輸入正確的預算與走期。")
@@ -191,7 +210,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
             model, xlsx, xlsx_val, htmls = _generate(
                 combo_key, int(budget), start.isoformat(), end.isoformat(),
                 client, tax_id, product, sales, campaign, int(prod_cost),
-                date.today().isoformat(), data)
+                date.today().isoformat(), data, regions)
     except Exception as e:  # noqa: BLE001
         st.error(f"產生失敗：{e}")
         st.exception(e)

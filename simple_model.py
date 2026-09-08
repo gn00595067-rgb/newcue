@@ -180,10 +180,30 @@ def _national(media, data):
     return data.pricing[media]["全省"]
 
 
-def sub_unit_net(media, sec, data):
-    """子公司單檔實作價（隱藏）= 全省 Net / 全省 Std × factor（§4.3）。"""
+def _effective_regions(media, regions):
+    """有效投放區域清單；None＝全省（全部區、走套裝價）。
+    家樂福無分區；regions 空、或涵蓋全部六區 → None（視為全省）。"""
+    if media == "家樂福" or not regions:
+        return None
+    sel = [r for r in sc.REGIONS_ORDER if r in regions]
+    if not sel or len(sel) == len(sc.REGIONS_ORDER):
+        return None
+    return sel
+
+
+def sub_unit_net(media, sec, data, regions=None):
+    """子公司單檔實作價（隱藏）。
+    全省：全省 Net / 全省 Std × factor（§4.3）。
+    指定區域（子集）：Σ(各選定區 Net) / 全省 Std × factor
+      —— Net 用各區牌價加總，Std 沿用全省實作基準（§4.6 新鮮視 Std=504 設計）。
+      ⚠️ 分區聚合規則待老闆確認（docs/簡易模式_待老闆確認.md §區域）。"""
+    f = factor(media, sec, data)
     nat = _national(media, data)
-    return nat["Net"] / nat["Std"] * factor(media, sec, data)
+    sel = _effective_regions(media, regions)
+    if sel is None:
+        return nat["Net"] / nat["Std"] * f
+    net_sum = sum(data.pricing[media][r]["Net"] for r in sel)
+    return net_sum / nat["Std"] * f
 
 
 # =============================================================================
@@ -210,7 +230,7 @@ def _minguo_month(d):
 # =============================================================================
 # 子公司建模（§4.3 / 4.4 / 4.6）
 # =============================================================================
-def _build_subsidiary(combo, budget, start, end, prod_cost, data):
+def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None):
     days = _daycols(start, end)
     ndays = len(days)
     sheets = []
@@ -218,7 +238,7 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data):
         # 各區塊預算佔比 → 檔次
         plats = []
         for i, media in enumerate(combo["blocks"]):
-            plats.append((media, combo["split"][i], sub_unit_net(media, sec, data)))
+            plats.append((media, combo["split"][i], sub_unit_net(media, sec, data, regions)))
         alloc = allocate_spots(budget, plats)
 
         blocks = []
@@ -226,7 +246,7 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data):
         reach_spots = reach_imp = reach_traffic = 0.0
         for media in combo["blocks"]:
             n = alloc[media]
-            unit = sub_unit_net(media, sec, data)
+            unit = sub_unit_net(media, sec, data, regions)
             hidden += n * unit
             sch = distribute(n, ndays)
             rows = []
@@ -258,7 +278,8 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data):
             else:
                 f = factor(media, sec, data)
                 daypart = sc.DAYPART_SUBSIDIARY[media]
-                for ri, region in enumerate(sc.REGIONS_ORDER):
+                sel = _effective_regions(media, regions) or sc.REGIONS_ORDER
+                for ri, region in enumerate(sel):
                     reg = data.pricing[media][region]           # 各區 Std 依 Pricing 表（§4.6）
                     stores_r = data.stores[media][region]
                     rows.append(CueRow(
@@ -447,7 +468,7 @@ def _mmdd(d):
 # 唯一入口
 # =============================================================================
 def build_model(combo_key, budget, start, end, *, client="", tax_id="", product="",
-                sales="", campaign="", prod_cost=0, today=None, data=None):
+                sales="", campaign="", prod_cost=0, today=None, data=None, regions=None):
     if combo_key not in sc.COMBOS:
         raise ValueError(f"未知組合：{combo_key}")
     combo = sc.COMBOS[combo_key]
@@ -459,7 +480,7 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
 
     fam = combo["family"]
     if fam == "subsidiary":
-        sheets = _build_subsidiary(combo, budget, start, end, int(prod_cost), data)
+        sheets = _build_subsidiary(combo, budget, start, end, int(prod_cost), data, regions)
     elif fam == "2008":
         sheets = _build_2008(combo, budget, start, end, data)
     else:
