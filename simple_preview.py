@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-簡易模式 v2 預覽（§4）：Excel(值版) → LibreOffice PDF → PyMuPDF 每頁 PNG。
+簡易模式 v2 預覽（§4）：Excel(值版) → 純 Python PDF → PyMuPDF 每頁 PNG。
 
-業務看到的就是客戶會拿到的 PDF 版面。沒有 LibreOffice(soffice) 時回傳 None，
-由 UI 退回 simple_html 預覽。
+業務看到的就是客戶會拿到的 PDF 版面。PDF 以純 Python 渲染（不需 LibreOffice），
+故一律可用；PyMuPDF 缺失時回傳 None，由 UI 退回 simple_html 預覽。
 """
 import streamlit as st
 
-from pdf_converter import find_soffice_path, xlsx_bytes_to_pdf_bytes
+from pdf_converter import xlsx_bytes_to_pdf_bytes, pdf_available
 
 
 def has_soffice():
-    return bool(find_soffice_path())
+    # 名稱保留向後相容；PDF 現以純 Python 渲染，一律可用（不需 LibreOffice）。
+    return pdf_available()
 
 
 @st.cache_data(ttl=600, show_spinner=False)

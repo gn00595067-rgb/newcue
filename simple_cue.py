@@ -16,7 +16,7 @@ import simple_excel as se
 import simple_html as shtml
 import simple_preview as spv
 from utils import safe_filename
-from pdf_converter import find_soffice_path, xlsx_bytes_to_pdf_bytes
+from pdf_converter import xlsx_bytes_to_pdf_bytes
 
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -218,14 +218,14 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                           mime=_XLSX_MIME, type="primary")
     dc[1].download_button("⬇ 可編輯版（改檔次自動加總）", data=xlsx, file_name=edit_fname,
                           mime=_XLSX_MIME)
-    if find_soffice_path():
+    if spv.has_soffice():
         pdf, _tag, _msg = xlsx_bytes_to_pdf_bytes(xlsx_val)
         if pdf:
             dc[2].download_button("⬇ 下載 PDF", data=pdf,
                                   file_name=safe_filename(fname.replace(".xlsx", ".pdf")),
                                   mime="application/pdf")
-    else:
-        dc[2].caption("（伺服器未裝 LibreOffice，暫無 PDF）")
+        else:
+            dc[2].caption(f"（PDF 產生失敗：{_msg}）")
     if dc[3].button("🔁 重新整理設定檔"):
         st.cache_data.clear()
         st.rerun()
@@ -233,7 +233,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     # 預覽（每秒數一個 tab）：優先 PDF 頁面影像，否則退回 HTML
     pngs = None
     if spv.has_soffice():
-        with st.spinner("產生預覽（LibreOffice 轉檔約 5–10 秒）…"):
+        with st.spinner("產生預覽…"):
             pngs = spv.xlsx_to_page_pngs(xlsx_val)
         if pngs is not None and len(pngs) != len(model.sheets):
             st.info(f"PDF 頁數（{len(pngs)}）與分頁數（{len(model.sheets)}）不符，改用網頁預覽。")

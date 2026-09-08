@@ -1,6 +1,9 @@
 """
 PDF 轉檔模組 (PDF Converter)
-依賴伺服器端的 LibreOffice 進行 Excel -> PDF 轉檔
+
+主要路徑：純 Python 渲染器 pdf_render（openpyxl + reportlab），不需 LibreOffice，
+        可在 Streamlit Cloud（無 apt）運作，並內嵌繁中字型。
+後備路徑：若本機裝有 LibreOffice(soffice) 且純 Python 渲染失敗，改用 soffice。
 """
 
 import os
@@ -11,6 +14,11 @@ import gc
 import requests
 import streamlit as st
 from config import BOLIN_LOGO_URL
+
+
+def pdf_available():
+    """PDF 產出是否可用。純 Python 渲染器一律可用（不需 LibreOffice）。"""
+    return True
 
 
 def find_soffice_path():
@@ -39,15 +47,35 @@ def get_cloud_logo_bytes():
         return None
 
 
-@st.cache_data(show_spinner="正在生成 PDF (LibreOffice)...", ttl=3600)
+@st.cache_data(show_spinner="正在生成 PDF...", ttl=3600)
 def xlsx_bytes_to_pdf_bytes(xlsx_bytes: bytes):
     """
-    使用 LibreOffice CLI 將 Excel bytes 轉為 PDF bytes。
-    過程: 寫入暫存檔 -> 呼叫 soffice 轉檔 -> 讀取 PDF -> 清除暫存。
+    Excel(值版) bytes -> PDF bytes。
+    優先用純 Python 渲染器（不需 LibreOffice）；失敗才退回 soffice。
+    回傳 (pdf_bytes, method, err_msg)。
     """
+    # 主要：純 Python 渲染器
+    try:
+        import pdf_render
+        pdf = pdf_render.render_xlsx_to_pdf(xlsx_bytes)
+        if pdf:
+            return pdf, "reportlab", ""
+    except Exception as e:
+        py_err = str(e)
+    else:
+        py_err = "純 Python 渲染回傳空值"
+
+    # 後備：LibreOffice（僅本機可能有）
+    pdf, tag, err = _soffice_convert(xlsx_bytes)
+    if pdf:
+        return pdf, tag, err
+    return None, "Fail", f"PDF 產生失敗（reportlab: {py_err}；soffice: {err}）"
+
+
+def _soffice_convert(xlsx_bytes: bytes):
     soffice = find_soffice_path()
     if not soffice:
-        return None, "Fail", "伺服器未安裝 LibreOffice"
+        return None, "Fail", "無 LibreOffice"
     try:
         with tempfile.TemporaryDirectory() as tmp:
             xlsx_path = os.path.join(tmp, "cue.xlsx")

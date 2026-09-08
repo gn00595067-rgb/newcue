@@ -4,3 +4,5 @@ openpyxl
 xlsxwriter
 requests
 pymupdf
+reportlab
+pillow
