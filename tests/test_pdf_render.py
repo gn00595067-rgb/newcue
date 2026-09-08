@@ -91,3 +91,21 @@ def test_converter_uses_pure_python_without_soffice():
     assert pdf and pdf[:4] == b"%PDF", err
     assert method == "reportlab"
     assert pdf_converter.pdf_available() is True
+
+
+def test_footer_does_not_overlap_signature():
+    """頁尾(分頁名『N萬版-N秒版』)須落在簽名列『承辦人』下方，不與內容重疊。
+    （bottom 邊界極小、footer 邊界較大時，頁尾原本會壓到簽名列）。"""
+    model = _model(sc.SUBSIDIARY_COMBOS[0])
+    xlsx = se.render(model, formulas=False)
+    pdf = pdf_render.render_xlsx_to_pdf(xlsx)
+    doc = fitz.open(stream=pdf, filetype="pdf")
+    page = doc[0]
+    sign = page.search_for("承辦人")
+    foot = page.search_for("秒版")      # 頁尾『…秒版』
+    doc.close()
+    assert sign and foot, "找不到簽名列或頁尾文字"
+    # fitz 座標左上為原點、y 向下遞增：頁尾在最底 → y 應大於簽名列
+    sign_bottom = max(r.y1 for r in sign)
+    foot_top = min(r.y0 for r in foot)
+    assert foot_top >= sign_bottom, f"頁尾({foot_top})壓到簽名列({sign_bottom})"

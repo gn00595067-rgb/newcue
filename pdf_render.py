@@ -654,6 +654,18 @@ def _draw_hf_section(c, text, size, bold, x, y, align, avail_w):
         c.drawString(x, y, text)
 
 
+_HF_BAND = 16.0   # 頁首/頁尾單行概估高度(pt，含上下間距)；供內容區讓位用
+
+
+def _hf_visible(hf, sheet_name):
+    """該頁首/頁尾任一段解析後是否有實際可見文字（&F/&D/&T 等留空碼不算）。"""
+    for part in ("left", "center", "right"):
+        text, _sz, _bold = _parse_hf(getattr(hf, part).text, sheet_name)
+        if text.strip():
+            return True
+    return False
+
+
 def _draw_header_footer(c, ws, page_w, page_h, m_left, m_right, pm, sheet_name):
     hmar = (pm.header or 0.3) * 72
     fmar = (pm.footer or 0.3) * 72
@@ -701,6 +713,14 @@ def render_xlsx_to_pdf(xlsx_bytes):
         m_right = (pm.right or 0.2) * 72
         m_top = (pm.top or 0.2) * 72
         m_bottom = (pm.bottom or 0.2) * 72
+        # 頁首/頁尾若有「實際會顯示」的文字，內容區需讓出該帶，否則會壓到內容
+        # （常見於 bottom 邊界極小、footer 邊界較大時：頁尾落在內容區內重疊，如簽名列）。
+        hmar = (pm.header or 0.3) * 72
+        fmar = (pm.footer or 0.3) * 72
+        if _hf_visible(ws.oddHeader, ws.title):
+            m_top = max(m_top, hmar + _HF_BAND)
+        if _hf_visible(ws.oddFooter, ws.title):
+            m_bottom = max(m_bottom, fmar + _HF_BAND)
         printable_w = page_w - m_left - m_right
         printable_h = page_h - m_top - m_bottom
 
