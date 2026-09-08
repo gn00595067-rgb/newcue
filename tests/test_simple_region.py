@@ -124,3 +124,18 @@ def test_reach_only_counts_selected_regions():
     full = sm.build_model("sub_qp_wjf", 250000, S, E, data=d)
     north = sm.build_model("sub_qp_wjf", 250000, S, E, data=d, regions=["北區"])
     assert north.sheets[0].reach["impressions"] < full.sheets[0].reach["impressions"]
+
+
+# --------------------------------------------------------------------------- #
+# 走期上限（§5）
+# --------------------------------------------------------------------------- #
+def test_max_days_guard():
+    from datetime import timedelta
+    d0 = date(2026, 9, 1)
+    # 剛好 MAX_DAYS 天：可
+    sm.build_model("sub_qp_fv", 250000, d0, d0 + timedelta(days=sc.MAX_DAYS - 1),
+                   data=sheetdata())
+    # 超過一天：擋
+    with pytest.raises(ValueError, match="最多"):
+        sm.build_model("sub_qp_fv", 250000, d0, d0 + timedelta(days=sc.MAX_DAYS),
+                       data=sheetdata())

@@ -12,6 +12,7 @@ Excel 數字格式 → 顯示字串引擎（供純 Python PDF 渲染器使用）
 """
 import datetime
 import re
+from decimal import Decimal, ROUND_HALF_UP
 
 _WD_SHORT = "一二三四五六日"   # Mon..Sun  (Python weekday(): Mon=0)
 
@@ -114,12 +115,13 @@ def _fmt_number(value, section):
     thousands = "#,##" in section or "#,#" in section or (
         "," in re.sub(r'"[^"]*"', "", section))
     decimals = _decimals_from(section)
-    # 主數字
+    # 主數字：round-half-up 對齊 Excel（Python 預設 float 格式化是 banker's rounding，
+    # 會把 1912.5 進成 1912、Excel 顯示 1913；凱絡統一價 .5 尾數即中招）。
     num = abs(v)
-    if decimals > 0:
-        body = ("{:,.%df}" % decimals).format(num) if thousands else ("{:.%df}" % decimals).format(num)
-    else:
-        body = "{:,.0f}".format(num) if thousands else "{:.0f}".format(num)
+    q = Decimal(1).scaleb(-decimals)   # decimals=0 → 1；=2 → 0.01
+    d = Decimal(str(num)).quantize(q, rounding=ROUND_HALF_UP)
+    spec = (",.%df" if thousands else ".%df") % decimals
+    body = format(d, spec)
 
     # 逐字掃描區段，把 0/#/., 換成 body，其餘（字面/引號/_/*/\\/$ 等）保留
     out = []

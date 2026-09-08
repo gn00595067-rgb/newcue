@@ -471,6 +471,11 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
                 sales="", campaign="", prod_cost=0, today=None, data=None, regions=None):
     if combo_key not in sc.COMBOS:
         raise ValueError(f"未知組合：{combo_key}")
+    ndays = (end - start).days + 1
+    if ndays > sc.MAX_DAYS:
+        raise ValueError(
+            f"簡易模式單張最多 {sc.MAX_DAYS} 天（{sc.MAX_DAYS // 7} 週）；"
+            "更長走期請用一般 CUE 分月製作。")
     combo = sc.COMBOS[combo_key]
     budget = int(budget)
     if data is None:

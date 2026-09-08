@@ -159,6 +159,15 @@ FACTOR_OVERRIDE = {}
 # ⚠️ 播出時段覆寫（§11-2）：新鮮視 Pricing 表寫 07:00-23:00，範本顯示 06-24
 DAYPART_OVERRIDE = {"新鮮視": "06-24"}
 
+# 內部格線樣式（§3）：範本內線本為 hair，預設保留 hair（客戶 Excel 與老闆範本一致）。
+# 若老闆想要粗一號，改成 "thin"，thicken_hairlines 就會把 hair 內線全升級。
+# 「hair 在 PDF 看起來連不起來」的真正原因是渲染器把 hair 畫太淡，已於 pdf_render._BORDER_PT 調整。
+INNER_GRID_STYLE = "hair"
+
+# 走期上限（§5）：超過 5 週(35 天)單張日期欄太多、A3 印出字太小；更長請用一般 CUE 分月。
+MAX_WEEKS = 5
+MAX_DAYS = MAX_WEEKS * 7
+
 # =============================================================================
 # 代理商牌價（每檔定價 List）—— 依 0902 範本（§4.7 / §11-3、11-4）
 # 與 config.AGENCY_LIST_PRICE_FALLBACK 不同，簡易模式一律用本表

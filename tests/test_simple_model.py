@@ -69,7 +69,7 @@ def test_subsidiary_reference_vectors(key, budget):
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("key", sc.SUBSIDIARY_COMBOS)
 @pytest.mark.parametrize("budget", [125000, 200000, 250000, 300000, 400000, 1000000])
-@pytest.mark.parametrize("days", [7, 14, 21, 28, 56])
+@pytest.mark.parametrize("days", [7, 14, 21, 28, 35])   # 35=走期上限(§5)
 def test_subsidiary_fill_and_cap(key, budget, days):
     from datetime import timedelta
     model = sm.build_model(key, budget, S, S + timedelta(days=days - 1), data=sheetdata())

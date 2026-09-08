@@ -10,6 +10,7 @@
 數字/日期格式（見 xlsx_numfmt）、A3/A4 橫直向、fit-to-page 縮放與垂直分頁、
 print_area、列標題重複（print_title_rows）。
 """
+import datetime
 import io
 import os
 import re
@@ -42,8 +43,18 @@ def _ensure_fonts():
         return
     reg = os.path.join(_FONT_DIR, "NotoSansTC-Regular.ttf")
     bold = os.path.join(_FONT_DIR, "NotoSansTC-Bold.ttf")
+    has_bold = os.path.exists(bold)
     pdfmetrics.registerFont(TTFont(FONT_REG, reg))
-    pdfmetrics.registerFont(TTFont(FONT_BOLD, bold if os.path.exists(bold) else reg))
+    pdfmetrics.registerFont(TTFont(FONT_BOLD, bold if has_bold else reg))
+    # 防呆：Regular/Bold 的 PostScript face name 若相同，reportlab 會去重成同一字型、
+    # 粗體會失效（曾因兩檔 PS name 都是 NotoSansTC-Thin 而整份 PDF 無粗體）。
+    if has_bold:
+        reg_face = pdfmetrics.getFont(FONT_REG).face.name
+        bold_face = pdfmetrics.getFont(FONT_BOLD).face.name
+        if reg_face == bold_face:
+            raise RuntimeError(
+                f"字型 PS name 重複({reg_face})，粗體會失效；"
+                "請跑 tools/fix_font_names.py 修正 name table。")
     _FONTS_READY = True
 
 
@@ -160,7 +171,8 @@ def _hex_to_rl(hexv):
 
 # ---- 框線寬度 -----------------------------------------------------------
 _BORDER_PT = {
-    "hair": 0.35, "thin": 0.75, "medium": 1.75, "thick": 2.75,
+    # hair 調到 0.5（原 0.35 在 1.6× 預覽只有半像素、抗鋸齒後像虛線『連不起來』）
+    "hair": 0.5, "thin": 0.75, "medium": 1.75, "thick": 2.75,
     "dotted": 0.5, "dashed": 0.6, "double": 0.6,
     "mediumDashed": 1.5, "mediumDashDot": 1.5, "dashDot": 0.75,
     "slantDashDot": 1.0, "mediumDashDotDot": 1.5, "dashDotDot": 0.75,
@@ -584,8 +596,10 @@ def _paginate_rows(lay, rows, title_rows, scale, printable_h):
     return pages or [[]]
 
 
-def _parse_hf(raw, sheet_name):
-    """解析 Excel 頁首/頁尾字串（&-碼）→ (clean_text, size, bold)。"""
+def _parse_hf(raw, sheet_name, ctx=None):
+    """解析 Excel 頁首/頁尾字串（&-碼）→ (clean_text, size, bold)。
+    ctx: {'file','date','time'} 供 &F/&D/&T 填值（缺則留空）。"""
+    ctx = ctx or {}
     if not raw:
         return "", None, False
     out = []
@@ -629,7 +643,13 @@ def _parse_hf(raw, sheet_name):
             i += 1; continue
         if nx in "Aa":
             out.append(sheet_name or ""); i += 1; continue
-        if nx in "FfZzPpNnDdTtGg":          # 檔名/路徑/頁碼/日期/時間/圖：留空
+        if nx in "Ff":                      # &F 檔名
+            out.append(ctx.get("file", "")); i += 1; continue
+        if nx in "Dd":                      # &D 日期
+            out.append(ctx.get("date", "")); i += 1; continue
+        if nx in "Tt":                      # &T 時間
+            out.append(ctx.get("time", "")); i += 1; continue
+        if nx in "ZzPpNnGg":                # 路徑/頁碼/總頁/圖：留空
             i += 1; continue
         i += 1
     return "".join(out), size, bold
@@ -657,16 +677,16 @@ def _draw_hf_section(c, text, size, bold, x, y, align, avail_w):
 _HF_BAND = 16.0   # 頁首/頁尾單行概估高度(pt，含上下間距)；供內容區讓位用
 
 
-def _hf_visible(hf, sheet_name):
-    """該頁首/頁尾任一段解析後是否有實際可見文字（&F/&D/&T 等留空碼不算）。"""
+def _hf_visible(hf, sheet_name, ctx=None):
+    """該頁首/頁尾任一段解析後是否有實際可見文字。"""
     for part in ("left", "center", "right"):
-        text, _sz, _bold = _parse_hf(getattr(hf, part).text, sheet_name)
+        text, _sz, _bold = _parse_hf(getattr(hf, part).text, sheet_name, ctx)
         if text.strip():
             return True
     return False
 
 
-def _draw_header_footer(c, ws, page_w, page_h, m_left, m_right, pm, sheet_name):
+def _draw_header_footer(c, ws, page_w, page_h, m_left, m_right, pm, sheet_name, ctx=None):
     hmar = (pm.header or 0.3) * 72
     fmar = (pm.footer or 0.3) * 72
     printable_w = page_w - m_left - m_right
@@ -678,7 +698,7 @@ def _draw_header_footer(c, ws, page_w, page_h, m_left, m_right, pm, sheet_name):
                                ("center", "center", cx),
                                ("right", "right", rx)):
             raw = getattr(hf, part).text
-            text, size, bold = _parse_hf(raw, sheet_name)
+            text, size, bold = _parse_hf(raw, sheet_name, ctx)
             _draw_hf_section(c, text, size, bold, x, y, align, printable_w)
 
 
@@ -693,9 +713,15 @@ def _title_rows(ws, min_row, max_row):
     return [r for r in rows if min_row <= r <= max_row]
 
 
-def render_xlsx_to_pdf(xlsx_bytes):
-    """xlsx bytes → PDF bytes（純 Python，不需 LibreOffice）。"""
+def render_xlsx_to_pdf(xlsx_bytes, filename="", made_date=None):
+    """xlsx bytes → PDF bytes（純 Python，不需 LibreOffice）。
+    filename：頁尾 &F 顯示的檔名（自動去 .xlsx）；made_date：頁尾 &D 日期(datetime/date)。"""
     _ensure_fonts()
+    hf_ctx = {
+        "file": (filename or "").rsplit(".xlsx", 1)[0],
+        "date": made_date.strftime("%Y/%m/%d") if made_date else "",
+        "time": made_date.strftime("%H:%M") if isinstance(made_date, datetime.datetime) else "",
+    }
     wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
     scheme = _parse_theme(wb)
 
@@ -717,9 +743,9 @@ def render_xlsx_to_pdf(xlsx_bytes):
         # （常見於 bottom 邊界極小、footer 邊界較大時：頁尾落在內容區內重疊，如簽名列）。
         hmar = (pm.header or 0.3) * 72
         fmar = (pm.footer or 0.3) * 72
-        if _hf_visible(ws.oddHeader, ws.title):
+        if _hf_visible(ws.oddHeader, ws.title, hf_ctx):
             m_top = max(m_top, hmar + _HF_BAND)
-        if _hf_visible(ws.oddFooter, ws.title):
+        if _hf_visible(ws.oddFooter, ws.title, hf_ctx):
             m_bottom = max(m_bottom, fmar + _HF_BAND)
         printable_w = page_w - m_left - m_right
         printable_h = page_h - m_top - m_bottom
@@ -748,7 +774,7 @@ def render_xlsx_to_pdf(xlsx_bytes):
                                            title_rows[-1] < pg[0]) else []
             _draw_sheet_page(c, lay, scheme, pg, repeat_titles, scale, page_w, page_h,
                              m_left, m_top, printable_w, printable_h, hcenter, vcenter)
-            _draw_header_footer(c, ws, page_w, page_h, m_left, m_right, pm, ws.title)
+            _draw_header_footer(c, ws, page_w, page_h, m_left, m_right, pm, ws.title, hf_ctx)
 
     c.showPage()
     c.save()

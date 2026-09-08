@@ -48,16 +48,16 @@ def get_cloud_logo_bytes():
 
 
 @st.cache_data(show_spinner="正在生成 PDF...", ttl=3600)
-def xlsx_bytes_to_pdf_bytes(xlsx_bytes: bytes):
+def xlsx_bytes_to_pdf_bytes(xlsx_bytes: bytes, filename: str = ""):
     """
     Excel(值版) bytes -> PDF bytes。
     優先用純 Python 渲染器（不需 LibreOffice）；失敗才退回 soffice。
-    回傳 (pdf_bytes, method, err_msg)。
+    filename：頁尾 &F 顯示的檔名。回傳 (pdf_bytes, method, err_msg)。
     """
     # 主要：純 Python 渲染器
     try:
         import pdf_render
-        pdf = pdf_render.render_xlsx_to_pdf(xlsx_bytes)
+        pdf = pdf_render.render_xlsx_to_pdf(xlsx_bytes, filename=filename)
         if pdf:
             return pdf, "reportlab", ""
     except Exception as e:

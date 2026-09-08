@@ -50,6 +50,57 @@ def _bd(cell):
     return f"{s(b.top)},{s(b.bottom)},{s(b.left)},{s(b.right)}"
 
 
+# --- 框線「有效邊」比對（§7）：hair≡thin、seal 造成的鄰格重複不算差異 --------------- #
+def _border_level(style):
+    """框線粗細分級：0=無、1=細(hair/thin/虛線)、2=粗(medium/thick)、3=double。"""
+    if not style or style == ".":
+        return 0
+    if style in ("hair", "thin", "dotted", "dashed", "dashDot", "dashDotDot"):
+        return 1
+    if style == "double":
+        return 3
+    return 2   # medium / thick / mediumDashed ...
+
+
+def _side_style(cell, side):
+    return getattr(getattr(cell.border, side), "style", None)
+
+
+def _merge_map(ws):
+    """(r,c) → 所屬合併範圍 key；非合併格不列入。"""
+    mp = {}
+    for rng in ws.merged_cells.ranges:
+        k = (rng.min_row, rng.min_col, rng.max_row, rng.max_col)
+        for rr in range(rng.min_row, rng.max_row + 1):
+            for cc in range(rng.min_col, rng.max_col + 1):
+                mp[(rr, cc)] = k
+    return mp
+
+
+def _merge_internal(mmap, r, c, side):
+    """該格某邊是否為『合併格內部邊』（與鄰格屬同一合併範圍）→ Excel 不顯示。"""
+    nb = {"top": (r - 1, c), "bottom": (r + 1, c),
+          "left": (r, c - 1), "right": (r, c + 1)}[side]
+    k = mmap.get((r, c))
+    return k is not None and mmap.get(nb) == k
+
+
+def _eff_level(ws, r, c, side, maxrow):
+    """該格某邊的『有效』框線分級 = max(自身該邊, 相鄰格的貼合邊)。
+    Excel 兩格之間的線只要任一側宣告即會顯示；我方 seal 會在兩側都畫，範本常只畫一側。"""
+    own = _side_style(ws.cell(row=r, column=c), side)
+    nb = None
+    if side == "top" and r > 1:
+        nb = _side_style(ws.cell(row=r - 1, column=c), "bottom")
+    elif side == "bottom" and r < maxrow:
+        nb = _side_style(ws.cell(row=r + 1, column=c), "top")
+    elif side == "left" and c > 1:
+        nb = _side_style(ws.cell(row=r, column=c - 1), "right")
+    elif side == "right":
+        nb = _side_style(ws.cell(row=r, column=c + 1), "left")
+    return max(_border_level(own), _border_level(nb))
+
+
 def _norm_nf(s):
     return (s or "General").replace('"', "")
 
@@ -215,15 +266,28 @@ def compare_strict(tw, ow, *, first, out_first, tmpl_days, out_days, right_cols=
     for k in range(1, right_cols + 1):
         pairs.append((tmpl_last + k, out_last + k))
 
+    tmap, omap = _merge_map(tw), _merge_map(ow)
     for r in range(1, plast + 1):
         for tc_col, oc_col in pairs:
             tc = tw.cell(row=r, column=tc_col)
             oc = ow.cell(row=r, column=oc_col)
             loc = f"{get_column_letter(tc_col)}{r}"
             ta, oa = _attrs(tc), _attrs(oc)
-            # 空格也比 border / fill（框線因已做 seal 升級，預設 check_borders 由呼叫端決定）
-            if check_borders and ta["bd"] != oa["bd"]:
-                diffs.append(f"BD {loc}: tmpl={ta['bd']} ours={oa['bd']}")
+            # 框線比「有效邊」（§7）：hair≡thin、seal 造成的鄰格重複不算差異；
+            # 只回報「範本有線我方沒有」與「粗細等級不同」，不回報「我方多畫」。
+            # 天數不同時（範本畫整月、我方只畫走期）欄位配對不可靠，略過框線比對。
+            if check_borders and out_days == tmpl_days:
+                for side in ("top", "bottom", "left", "right"):
+                    # 合併格內部邊在 Excel 不顯示 → 略過（範本/我方任一為內部邊皆略過）
+                    if _merge_internal(tmap, r, tc_col, side) or \
+                       _merge_internal(omap, r, oc_col, side):
+                        continue
+                    tl = _eff_level(tw, r, tc_col, side, plast)
+                    ol = _eff_level(ow, r, oc_col, side, plast)
+                    if tl > 0 and ol == 0:
+                        diffs.append(f"BD {loc}: 缺{side}線 tmpl_lvl={tl}")
+                    elif tl > 0 and ol > 0 and tl != ol:
+                        diffs.append(f"BD {loc}: {side}粗細 tmpl_lvl={tl} ours_lvl={ol}")
             if ta["bg"] != oa["bg"]:
                 diffs.append(f"BG {loc}: tmpl={ta['bg']} ours={oa['bg']}")
             if tc.value in (None, "") or (isinstance(tc.value, str) and _norm_ws(tc.value) == ""):

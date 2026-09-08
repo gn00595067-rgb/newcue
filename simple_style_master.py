@@ -24,6 +24,15 @@ PARAMS = {
     "ag_carat_wjf": (11, 21, 32, 9, 32),
 }
 
+# 資料列以下的清框線策略（§4）：
+#   不在此表 → 整區清空(2008：渲染器完整補畫)。
+#   在此表   → 只清列出的日期區列(FIRST..out_last)，其餘保留母版真線(凱絡)。
+#   凱絡母版下半部皆為正線(總價值框/簽核帶/備註框/外框)，故清單為空 = 全保留。
+CLEAR_DATE_ROWS = {
+    "ag_carat_fam": (),
+    "ag_carat_wjf": (),
+}
+
 
 @lru_cache(maxsize=None)
 def _master_ws(key):
@@ -103,11 +112,19 @@ class StyleMaster:
         ws.print_title_rows = tw.print_title_rows
         ws.sheet_view.showGridLines = False
         ws.sheet_view.zoomScale = tw.sheet_view.zoomScale
-        # 清除「資料列以下」整區的殘留框線（範本在資料下方留有各種空白合併/分隔線，會變成懸空線）；
-        # 需要的下方框線（費用底線、媒體總價值框、備註框、資料表底邊）由渲染器另行明確畫出。
-        for r in range(self.data_last + 1, self.print_last + 1):
-            for c in range(1, out_last + 1):
-                ws.cell(row=r, column=c).border = Border()
+        # 「資料列以下」框線處理（§4）：
+        #   2008：整區清空、由渲染器完整補畫（已對齊範本，0 缺線）。
+        #   凱絡：母版本身即含正確的媒體總價值框/簽核帶上緣/備註框/外框，渲染器不再逐條補；
+        #         整區清空會把這些真線一起清掉→缺線，故『保留母版』只清指定殘留空帶(CLEAR_DATE_ROWS)。
+        clear_rows = CLEAR_DATE_ROWS.get(self.key)
+        if clear_rows is None:
+            for r in range(self.data_last + 1, self.print_last + 1):
+                for c in range(1, out_last + 1):
+                    ws.cell(row=r, column=c).border = Border()
+        else:
+            for r in clear_rows:
+                for c in range(FIRST, out_last + 1):
+                    ws.cell(row=r, column=c).border = Border()
 
         ws.print_area = f"A1:{get_column_letter(out_last)}{self.print_last}"
         return {"first": FIRST, "last": out_last}

@@ -154,7 +154,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     with d1:
         start = st.date_input("開始日", value=_next_monday_after(), format="YYYY-MM-DD")
     with d2:
-        weeks = st.select_slider("週數", options=list(range(1, 9)), value=2)
+        weeks = st.select_slider("週數", options=list(range(1, sc.MAX_WEEKS + 1)), value=2)
     default_end = start + timedelta(days=weeks * 7 - 1)
     with d3:
         end = st.date_input("結束日", value=default_end, format="YYYY-MM-DD")
@@ -163,6 +163,10 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     ndays = (end - start).days + 1
     sign = start - timedelta(days=7)
     st.caption(f"　共 {ndays} 天，回簽 {sign:%m/%d}、素材 {sign:%m/%d} 前")
+    if ndays > sc.MAX_DAYS:
+        st.error(f"簡易模式單張最多 {sc.MAX_WEEKS} 週（{sc.MAX_DAYS} 天）；"
+                 "更長走期請用一般 CUE 分月製作。")
+        return
     if start < date.today() + timedelta(days=7):
         st.warning("距上檔不足 7 天，回簽／素材時程可能來不及。")
 
@@ -201,9 +205,6 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     if budget <= 0 or ndays <= 0:
         st.error("請輸入正確的預算與走期。")
         return
-    if weeks > 8:
-        st.error("走期最長 8 週。")
-        return
 
     try:
         with st.spinner("產生中…"):
@@ -239,7 +240,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     # dc[1].download_button("⬇ 可編輯版（改檔次自動加總）", data=xlsx, file_name=edit_fname,
     #                       mime=_XLSX_MIME)
     if spv.has_soffice():
-        pdf, _tag, _msg = xlsx_bytes_to_pdf_bytes(xlsx_val)
+        pdf, _tag, _msg = xlsx_bytes_to_pdf_bytes(xlsx_val, fname)
         if pdf:
             dc[2].download_button("⬇ 下載 PDF", data=pdf,
                                   file_name=safe_filename(fname.replace(".xlsx", ".pdf")),

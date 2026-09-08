@@ -126,8 +126,13 @@ def seal_grid(ws, r1, r2, c1, c2):
 
 
 def thicken_hairlines(ws):
-    """把所有 hair(極細)框線升級成 thin —— hair 在 Excel 編輯畫面顯示成虛線點、看起來『連不起來』；
-    thin 為連續實線。整份輸出跑一次，範本的 hair 內線全部變連續格線。"""
+    """把 hair(極細)內線升級成 simple_config.INNER_GRID_STYLE。
+    預設 INNER_GRID_STYLE="hair" → 不升級（保留範本原樣，客戶 Excel 與老闆範本一致）。
+    老闆若要內線粗一號，把常數改 "thin" 即可全升級。
+    註：hair 在 PDF「看起來連不起來」的根因是渲染器畫太淡，已在 pdf_render._BORDER_PT 調整。"""
+    target = getattr(sc, "INNER_GRID_STYLE", "hair")
+    if target == "hair":
+        return
     for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
         for cell in row:
             b = cell.border
@@ -137,7 +142,7 @@ def thicken_hairlines(ws):
 
             def _fix(side):
                 if side is not None and side.style == "hair":
-                    return Side(style="thin", color=side.color)
+                    return Side(style=target, color=side.color)
                 return side
             cell.border = Border(top=_fix(b.top), bottom=_fix(b.bottom),
                                  left=_fix(b.left), right=_fix(b.right))

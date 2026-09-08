@@ -252,34 +252,17 @@ def render_carat(wb, model, formulas):
         for c in range(FIRST, LAST + 1):
             ws.column_dimensions[get_column_letter(c)].width = 9.0
         ws.column_dimensions["I"].width = 17.0   # 總價欄(7~8 位數會計格式)
+        # A 欄加寬到 24：Noto 字型下「全台【萬家福/樂家康】」在 21.5 會把「】」擠到第二行（§6）
+        ws.column_dimensions["A"].width = 24.0
         _carat_dateheader(ws, sheet, FIRST)
         if is_wjf:
             _fill_carat_wjf(ws, model, sheet, FIRST, LAST, formulas)
         else:
             _fill_carat_fam(ws, model, sheet, FIRST, LAST, formulas)
         thicken_hairlines(ws)
-        seal_grid(ws, 5, sm.data_last, 1, LAST)    # 只密封資料表(表頭5-7+資料)；下方另畫
-        _carat_below_borders(ws, sm.data_last, is_wjf, LAST)
-        # 外圍一圈外框（照母版 A5:末欄:print_last 一圈 medium；母版清除下半部後需補回）
-        _box(ws, 5, 1, sm.print_last, LAST, "medium")
-
-
-def _carat_below_borders(ws, data_last, is_wjf, out_last):
-    """凱絡資料表以下的框線（其餘殘留已於母版清除）：資料表底邊、媒體總價值框、費用底線、備註框。"""
-    _table_bottom(ws, data_last, 1, out_last, "medium")
-    # 媒體總價值/優惠 框 A14:B15（中間細線）
-    _box(ws, 14, 1, 15, 2, "medium")
-    _set_side(ws, 14, 1, bottom="thin")
-    _set_side(ws, 14, 2, bottom="thin")
-    _set_side(ws, 15, 1, top="thin")
-    _set_side(ws, 15, 2, top="thin")
-    # 費用：Grand-Total 上細線、下雙線（I:J）
-    gr = 14 if is_wjf else 17
-    for c in (9, 10):
-        _set_side(ws, gr - 1, c, bottom="thin")
-        _set_side(ws, gr, c, top="thin", bottom="double")
-    # 備註框 A24:A32（標籤欄）
-    _box(ws, 24, 1, 32, 1, "medium")
+        seal_grid(ws, 5, sm.data_last, 1, LAST)    # 只密封資料表(表頭5-7+資料)
+        # 資料列以下（媒體總價值框/費用底線/簽核帶上緣/備註框/外框）一律由母版提供
+        # （§4：母版下半部保留、不清空）；渲染器不再補畫，避免蓋成 medium 與範本不符。
 
 
 def _carat_dateheader(ws, sheet, FIRST):

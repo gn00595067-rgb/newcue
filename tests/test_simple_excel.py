@@ -16,6 +16,7 @@ from openpyxl import load_workbook
 
 import simple_model as sm
 import simple_excel as se
+import simple_config as sc
 from fixtures_simple import sheetdata, sheetdata_template
 import fidelity
 
@@ -51,6 +52,7 @@ _ALLOWED = [
     (r"^BG \w+7: tmpl=FFFFFF00 ours=NONE$", "凱絡星期列範本六日位置(硬編不符實際日期)"),
     (r"^BD C7:", "範本表頭 C7 合併格底線瑕疵"),
     (r"^BD C8:", "範本表頭 C8 合併格上線瑕疵"),
+    (r"^BD C9: top", "範本 Program 欄(C7:C8)表頭底線畫 medium、其餘欄 hair，僅 C 欄不一致的範本瑕疵"),
     (r"^VALUE B\d+: tmpl='中區-中彰投雲'", "範本錯字『中彰投雲』已改正(§5.4)"),
     (r"^VALUE B\d+: tmpl='南區-霊嘉南'", "範本錯字『霊嘉南』已改正(§5.4)"),
     (r"^VALUE C\d+: tmpl='\d+店'", "萬家福店數改數字(§5.4)"),
@@ -71,6 +73,8 @@ _ALLOWED = [
 def _is_allowed(key, d):
     if key.startswith("ag_carat") and re.match(r"^WIDTH I ", d):
         return True    # 凱絡總價欄加寬避免大數字 ###（§7.4，覆寫範本過窄欄寬）
+    if key.startswith("ag_carat") and re.match(r"^WIDTH A ", d):
+        return True    # 凱絡 A 欄加寬到 24 避免 Noto 下標籤斷字（§6，覆寫範本過窄欄寬）
     if key == "ag_2008_fam" and re.match(r"^WIDTH D ", d):
         return True    # 2008全家定價欄加寬避免 7 位數 ###（§7.4）
     return any(re.search(p, d) for p, _ in _ALLOWED)
@@ -93,7 +97,7 @@ def test_fidelity(case):
         diffs = fidelity.compare_strict(
             tw.worksheets[i], ow.worksheets[i], first=first, out_first=first,
             tmpl_days=tdays, out_days=od, right_cols=right, data_last=dlast,
-            identity_merge=is_sub, check_borders=False)
+            identity_merge=is_sub, check_borders=True)
         for d in diffs:
             if not _is_allowed(key, d):
                 real.append(f"[sheet{i}] {d}")
@@ -108,17 +112,23 @@ def test_grid_sealed(case):
     data = sheetdata_template() if is_sub else sheetdata()
     model = sm.build_model(key, budget, s, e, data=data, **extra)
     wb = load_workbook(io.BytesIO(se.render(model, formulas=False)))
+    upgrade = getattr(sc, "INNER_GRID_STYLE", "hair") != "hair"
     for ws in wb.worksheets:
-        # (1) 無 hair
-        for row in ws.iter_rows():
-            for cell in row:
-                b = cell.border
-                for side in (b.top, b.bottom, b.left, b.right):
-                    assert not (side and side.style == "hair"), \
-                        f"{key}/{ws.title}/{cell.coordinate} 仍有 hair 虛線"
-        # (2) 合併格鄰格帶框線
+        # (1) 內線樣式：INNER_GRID_STYLE="hair"(預設) → 保留 hair；否則不得殘留 hair
+        if upgrade:
+            for row in ws.iter_rows():
+                for cell in row:
+                    b = cell.border
+                    for side in (b.top, b.bottom, b.left, b.right):
+                        assert not (side and side.style == "hair"), \
+                            f"{key}/{ws.title}/{cell.coordinate} 仍有 hair 虛線"
+        # (2) 合併格鄰格帶框線 —— 只驗 seal 區(資料表 ≤ data_last)；
+        #     資料列以下改用母版框線(§4)，母版常把線畫在合併格自身邊而非鄰格，
+        #     視覺相同、由 test_fidelity 有效邊比對把關，不適用此鄰格不變式。
         for rng in ws.merged_cells.ranges:
             if rng.min_row == rng.max_row and rng.min_col == rng.max_col:
+                continue
+            if rng.min_row > dlast:
                 continue
             a = ws.cell(rng.min_row, rng.min_col).border
             # 左鄰格：若合併格有左框，左鄰格(非表格最左)每列須有右框

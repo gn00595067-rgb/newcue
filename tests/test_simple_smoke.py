@@ -14,9 +14,9 @@ import simple_config as sc
 from fixtures_simple import sheetdata
 
 BUDGETS = [100000, 125000, 250000, 333000, 1000000]
-# (開始日, 天數)：含跨月 28 天（9/21 起）
+# (開始日, 天數)：含跨月 28 天、上限 35 天（5 週，§5 走期上限）
 PERIODS = [(date(2026, 9, 21), 7), (date(2026, 9, 21), 14),
-           (date(2026, 9, 21), 28), (date(2026, 9, 21), 56)]
+           (date(2026, 9, 21), 28), (date(2026, 9, 21), 35)]
 KEYS = sc.SUBSIDIARY_COMBOS + sc.AGENCY_COMBOS
 
 

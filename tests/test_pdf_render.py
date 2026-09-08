@@ -37,6 +37,11 @@ import pdf_converter
     (250000, '#,##0', "250,000", False),
     (dt.datetime(2026, 9, 26), '[$-404]aaa', "六", False),
     (-3, '0_);[Red]\\(0\\)', "(3)", True),
+    # round-half-up 對齊 Excel（Python 預設 banker's rounding 會少 1）
+    (1912.5, '#,##0', "1,913", False),
+    (1462.5, '#,##0', "1,463", False),
+    (2.5, '0', "3", False),
+    (0.5, '0', "1", False),
 ])
 def test_numfmt(value, fmt, expect, red):
     text, is_red = nf.format_value(value, fmt)
@@ -109,3 +114,48 @@ def test_footer_does_not_overlap_signature():
     sign_bottom = max(r.y1 for r in sign)
     foot_top = min(r.y0 for r in foot)
     assert foot_top >= sign_bottom, f"頁尾({foot_top})壓到簽名列({sign_bottom})"
+
+
+def test_pdf_embeds_distinct_bold_font():
+    """PDF 須同時嵌入 Regular 與 Bold 兩個不同 BaseFont（否則粗體失效）。"""
+    model = _model(sc.SUBSIDIARY_COMBOS[0])
+    pdf = pdf_render.render_xlsx_to_pdf(se.render(model, formulas=False))
+    doc = fitz.open(stream=pdf, filetype="pdf")
+    cjk = set()
+    for pg in doc:
+        for f in pg.get_fonts():
+            base = f[3]
+            if "NotoSansTC" in base:
+                cjk.add(base)
+    doc.close()
+    assert len(cjk) >= 2, f"CJK 字型未分成 Regular/Bold：{cjk}"
+    assert any("Bold" in f for f in cjk), f"缺 Bold 字型：{cjk}"
+
+
+def test_bold_title_span_uses_bold_font():
+    """粗體標題 span（Media Schedule）實際須用含 Bold 的字型。"""
+    model = _model(sc.SUBSIDIARY_COMBOS[0])
+    pdf = pdf_render.render_xlsx_to_pdf(se.render(model, formulas=False))
+    doc = fitz.open(stream=pdf, filetype="pdf")
+    found = None
+    for pg in doc:
+        for b in pg.get_text("dict")["blocks"]:
+            for ln in b.get("lines", []):
+                for sp in ln["spans"]:
+                    if "Media Schedule" in sp["text"]:
+                        found = sp["font"]
+    doc.close()
+    assert found and "Bold" in found, f"標題未用粗體字型：{found}"
+
+
+def test_footer_shows_filename():
+    """頁尾 &F 應填入檔名（去 .xlsx），不再只有分頁名。"""
+    model = _model(sc.SUBSIDIARY_COMBOS[0])
+    xlsx = se.render(model, formulas=False)
+    fn = "測試檔名-企頻新鮮視.xlsx"
+    pdf = pdf_render.render_xlsx_to_pdf(xlsx, filename=fn)
+    doc = fitz.open(stream=pdf, filetype="pdf")
+    txt = "".join(p.get_text() for p in doc)
+    doc.close()
+    assert "測試檔名-企頻新鮮視" in txt
+    assert ".xlsx" not in txt   # 副檔名去掉
