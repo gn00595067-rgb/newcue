@@ -263,6 +263,11 @@ def render_carat(wb, model, formulas):
         seal_grid(ws, 5, sm.data_last, 1, LAST)    # 只密封資料表(表頭5-7+資料)
         # 資料列以下（媒體總價值框/費用底線/簽核帶上緣/備註框/外框）一律由母版提供
         # （§4：母版下半部保留、不清空）；渲染器不再補畫，避免蓋成 medium 與範本不符。
+        # 例外：資料表底線 C/J（時段/專案價 合併欄）母版誤用 hair，補 medium 使底線連續一致
+        for c in range(1, LAST + 1):
+            bt = ws.cell(sm.data_last, c).border.bottom
+            if bt and bt.style == "hair":
+                _set_side(ws, sm.data_last, c, bottom="medium")
 
 
 def _carat_dateheader(ws, sheet, FIRST):

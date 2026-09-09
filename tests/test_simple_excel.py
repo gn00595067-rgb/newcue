@@ -70,6 +70,8 @@ _ALLOWED = [
     # 非家樂福區塊底線：Station(A)/Day-part(D)/Size(E) 合併格下緣補 medium，與 B/C/F 一致連續粗線
     #（範本 A/D/E 誤用 hair，thin/hair=lvl1、medium=lvl2）(§5.4 改良)
     (r"^BD [ADE]\d+: (top|bottom).* tmpl_lvl=1 ours_lvl=2$", "區塊底線 A/D/E 補 medium 連續(§5.4)"),
+    # 凱絡母版：資料表底線 C/J（時段/專案價 合併欄）誤用 hair，補 medium 使底線連續一致(§7 改良)
+    (r"^BD [CJ]\d+: (top|bottom).* tmpl_lvl=1 ours_lvl=2$", "凱絡區塊底線 C/J 補 medium 連續(§7)"),
     # 2008 萬家福範本畫整月(30天)，我方只畫走期(14天)→首/中日期欄、回饋列日期區不符(§6)
     (r"^(VALUE|BD) (I10|J10|J13|J14):", "2008萬家福範本整月殘留(§6)"),
     # 凱絡範本瑕疵
