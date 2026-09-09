@@ -119,6 +119,8 @@ class CueModel:
     material_due: date = None
     billing_month: str = ""
     payment_date_text: str = ""
+    party_a: str = ""           # 甲方名稱（我方／供應商）
+    party_a_tax: str = ""       # 甲方統一編號
     sheets: list = field(default_factory=list)
     filename: str = ""
 
@@ -468,7 +470,8 @@ def _mmdd(d):
 # 唯一入口
 # =============================================================================
 def build_model(combo_key, budget, start, end, *, client="", tax_id="", product="",
-                sales="", campaign="", prod_cost=0, today=None, data=None, regions=None):
+                sales="", campaign="", prod_cost=0, today=None, data=None, regions=None,
+                party_a="", party_a_tax="", payment_date=""):
     if combo_key not in sc.COMBOS:
         raise ValueError(f"未知組合：{combo_key}")
     ndays = (end - start).days + 1
@@ -494,7 +497,9 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
     sign = start - timedelta(days=7)
     material_due = start - timedelta(days=7)
     billing = _minguo_month(end)
-    pay = f"{start.year - 1911}.XX.XX"
+    # 付款兌現日期：業務可於介面自填；留白則回退範本佔位（民國年.XX.XX）
+    pay = payment_date.strip() if (payment_date and payment_date.strip()) \
+        else f"{start.year - 1911}.XX.XX"
 
     remarks = _subsidiary_remarks(combo, sign, billing, pay) if fam == "subsidiary" else \
         _agency_remarks(combo, start, end, budget)
@@ -505,7 +510,7 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
         campaign=campaign, start=start, end=end, made_date=today,
         medium_label=combo.get("medium", ""), remarks=remarks,
         sign_deadline=sign, material_due=material_due, billing_month=billing,
-        payment_date_text=pay, sheets=sheets)
+        payment_date_text=pay, party_a=party_a, party_a_tax=party_a_tax, sheets=sheets)
     model.filename = _filename(combo, budget, sales, client, today)
     return model
 

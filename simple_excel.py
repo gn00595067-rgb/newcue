@@ -457,13 +457,18 @@ def _subsidiary_remarks(ws, model, r_hd, r0, r_sign, formulas, C_V):
     # 簽章三列（§5.6）
     _merge(ws, r_sign, 1, r_sign, 3)
     _set(ws, r_sign, 1, "甲       方 ：", size=26, halign="left", wrap=True)
+    # 甲方名稱（我方）：寫在標籤右側 D 欄（不新增合併格，維持範本 fidelity）；wrap=False 免折行跑版
+    if model.party_a:
+        _set(ws, r_sign, 4, model.party_a, size=26, halign="left", wrap=False)
     _set(ws, r_sign, 9, "乙    方：", size=26, halign="left", wrap=True, border=_bd(t="thin"))
     _merge(ws, r_sign, 9, r_sign, 11)
     _merge(ws, r_sign, 12, r_sign, 15)
     client_val = '=IF(B3="","",B3)' if formulas else (model.client or "")   # §1.4 空白不顯示 0
-    _set(ws, r_sign, 12, client_val, size=26, wrap=True, border=_bd(t="thin"))
+    # wrap=False：客戶名一長時不折行 → 不觸發 PDF 單頁 fitToHeight 重新縮放（跑版）
+    _set(ws, r_sign, 12, client_val, size=26, wrap=False, border=_bd(t="thin"))
     _merge(ws, r_sign + 1, 1, r_sign + 1, 3)
-    _set(ws, r_sign + 1, 1, "統一編號：", size=26, halign="left", wrap=True)
+    _set(ws, r_sign + 1, 1, f"統一編號：{model.party_a_tax}" if model.party_a_tax else "統一編號：",
+         size=26, halign="left", wrap=True)
     _merge(ws, r_sign + 1, 9, r_sign + 1, 14)
     _set(ws, r_sign + 1, 9, f"統一編號：{model.tax_id}" if model.tax_id else "統一編號：",
          size=26, halign="left")
