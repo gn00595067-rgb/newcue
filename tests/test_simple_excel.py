@@ -59,8 +59,14 @@ _ALLOWED = [
     (r"^VALUE A\d+: tmpl='4\.託播方.*mp3\)。'", "含新鮮視補影片素材(§5.6)"),
     (r"^VALUE A\d+: tmpl='5\.雙方同意費用請款月份 : 月", "請款月份自動填(§4.12/§5.6)"),
     (r"^VALUE A\d+: tmpl='6\.付款兌現日期：115", "付款日格式(§4.12)"),
-    (r"^AL L\d+: tmpl=center/center/W ours=center/center/\.$",
-     "乙方客戶名改 wrap=False：長名不折行，免觸發 PDF 單頁 fitToHeight 重新縮放跑版(§5.6 改良)"),
+    # 簽章區乙方：公司名併入標籤格（I:O 單格、左對齊、緊接標籤，無空格）＋ wrap=False 免長名折行跑版(§5.6 改良)
+    (r"^AL I\d+: tmpl=left/center/W ours=left/center/\.$", "乙方標籤格 wrap=False 免折行(§5.6)"),
+    (r"^AL L\d+: tmpl=center/center/W ours=None/None/\.$", "乙方名併入 I 格→L 成合併內部空格(§5.6)"),
+    (r"^SZ L\d+: tmpl=26\.0 ours=11\.0$", "同上：L 內部空格無字級(§5.6)"),
+    (r"^EMPTY L\d+: tmpl has '=", "同上：範本 L 為 =B3 鏡射，改由 I 格直接帶客戶名(§5.6)"),
+    (r"^MERGE-MISSING \(\d+, 9, \d+, 11\)$", "乙方標籤+名合併為 I:O 單格(§5.6)"),
+    (r"^MERGE-MISSING \(\d+, 12, \d+, 15\)$", "乙方標籤+名合併為 I:O 單格(§5.6)"),
+    (r"^MERGE-EXTRA \(\d+, 9, \d+, 15\)$", "乙方標籤+名合併為 I:O 單格(§5.6)"),
     # 2008 萬家福範本畫整月(30天)，我方只畫走期(14天)→首/中日期欄、回饋列日期區不符(§6)
     (r"^(VALUE|BD) (I10|J10|J13|J14):", "2008萬家福範本整月殘留(§6)"),
     # 凱絡範本瑕疵

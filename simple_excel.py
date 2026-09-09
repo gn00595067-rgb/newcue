@@ -454,18 +454,15 @@ def _subsidiary_remarks(ws, model, r_hd, r0, r_sign, formulas, C_V):
     # 簽章上方空白列（r_sign-1）A..V 下框線 thin（§1.2）
     for c in range(1, C_V + 1):
         _set(ws, r_sign - 1, c, border=_bd(b="thin"))
-    # 簽章三列（§5.6）
+    # 簽章三列（§5.6）—— 甲/乙方公司名緊接標籤（併入同一格、左對齊，比照「統一編號：」列，無空格）
+    # 甲方（我方）：標籤格 A:C 夠寬，名稱直接接在標籤後
     _merge(ws, r_sign, 1, r_sign, 3)
-    _set(ws, r_sign, 1, "甲       方 ：", size=26, halign="left", wrap=True)
-    # 甲方名稱（我方）：寫在標籤右側 D 欄（不新增合併格，維持範本 fidelity）；wrap=False 免折行跑版
-    if model.party_a:
-        _set(ws, r_sign, 4, model.party_a, size=26, halign="left", wrap=False)
-    _set(ws, r_sign, 9, "乙    方：", size=26, halign="left", wrap=True, border=_bd(t="thin"))
-    _merge(ws, r_sign, 9, r_sign, 11)
-    _merge(ws, r_sign, 12, r_sign, 15)
-    client_val = '=IF(B3="","",B3)' if formulas else (model.client or "")   # §1.4 空白不顯示 0
-    # wrap=False：客戶名一長時不折行 → 不觸發 PDF 單頁 fitToHeight 重新縮放（跑版）
-    _set(ws, r_sign, 12, client_val, size=26, wrap=False, border=_bd(t="thin"))
+    _set(ws, r_sign, 1, f"甲       方 ：{model.party_a}" if model.party_a else "甲       方 ：",
+         size=26, halign="left", wrap=True)
+    # 乙方（客戶）：合併 I:O 成單格，名稱接在標籤後、左對齊；wrap=False 免長名折行觸發 PDF 縮放跑版
+    _merge(ws, r_sign, 9, r_sign, 15)
+    _set(ws, r_sign, 9, f"乙    方：{model.client}" if model.client else "乙    方：",
+         size=26, halign="left", wrap=False, border=_bd(t="thin"))
     _merge(ws, r_sign + 1, 1, r_sign + 1, 3)
     _set(ws, r_sign + 1, 1, f"統一編號：{model.party_a_tax}" if model.party_a_tax else "統一編號：",
          size=26, halign="left", wrap=True)
@@ -473,7 +470,7 @@ def _subsidiary_remarks(ws, model, r_hd, r0, r_sign, formulas, C_V):
     _set(ws, r_sign + 1, 9, f"統一編號：{model.tax_id}" if model.tax_id else "統一編號：",
          size=26, halign="left")
     _merge(ws, r_sign + 2, 1, r_sign + 2, 3)
-    _set(ws, r_sign + 2, 1, f"  承辦人：{model.sales}" if model.sales else "  承辦人：",
+    _set(ws, r_sign + 2, 1, f"承辦人：{model.sales}" if model.sales else "承辦人：",
          size=26, halign="left", wrap=True)
     _merge(ws, r_sign + 2, 9, r_sign + 2, 14)
     _set(ws, r_sign + 2, 9, "客戶簽章：", size=26, halign="left")
