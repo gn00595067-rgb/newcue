@@ -67,6 +67,9 @@ _ALLOWED = [
     (r"^MERGE-MISSING \(\d+, 9, \d+, 11\)$", "乙方標籤+名合併為 I:O 單格(§5.6)"),
     (r"^MERGE-MISSING \(\d+, 12, \d+, 15\)$", "乙方標籤+名合併為 I:O 單格(§5.6)"),
     (r"^MERGE-EXTRA \(\d+, 9, \d+, 15\)$", "乙方標籤+名合併為 I:O 單格(§5.6)"),
+    # 非家樂福區塊底線：Station(A)/Day-part(D)/Size(E) 合併格下緣補 medium，與 B/C/F 一致連續粗線
+    #（範本 A/D/E 誤用 hair，thin/hair=lvl1、medium=lvl2）(§5.4 改良)
+    (r"^BD [ADE]\d+: (top|bottom).* tmpl_lvl=1 ours_lvl=2$", "區塊底線 A/D/E 補 medium 連續(§5.4)"),
     # 2008 萬家福範本畫整月(30天)，我方只畫走期(14天)→首/中日期欄、回饋列日期區不符(§6)
     (r"^(VALUE|BD) (I10|J10|J13|J14):", "2008萬家福範本整月殘留(§6)"),
     # 凱絡範本瑕疵

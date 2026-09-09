@@ -288,9 +288,10 @@ def _subsidiary_sheet(ws, model, sheet, formulas):
         # Station 合併（A）
         _merge(ws, b_first, 1, b_last, 1)
         # 家樂福 2 列小區塊：上緣 medium、下緣 thin（對齊範本手繪風格）；6 區塊上緣 thin
+        # 非家樂福區塊：Station 合併格下緣 medium，讓區塊底線與 B/C/F 一致連續粗線（範本 A/D/E 誤用 hair）
         is_cf = blk.platform == "家樂福"
         _set(ws, b_first, 1, sc.STATION_TEXT.get(blk.platform, ""), size=22, wrap=True,
-             border=_bd(t="medium" if is_cf else "thin", b="thin" if is_cf else "hair",
+             border=_bd(t="medium" if is_cf else "thin", b="thin" if is_cf else "medium",
                         l="medium", r="thin"))
         # 家樂福 block：D 不合併（量販/超市各自），E 合併
         if not is_cf:
@@ -345,11 +346,13 @@ def _subsidiary_data_row(ws, r, row, ri, b_first, b_last, blk, C_H, nd, C_V,
         _set(ws, row, 4, r.daypart, size=22, nf="@",
              border=_bd(t=tb, b=hb, l="thin", r="thin"))
     elif ri == 0:
+        # 非家樂福 Day-part 合併格下緣 medium（與 Station/B/C/F 一致連續粗線）
         _set(ws, b_first, 4, r.daypart, size=22, nf="@",
-             border=_bd(t=tb, b="hair", l="thin", r="thin"))
-    # E Size 邊框（合併格）
+             border=_bd(t=tb, b="medium", l="thin", r="thin"))
+    # E Size 邊框（合併格）；非家樂福下緣 medium，家樂福維持 hair
     if ri == 0:
-        ws.cell(row=b_first, column=5).border = _bd(t=tb, b="hair", l="thin", r="thin")
+        e_bot = "hair" if is_cf else "medium"
+        ws.cell(row=b_first, column=5).border = _bd(t=tb, b=e_bot, l="thin", r="thin")
     # F rate(Net)
     if r.rate_text is not None:
         _set(ws, row, 6, r.rate_text, size=22, wrap=True,
