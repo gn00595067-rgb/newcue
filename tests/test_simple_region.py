@@ -123,7 +123,7 @@ def test_reach_only_counts_selected_regions():
     d = sheetdata()
     full = sm.build_model("sub_qp_wjf", 250000, S, E, data=d)
     north = sm.build_model("sub_qp_wjf", 250000, S, E, data=d, regions=["北區"])
-    assert north.sheets[0].reach["impressions"] < full.sheets[0].reach["impressions"]
+    assert north.sheets[0].reach["total"]["impressions"] < full.sheets[0].reach["total"]["impressions"]
 
 
 # --------------------------------------------------------------------------- #

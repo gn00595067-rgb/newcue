@@ -16,6 +16,7 @@ from math import floor
 import agency_cue as ac
 from agency_cue import rhu
 import simple_config as sc
+import simple_reach as sr
 
 _WEEK_CH = "一二三四五六日"
 
@@ -245,7 +246,6 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None):
 
         blocks = []
         hidden = 0.0
-        reach_spots = reach_imp = reach_traffic = 0.0
         for media in combo["blocks"]:
             n = alloc[media]
             unit = sub_unit_net(media, sec, data, regions)
@@ -274,9 +274,6 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None):
                     stores=stores_super, daypart=sc.DAYPART_SUBSIDIARY["家樂福超市"],
                     seconds=sec, spots=sn, schedule=ssch,
                     rate_text=sc.TXT_ON_MAG, hidden_net=0.0))
-                reach_spots += n + sn
-                reach_imp += stores_mag * n + stores_super * sn
-                reach_traffic += (stores_mag * n + stores_super * sn) * sc.TRAFFIC_FACTOR
             else:
                 f = factor(media, sec, data)
                 daypart = sc.DAYPART_SUBSIDIARY[media]
@@ -292,9 +289,6 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None):
                         spots=n, schedule=sch,
                         rate_num=(reg["List"], reg["Std"], f),
                         hidden_net=(n * unit if ri == 0 else 0.0)))
-                    reach_spots += n
-                    reach_imp += stores_r * n
-                    reach_traffic += stores_r * n * sc.TRAFFIC_FACTOR
             blocks.append(CueBlock(platform=media, rows=rows))
 
         vat = rhu((budget + prod_cost) * 0.05)
@@ -304,8 +298,7 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None):
             title=_sheet_title_sub(budget, sec), seconds=sec, blocks=blocks,
             days=days, budget=budget, prod_cost=prod_cost, fees=fees,
             hidden_net_total=hidden,
-            reach={"total_spots": int(reach_spots), "impressions": int(reach_imp),
-                   "traffic": int(reach_traffic)}))
+            reach=sr.compute_reach(blocks, data, ndays)))
     return sheets
 
 
@@ -389,7 +382,7 @@ def _build_2008(combo, budget, start, end, data):
             fees = _fees_2008(budget)
         sheets.append(CueSheet(title=f"{'全家' if combo['platform']=='family' else '萬家福&樂家康'} {sec}秒",
                                seconds=sec, blocks=blocks, days=days, budget=budget,
-                               fees=fees))
+                               fees=fees, reach=sr.compute_reach(blocks, data, ndays)))
     return sheets
 
 
@@ -452,7 +445,8 @@ def _build_carat(combo, budget, start, end, data):
         fees["discount_value"] = media_value - budget
         title = f"全家-{sec}秒" if combo["platform"] == "family" else f"萬家福 & 樂家康 {sec}秒"
         sheets.append(CueSheet(title=title, seconds=sec, blocks=blocks, days=days,
-                               budget=budget, fees=fees))
+                               budget=budget, fees=fees,
+                               reach=sr.compute_reach(blocks, data, ndays)))
     return sheets
 
 

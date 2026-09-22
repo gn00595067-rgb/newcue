@@ -448,6 +448,13 @@ def _subsidiary_totals(ws, sheet, r_first, r_last, r_total, r_prod, r_vat, r_gra
     _set(ws, r_vat, C_V, border=_bd(r="medium"))
     _set(ws, r_grand, C_V, border=_bd(b="medium", r="medium"))
 
+    # 預估曝光／人流三行（§4.3，開關 SHOW_REACH_IN_CUE，預設關）——
+    # 寫在製作/VAT/Grand 三列的 A 欄（不合併、左對齊、向右溢出到空白格），保留既有框線。
+    if sc.SHOW_REACH_IN_CUE:
+        lines = (sheet.reach or {}).get("lines") or []
+        for tr, line in zip((r_prod, r_vat, r_grand), lines[:3]):
+            _set(ws, tr, 1, line, size=22, bold=False, halign="left")
+
 
 def _subsidiary_remarks(ws, model, r_hd, r0, r_sign, formulas, C_V):
     _set(ws, r_hd, 1, "Remarks：", size=26, bold=True, halign=None)   # 範本用預設對齊

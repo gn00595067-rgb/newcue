@@ -96,6 +96,61 @@ def _next_monday_after(days_ahead=10):
     return d
 
 
+_REACH_TABLE_NAME = {"全家廣播": "全家通路廣播", "新鮮視": "TV（新鮮視）",
+                     "家樂福": "家樂福通路廣播"}
+
+
+def _render_reach(sheet, family):
+    """📣 預估曝光／人流區塊（§4.1）：逐平台×地區明細 + 可複製客戶用文字 + 計算方式。"""
+    from agency_cue import rhu
+    reach = sheet.reach or {}
+    by_plat = reach.get("by_platform") or []
+    if not by_plat:
+        return
+    est = "（估算，依子公司規則延伸）" if family in ("2008", "carat") else ""
+    st.markdown(f"**📣 預估曝光／人流（{sheet.seconds}秒版）**{est}"
+                "　　:gray[依公司「各平台人流計算方式」逐地區試算]")
+
+    rows = []
+    for e in by_plat:
+        pname = _REACH_TABLE_NAME.get(e["platform"], e["platform"])
+        regs = e.get("regions") or [{
+            "label": "全區", "stores": e["stores"], "spots": e["spots"],
+            "impressions": e["impressions"], "traffic": e["traffic"]}]
+        for i, r in enumerate(regs):
+            rows.append({
+                "平台": pname if i == 0 else "",
+                "地區／通路": r["label"],
+                "店數": f"{r['stores']:,}",
+                "檔次": f"{r['spots']:,}",
+                "總曝光次數": f"{r['impressions']:,}",
+                "曝光期間店舖總人流量": f"{rhu(r['traffic']):,}",
+            })
+        # 平台小計
+        rows.append({
+            "平台": "", "地區／通路": "小計", "店數": f"{e['stores']:,}",
+            "檔次": f"{e['spots']:,}", "總曝光次數": f"{e['impressions']:,}",
+            "曝光期間店舖總人流量": f"{rhu(e['traffic']):,}",
+        })
+    tot = reach.get("total", {})
+    rows.append({
+        "平台": "合計", "地區／通路": "", "店數": "", "檔次": "",
+        "總曝光次數": f"{tot.get('impressions', 0):,}",
+        "曝光期間店舖總人流量": f"{rhu(tot.get('traffic', 0)):,}",
+    })
+    st.dataframe(rows, hide_index=True, use_container_width=True)
+
+    lines = reach.get("lines") or []
+    if lines:
+        st.caption("📋 複製給客戶（公司格式：各平台合計，右上角可一鍵複製）")
+        st.code("\n".join(lines), language=None)
+    with st.expander("計算方式"):
+        st.caption("全家企頻／新鮮視：每店每日人流 1,000 人 ÷ 24 小時 ÷ 6 窗口 × 各地區店數 × 檔次（逐區加總）；"
+                   "萬家福：660,000 ÷ 14 小時 × 量販檔次；"
+                   "樂家康：200,000 ÷ 24 小時 × 0.75 × 超市檔次。"
+                   "（家樂福總曝光固定 860,000，與檔次天數無關）")
+
+
 def _pills(label, options, fmt, key, default_index=0):
     """st.pills（Streamlit≥1.40）；不支援時退回 radio。"""
     try:
@@ -231,12 +286,15 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     s0 = model.sheets[0]
     grand = s0.fees.get("grand") or s0.fees.get("total")
     total_spots0 = sum(r.spots for b in s0.blocks for r in b.rows)
-    m = st.columns(5)
+    from agency_cue import rhu as _rhu
+    reach_traffic0 = _rhu((s0.reach or {}).get("total", {}).get("traffic", 0))
+    m = st.columns(6)
     m[0].metric("秒數版本", f"{len(model.sheets)}")
     m[1].metric("走期天數", f"{ndays}")
     m[2].metric("Package (Net)", f"${int(budget):,}")
     m[3].metric("Grand Total", f"${int(grand):,}")
     m[4].metric("總檔次（首版）", f"{total_spots0:,}")
+    m[5].metric("預估總人流（首版）", f"{reach_traffic0:,}")
 
     # 下載
     #   主要：值版 —— 開啟即見數字（公式版在 Excel 受保護檢視/未重算時 rate 會空白）
@@ -276,6 +334,8 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
             total_spots = sum(r.spots for b in sheet.blocks for r in b.rows)
             g = sheet.fees.get("grand") or sheet.fees.get("total")
             st.caption(f"{sheet.seconds}秒版 ｜ 總檔次 {total_spots:,} ｜ Grand Total ${int(g):,}")
+            _render_reach(sheet, model.family)
+            st.divider()
             if pngs is not None:
                 st.image(pngs[idx], use_container_width=True)
             else:
@@ -289,6 +349,4 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                     st.write(f"**{disp}**：主檔次 {main.spots:,}／每日 {main.schedule[0] if main.schedule else 0}")
                 if model.family == "subsidiary":
                     fill = sheet.hidden_net_total / sheet.budget * 100 if sheet.budget else 0
-                    st.caption(f"隱藏實收 ${int(sheet.hidden_net_total):,}／填滿率 {fill:.1f}%"
-                               f"｜總曝光 {sheet.reach['impressions']:,}"
-                               f"｜預估人流 {sheet.reach['traffic']:,}")
+                    st.caption(f"隱藏實收 ${int(sheet.hidden_net_total):,}／填滿率 {fill:.1f}%")
