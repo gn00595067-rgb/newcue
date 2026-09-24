@@ -163,26 +163,49 @@ def _all_cell_values(xlsx_bytes):
 # --------------------------------------------------------------------------- #
 # Excel 開關（§4.3 / §6.4）
 # --------------------------------------------------------------------------- #
-def test_excel_reach_switch_off_zero_leak():
-    """預設 SHOW_REACH_IN_CUE=False：Excel 內完全不出現「曝光」二字（零洩漏）。"""
+def test_excel_reach_switch_off_zero_leak(monkeypatch):
+    """SHOW_REACH_IN_CUE=False 時：Excel 內完全不出現「曝光」二字（零洩漏）。"""
     import simple_excel as se
-    assert sc.SHOW_REACH_IN_CUE is False
+    monkeypatch.setattr(sc, "SHOW_REACH_IN_CUE", False)
     m = sm.build_model("sub_qp_fv", 200000, date(2026, 9, 21), date(2026, 10, 4),
                        data=sheetdata())
     xlsx = se.render(m, formulas=False)
     assert not any("曝光" in v for _, v in _all_cell_values(xlsx))
 
 
-def test_excel_reach_switch_on_writes_lines(monkeypatch):
-    """SHOW_REACH_IN_CUE=True：子公司 Excel A 欄印出客戶三行文字。"""
+def test_excel_reach_default_on():
+    """預設 SHOW_REACH_IN_CUE=True（2026-09-24 老闆令定：七組合皆印費用區左側）。"""
+    assert sc.SHOW_REACH_IN_CUE is True
+
+
+def test_excel_reach_switch_on_writes_lines():
+    """SHOW_REACH_IN_CUE=True（預設）：子公司 Excel A 欄印出客戶各平台文字。"""
     import simple_excel as se
-    monkeypatch.setattr(sc, "SHOW_REACH_IN_CUE", True)
     m = sm.build_model("sub_qp_fv", 200000, date(2026, 9, 21), date(2026, 10, 4),
                        data=sheetdata())
     xlsx = se.render(m, formulas=False)
     a_vals = [v for coord, v in _all_cell_values(xlsx) if coord.startswith("A")]
     for line in m.sheets[0].reach["lines"]:
         assert line in a_vals
+
+
+@pytest.mark.parametrize("key,extra", [
+    ("ag_2008_fam", {"client": "統一企業", "product": "統一 "}),
+    ("ag_2008_wjf", {"client": "統一企業", "product": "統一 "}),
+    ("ag_carat_fam", {"client": "統一", "product": "麥香", "today": date(2026, 8, 31)}),
+    ("ag_carat_wjf", {"client": "統一", "product": "純喫茶", "today": date(2026, 8, 11)}),
+])
+def test_agency_excel_reach_lines_on(key, extra):
+    """SHOW_REACH_IN_CUE=True（預設）：四組代理商 Excel 也在 A 欄印出各平台結論。"""
+    import simple_excel as se
+    m = sm.build_model(key, 250000, date(2026, 9, 7), date(2026, 9, 20),
+                       data=sheetdata(), **extra)
+    xlsx = se.render(m, formulas=False)
+    a_vals = [v for coord, v in _all_cell_values(xlsx) if coord.startswith("A")]
+    lines = m.sheets[0].reach["lines"]
+    assert lines, f"{key} 無 reach 行"
+    for line in lines:
+        assert line in a_vals, f"{key} A 欄缺行：{line}"
 
 
 def test_subsidiary_reach_structure():

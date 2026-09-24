@@ -7,6 +7,7 @@
 """
 import os
 
+from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -55,6 +56,24 @@ def _w(ws, r, c, v):
 
 def _fill(ws, r, c, color):
     ws.cell(row=r, column=c).fill = PatternFill("solid", fgColor=color) if color else PatternFill()
+
+
+def _agency_reach(ws, sheet, rows):
+    """各平台曝光/人流結論印在費用區左側 A 欄（§4.3，開關 SHOW_REACH_IN_CUE）。
+    代理商多為單一平台→單行；只寫候選列中「非合併且空白」的 A 格（母版 A 欄多處
+    為跨列合併），左對齊、保留母版框線/字型/底色。"""
+    if not sc.SHOW_REACH_IN_CUE:
+        return
+    lines = (getattr(sheet, "reach", None) or {}).get("lines") or []
+    writable = [r for r in rows
+                if not isinstance(ws.cell(row=r, column=1), MergedCell)
+                and ws.cell(row=r, column=1).value in (None, "")]
+    for r, line in zip(writable, lines):
+        cell = ws.cell(row=r, column=1)
+        cell.value = line
+        a = cell.alignment
+        cell.alignment = Alignment(horizontal="left", vertical=a.vertical or "center",
+                                   wrap_text=bool(a.wrap_text))
 
 
 def _newsheet(wb, title, first):
@@ -170,6 +189,7 @@ def _fill_2008_fam(ws, model, sheet, FIRST, LAST, formulas):
         _w(ws, 14, col, f"=SUM({cl}11:{cl}13)" if formulas else main.schedule[i])
 
     _fees_2008(ws, sheet, formulas)
+    _agency_reach(ws, sheet, [17, 18, 19])   # 費用區左側（Budget/AC/Tax 列 A 欄，範本空白）
     _remarks_2008(ws, model)
 
 
@@ -220,6 +240,7 @@ def _fill_2008_wjf(ws, model, sheet, FIRST, LAST, formulas):
         _w(ws, 15, FIRST + i, f"=SUM({cl}11:{cl}12)" if formulas else mag.schedule[i] + sup.schedule[i])
 
     _fees_2008(ws, sheet, formulas)
+    _agency_reach(ws, sheet, [17, 18, 19])   # 費用區左側（Budget/AC/Tax 列 A 欄，範本空白）
     _remarks_2008(ws, model)
 
 
@@ -344,6 +365,7 @@ def _fill_carat_fam(ws, model, sheet, FIRST, LAST, formulas):
     _w(ws, 16, 10, "=SUM(J14:J15)*5%" if formulas else sheet.fees["vat"])
     _w(ws, 17, 9, "Grand-Total")
     _w(ws, 17, 10, "=SUM(J14:J16)" if formulas else sheet.fees["grand"])
+    _agency_reach(ws, sheet, [17, 18, 19])   # 費用區左側（Grand 列以下 A 欄，範本空白）
     _carat_signature(ws, LAST)
     _carat_remarks(ws, model)
 
@@ -373,5 +395,6 @@ def _fill_carat_wjf(ws, model, sheet, FIRST, LAST, formulas):
     _w(ws, 14, 2, "=SUM(I8:I9)" if formulas else sheet.fees["media_value"])
     _w(ws, 15, 1, "優惠總價值(NET)")
     _w(ws, 15, 2, "=B14-J8" if formulas else sheet.fees["discount_value"])
+    _agency_reach(ws, sheet, [12, 13, 16])   # 費用區左側（A11 母版合併，取空白非合併列）
     _carat_signature(ws, LAST)
     _carat_remarks(ws, model)
