@@ -8,6 +8,13 @@ from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from utils import html_escape, split_period_by_months
 
+# 媒體顯示名（內部 key「家樂福」＝萬家福量販＋樂家康超市；客戶一律顯示萬家福．樂家康）
+_MEDIA_DISPLAY = {"家樂福": "萬家福．樂家康"}
+
+
+def _media_disp(m):
+    return _MEDIA_DISPLAY.get(m, m)
+
 
 def _round_half_up(value):
     return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
@@ -61,11 +68,11 @@ def _render_one_month_table(rows, days_in_month, month_start, month_end, full_to
                 pkg_val_str = f"<td style='text-align:center'>{val}</td>"
             if format_type == "聲活":
                 sec_txt = f"{r['seconds']}秒"
-                tbody += f"<td>{r['media']}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{sec_txt}</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{_media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{sec_txt}</td><td>{rate}</td>{pkg_val_str}"
             elif format_type == "鉑霖":
-                tbody += f"<td>{r['media']}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}秒</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{_media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}秒</td><td>{rate}</td>{pkg_val_str}"
             else:
-                tbody += f"<td>{r['media']}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{_media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}</td><td>{rate}</td>{pkg_val_str}"
             row_spots_sum = 0
             for d_idx, d in enumerate(r['schedule'][:days_in_month]):
                 cell_val = "" if (d == 0 or d is None) else d
@@ -102,7 +109,7 @@ def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_di
         unique_media = sorted(list(set([r['media'] for r in rows])))
         order_map = {"全家廣播": 1, "新鮮視": 2, "家樂福": 3}
         unique_media.sort(key=lambda x: order_map.get(x, 99))
-        medium_str = "/".join(unique_media)
+        medium_str = "/".join(_media_disp(m) for m in unique_media)
         remarks_html = "<br>".join([html_escape(x) for x in remarks])
         remarks_block = f"<div style='margin-top:10px; font-size:11px;'><b>Remarks：本排程表經雙方確認後視同合約之延伸，具同等法律約束力與效力</b><br>{remarks_html}</div>"
         client_info_base = f"<b>客戶名稱：</b>{html_escape(c_name)} &nbsp; <b>統編：</b>{html_escape(tax_id)} &nbsp; <b>Product：</b>{html_escape(p_display)} &nbsp; <b>Medium：</b>{html_escape(medium_str)}"
@@ -207,11 +214,11 @@ def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_di
             # 填充列內容
             if format_type == "聲活":
                 sec_txt = f"{r['seconds']}秒"
-                tbody += f"<td>{r['media']}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{sec_txt}</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{_media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{sec_txt}</td><td>{rate}</td>{pkg_val_str}"
             elif format_type == "鉑霖":
-                tbody += f"<td>{r['media']}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}秒</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{_media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}秒</td><td>{rate}</td>{pkg_val_str}"
             else:
-                tbody += f"<td>{r['media']}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{_media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}</td><td>{rate}</td>{pkg_val_str}"
 
             # 填入每日檔次（未執行日為 0 時顯示空白）
             row_spots_sum = 0

@@ -119,7 +119,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         unique_secs = sorted(list(set([r['seconds'] for r in rows])))
         p_str = f"{'、'.join([f'{s}秒' for s in unique_secs])} {product_name}"
         unique_media = sorted(list(set([r['media'] for r in rows])))
-        medium_str = "/".join(unique_media)
+        medium_str = "/".join(("萬家福．樂家康" if m == "家樂福" else m) for m in unique_media)
         
         infos = [("A3", "客戶名稱：", client_name), ("A4", "Product：", p_str), ("A5", "Period :", f"{start_dt.strftime('%Y. %m. %d')} - {end_dt.strftime('%Y. %m. %d')}"), ("A6", "Medium :", medium_str)]
         pos_to_row = {"A3": 3, "A4": 4, "A5": 5, "A6": 6}
@@ -182,7 +182,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             if not data: continue
             start_merge = curr_row
             display_name = f"全家便利商店\n{m_key if m_key!='家樂福' else ''}廣告"
-            if m_key == "家樂福": display_name = "家樂福"
+            if m_key == "家樂福": display_name = "萬家福．樂家康"
             elif m_key == "全家廣播": display_name = "全家便利商店\n通路廣播廣告"
             elif m_key == "新鮮視": display_name = "全家便利商店\n新鮮視廣告"
 
@@ -388,7 +388,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
 
         for m_key, data in grouped_data.items():
             if not data: continue
-            start_merge = curr_row; d_name = f"全家便利商店\n{m_key}廣告" if m_key != "家樂福" else "家樂福"
+            start_merge = curr_row; d_name = f"全家便利商店\n{m_key}廣告" if m_key != "家樂福" else "萬家福．樂家康"
             for idx, r in enumerate(data):
                 ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
                 p_num = int(r.get('program_num', 0)); total_store_count += p_num; suffix = "面" if m_key == "新鮮視" else "店"; ws.cell(curr_row, 3, f"{p_num:,}{suffix}").alignment = ALIGN_CENTER
@@ -683,7 +683,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         total_store_count = 0; total_list_sum = 0
         for m_key, data in grouped_data.items():
             if not data: continue
-            start_merge = curr_row; d_name = f"全家便利商店\n{m_key}廣告" if m_key != "家樂福" else "家樂福"
+            start_merge = curr_row; d_name = f"全家便利商店\n{m_key}廣告" if m_key != "家樂福" else "萬家福．樂家康"
             for idx, r in enumerate(data):
                 ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
                 p_num = int(r.get('program_num', 0)); total_store_count += p_num; suffix = "面" if m_key == "新鮮視" else "店"; ws.cell(curr_row, 3, f"{p_num:,}{suffix}").alignment = ALIGN_CENTER

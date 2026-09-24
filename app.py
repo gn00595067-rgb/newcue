@@ -268,7 +268,9 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
     st.markdown("#### 廣告組合（平台、區域、秒數）")
     col_list, col_add = st.columns([1, 1])
     with col_add:
-        media_aq = st.selectbox("平台", ["全家廣播", "新鮮視", "家樂福"], key="aq_add_media")
+        media_aq = st.selectbox("平台", ["全家廣播", "新鮮視", "家樂福"],
+                                format_func=lambda m: "萬家福．樂家康" if m == "家樂福" else m,
+                                key="aq_add_media")
         if media_aq == "家樂福":
             region_aq = "全省"
         else:
@@ -1083,7 +1085,7 @@ def main():
 
         is_rad = col_cb1.checkbox("全家廣播", key="cb_rad", on_change=on_media_change)
         is_fv = col_cb2.checkbox("新鮮視", key="cb_fv", on_change=on_media_change)
-        is_cf = col_cb3.checkbox("家樂福", key="cb_cf", on_change=on_media_change)
+        is_cf = col_cb3.checkbox("萬家福．樂家康", key="cb_cf", on_change=on_media_change)
 
         m1, m2, m3 = st.columns(3)
         config = {}
@@ -1255,7 +1257,7 @@ def main():
 
         if is_cf:
             with m3:
-                st.markdown("#### 🛒 家樂福")
+                st.markdown("#### 🛒 萬家福．樂家康")
                 # 修改：移除預設值參數
                 secs = st.multiselect("秒數", DURATIONS, key="cf_sec")
                 st.slider("預算 %", 0, 100, key="cf_share", on_change=on_slider_change, args=("cf_share",))
@@ -1306,7 +1308,7 @@ def main():
                         "套用「全省全家廣播達標」回饋",
                         value=st.session_state.get("apply_nat_rad_rebate", True),
                         key="apply_nat_rad_rebate",
-                        help="依全省全家廣播預算×回饋% 回饋到全家廣播或家樂福（下方擇一）。",
+                        help="依全省全家廣播預算×回饋% 回饋到全家廣播或萬家福．樂家康（下方擇一）。",
                     )
                     if apply_nat_rad:
                         rebate_nat_destination = st.radio(
@@ -1315,7 +1317,8 @@ def main():
                             index=0,
                             key="rebate_nat_destination",
                             horizontal=True,
-                            help="可選擇依該預算×% 回饋在「全省全家廣播」或「全省家樂福」。",
+                            format_func=lambda m: "萬家福．樂家康" if m == "家樂福" else m,
+                            help="可選擇依該預算×% 回饋在「全省全家廣播」或「全省萬家福．樂家康」。",
                         )
                 else:
                     for k in ("apply_nat_rad_rebate", "rebate_nat_destination"):
@@ -1324,10 +1327,10 @@ def main():
                 # 回饋 2：家樂福達標 → 家樂福預算×% 回饋家樂福（與回饋1可併存）
                 if qual.get("nat_cf"):
                     apply_nat_cf = st.checkbox(
-                        "套用「家樂福達標」回饋",
+                        "套用「萬家福．樂家康達標」回饋",
                         value=st.session_state.get("apply_nat_cf_rebate", True),
                         key="apply_nat_cf_rebate",
-                        help="依家樂福預算×回饋% 回饋到全省家樂福。可與「全省全家達標→家樂福」併存。",
+                        help="依萬家福．樂家康預算×回饋% 回饋到全省萬家福．樂家康。可與「全省全家達標→萬家福．樂家康」併存。",
                     )
                 else:
                     if "apply_nat_cf_rebate" in st.session_state:
@@ -1451,7 +1454,7 @@ def main():
                     b_cb1, b_cb2, b_cb3 = st.columns(3)
                     is_b_rad = b_cb1.checkbox("全家廣播", key="bonus_cb_rad", on_change=bonus_on_media_change)
                     is_b_fv = b_cb2.checkbox("新鮮視", key="bonus_cb_fv", on_change=bonus_on_media_change)
-                    is_b_cf = b_cb3.checkbox("家樂福", key="bonus_cb_cf", on_change=bonus_on_media_change)
+                    is_b_cf = b_cb3.checkbox("萬家福．樂家康", key="bonus_cb_cf", on_change=bonus_on_media_change)
 
                     b_m1, b_m2, b_m3 = st.columns(3)
                     if is_b_rad:
@@ -1504,7 +1507,7 @@ def main():
                                 bonus_config["新鮮視"] = {"is_national": is_b_nat_fv, "regions": b_regs_fv if b_regs_fv else ["全省"], "sec_shares": b_sec_shares_fv, "share": st.session_state.get("bonus_fv_share", 0)}
                     if is_b_cf:
                         with b_m3:
-                            st.markdown("##### 🛒 家樂福")
+                            st.markdown("##### 🛒 萬家福．樂家康")
                             b_secs_cf = st.multiselect("秒數", DURATIONS, key="bonus_cf_sec")
                             st.slider("預算 %", 0, 100, key="bonus_cf_share", on_change=bonus_on_slider_change, args=("bonus_cf_share",))
                             sorted_b_secs_cf = sorted(b_secs_cf)

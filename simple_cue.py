@@ -97,7 +97,7 @@ def _next_monday_after(days_ahead=10):
 
 
 _REACH_TABLE_NAME = {"全家廣播": "全家通路廣播", "新鮮視": "TV（新鮮視）",
-                     "家樂福": "家樂福通路廣播"}
+                     "家樂福": "萬家福．樂家康通路廣播"}
 
 
 def _render_reach(sheet, family):
@@ -148,7 +148,7 @@ def _render_reach(sheet, family):
         st.caption("全家企頻／新鮮視：每店每日人流 1,000 人 ÷ 24 小時 ÷ 6 窗口 × 各地區店數 × 檔次（逐區加總）；"
                    "萬家福：660,000 ÷ 14 小時 × 量販檔次；"
                    "樂家康：200,000 ÷ 24 小時 × 0.75 × 超市檔次。"
-                   "（家樂福總曝光固定 860,000，與檔次天數無關）")
+                   "（萬家福．樂家康總曝光固定 860,000，與檔次天數無關）")
 
 
 def _pills(label, options, fmt, key, default_index=0):
