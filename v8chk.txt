@@ -1,0 +1,11 @@
+檔次表頭 V7:V8 —
+V7(anchor): Tmedium Bmedium Lmedium Rmedium
+V8(構成): T. Bmedium Lmedium Rmedium
+其他表頭合併(row7 anchor / row8 構成) —
+A7: Tmedium Bthin Lmedium Rthin  A8: T. Bthin Lmedium Rthin
+F7: Tmedium Bthin Lthin Rthin  F8: T. Bthin Lthin Rthin
+G7: Tmedium Bthin L. Rmedium  G8: T. Bthin L. Rmedium
+月份合併 H4:U4 構成 —
+H4: T. B. L. R.  I4: T. B. L. R.
+G Package G9:G20 構成末 G20 —
+G20: T. Bmedium Lthin Rmedium

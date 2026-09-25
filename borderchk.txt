@@ -1,0 +1,22 @@
+=== D(Day-part merged D9:D14) ===
+D9: Tthin Bthin Lthin Rthin
+D10: T. B. Lthin Rthin
+D11: T. B. Lthin Rthin
+D12: T. B. Lthin Rthin
+D13: T. B. Lthin Rthin
+D14: T. Bthin Lthin Rthin
+=== E(Size merged E9:E14) ===
+E9: Tthin Bthin Lthin Rthin
+E10: T. B. Lthin Rthin
+E11: T. B. Lthin Rthin
+E12: T. B. Lthin Rthin
+E13: T. B. Lthin Rthin
+E14: T. Bthin Lthin Rthin
+=== A(Station merged A9:A14) ===
+A9: Tthin Bthin Lmedium Rthin
+A10: T. B. Lmedium Rthin
+A11: T. B. Lmedium Rthin
+A12: T. B. Lmedium Rthin
+A13: T. B. Lmedium Rthin
+A14: T. Bthin Lmedium Rthin
+merged ranges: ['A15:A20', 'A1:V1', 'A7:A8', 'A9:A14', 'B7:B8', 'C7:C8', 'D15:D20', 'D7:D8', 'D9:D14', 'E15:E20', 'E7:E8', 'E9:E14', 'F7:F8', 'G7:G8', 'G9:G20', 'H4:U4']
