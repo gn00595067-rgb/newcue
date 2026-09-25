@@ -7,8 +7,8 @@
 - 狀態：🟢 LIVE（簡易模式 v2 已上線，見 `newcue_簡易模式_開發摘要.md`）
 - 本機：`C:\dev\newcue`
 - push：`gn00595067-rgb/newcue.git` · `main`（push 後 Streamlit Cloud 自動部署）
-- 線上：<Streamlit Cloud 網址，待填>
-- Secrets（只列名稱）：<APP_PASSWORD？>、<RAGIC_API_KEY？>、<GH_TOKEN？>（實際名稱待確認）
+- 線上：https://newcue-uxlbmxtahmsegh4c6cbysb.streamlit.app/
+- Secrets（只列名稱）：`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`（見 `.streamlit/secrets.toml.example`）
 
 ## 地雷（踩過的坑，改 code 前先看）
 - Excel 產出一律用「值版」下載；openpyxl 公式版在受保護檢視會空白。
