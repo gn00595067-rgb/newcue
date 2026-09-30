@@ -402,7 +402,11 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             start_merge = curr_row; d_name = f"全家便利商店\n{m_key}廣告" if m_key != "家樂福" else "萬家福．樂家康"
             for idx, r in enumerate(data):
                 ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
-                p_num = int(r.get('program_num', 0)); total_store_count += p_num; suffix = "面" if m_key == "新鮮視" else "店"; ws.cell(curr_row, 3, f"{p_num:,}{suffix}").alignment = ALIGN_CENTER
+                # 加贈列 program_num 為文字（「加贈檔次」）→ 原樣顯示、不計入總店數（比照東吳）
+                p_raw = r.get('program_num', 0); suffix = "面" if m_key == "新鮮視" else "店"
+                if isinstance(p_raw, (int, float)): p_num = int(p_raw); total_store_count += p_num; p_txt = f"{p_num:,}{suffix}"
+                else: p_txt = str(p_raw)
+                ws.cell(curr_row, 3, p_txt).alignment = ALIGN_CENTER
                 ws.cell(curr_row, 4, r['daypart']).alignment = ALIGN_CENTER
                 sec = r['seconds']; sec_txt = f"{sec}秒\n影片/影像 1920x1080 (mp4)" if m_key == "新鮮視" else f"{sec}秒廣告"; c_spec = ws.cell(curr_row, 5, sec_txt); c_spec.alignment = ALIGN_CENTER; c_spec.font = Font(name=FONT_MAIN, size=10)
                 row_sum = 0
@@ -698,7 +702,11 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             start_merge = curr_row; d_name = f"全家便利商店\n{m_key}廣告" if m_key != "家樂福" else "萬家福．樂家康"
             for idx, r in enumerate(data):
                 ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
-                p_num = int(r.get('program_num', 0)); total_store_count += p_num; suffix = "面" if m_key == "新鮮視" else "店"; ws.cell(curr_row, 3, f"{p_num:,}{suffix}").alignment = ALIGN_CENTER
+                # 加贈列 program_num 為文字（「加贈檔次」）→ 原樣顯示、不計入總店數（比照東吳）
+                p_raw = r.get('program_num', 0); suffix = "面" if m_key == "新鮮視" else "店"
+                if isinstance(p_raw, (int, float)): p_num = int(p_raw); total_store_count += p_num; p_txt = f"{p_num:,}{suffix}"
+                else: p_txt = str(p_raw)
+                ws.cell(curr_row, 3, p_txt).alignment = ALIGN_CENTER
                 ws.cell(curr_row, 4, r['daypart']).alignment = ALIGN_CENTER
                 sec = r['seconds']; sec_txt = f"{sec}秒\n影片/影像 1920x1080 (mp4)" if m_key == "新鮮視" else f"{sec}秒廣告"; c_spec = ws.cell(curr_row, 5, sec_txt); c_spec.alignment = ALIGN_CENTER; c_spec.font = Font(name=FONT_MAIN, size=10)
                 row_sum = 0

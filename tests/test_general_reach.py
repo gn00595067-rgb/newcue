@@ -77,9 +77,6 @@ def test_excel_writes_reach_lines(fmt):
     days = 14
     s, e = date(2026, 11, 2), date(2026, 11, 15)
     rows = _rows(days)
-    if fmt != "東吳":
-        # 聲活／鉑霖 renderer 對「加贈檔次」列 int(program_num) 會當掉（既有問題，另案處理）
-        rows = [r for r in rows if not r.get("is_custom_bonus")]
     xlsx = generate_excel_from_scratch(fmt, s, e, "客戶", "12345678", "產品", rows,
                                        ["1.測試"], 250000, 0, "承辦人", 300000)
     expect = compute_reach_from_rows(rows, days)["lines"]
@@ -105,3 +102,17 @@ def test_html_preview_shows_reach():
                                  "東吳", ["1.測試"], 300000, 262500, 250000, 0)
     html = "".join(html) if isinstance(html, list) else html
     assert "全家通路廣播總曝光次數" in html and "萬家福．樂家康通路廣播總曝光次數" in html
+
+
+@pytest.mark.parametrize("fmt", ["東吳", "聲活", "鉑霖"])
+def test_custom_bonus_row_renders(fmt):
+    """業務加贈列（program_num=「加贈檔次」）不可讓聲活／鉑霖當掉；原樣顯示、不計入總店數。"""
+    rows = _rows(14)
+    xlsx = generate_excel_from_scratch(fmt, date(2026, 11, 2), date(2026, 11, 15), "客戶", "", "產品", rows,
+                                       ["1.測試"], 250000, 0, "承辦人", 300000)
+    ws = load_workbook(io.BytesIO(xlsx)).worksheets[0]
+    col_c = [c.value for c in ws["C"]]
+    assert "加贈檔次" in col_c
+    if fmt != "東吳":
+        # 總店數＝數字列加總（1673+850+1209+68+250），不含加贈列
+        assert 1673 + 850 + 1209 + 68 + 250 in col_c
