@@ -100,6 +100,19 @@ _REACH_TABLE_NAME = {"全家廣播": "全家通路廣播", "新鮮視": "TV（�
                      "家樂福": "萬家福．樂家康通路廣播"}
 
 
+def _summary_cards(items):
+    """摘要數字卡：取代 st.metric（固定欄寬，大數字會被截成「…」）。
+    卡片寬度隨內容、放不下自動換行，數字永遠完整顯示。"""
+    from html import escape
+    cards = "".join(
+        f'<div style="flex:1 1 auto;min-width:max-content;padding:4px 16px 8px 0;">'
+        f'<div style="font-size:0.875rem;opacity:0.75;white-space:nowrap;">{escape(lbl)}</div>'
+        f'<div style="font-size:1.9rem;line-height:1.3;white-space:nowrap;">{escape(val)}</div></div>'
+        for lbl, val in items)
+    st.markdown(f'<div style="display:flex;flex-wrap:wrap;gap:4px 8px;margin-bottom:12px;">{cards}</div>',
+                unsafe_allow_html=True)
+
+
 def _render_reach(sheet, family):
     """📣 預估曝光／人流區塊（§4.1）：逐平台×地區明細 + 可複製客戶用文字 + 計算方式。"""
     from agency_cue import rhu
@@ -288,13 +301,14 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     total_spots0 = sum(r.spots for b in s0.blocks for r in b.rows)
     from agency_cue import rhu as _rhu
     reach_traffic0 = _rhu((s0.reach or {}).get("total", {}).get("traffic", 0))
-    m = st.columns(6)
-    m[0].metric("秒數版本", f"{len(model.sheets)}")
-    m[1].metric("走期天數", f"{ndays}")
-    m[2].metric("Package (Net)", f"${int(budget):,}")
-    m[3].metric("Grand Total", f"${int(grand):,}")
-    m[4].metric("總檔次（首版）", f"{total_spots0:,}")
-    m[5].metric("預估總人流（首版）", f"{reach_traffic0:,}")
+    _summary_cards([
+        ("秒數版本", f"{len(model.sheets)}"),
+        ("走期天數", f"{ndays}"),
+        ("Package (Net)", f"${int(budget):,}"),
+        ("Grand Total", f"${int(grand):,}"),
+        ("總檔次（首版）", f"{total_spots0:,}"),
+        ("預估總人流（首版）", f"{reach_traffic0:,}"),
+    ])
 
     # 下載
     #   主要：值版 —— 開啟即見數字（公式版在 Excel 受保護檢視/未重算時 rate 會空白）
