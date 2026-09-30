@@ -154,3 +154,71 @@ def compute_reach(blocks, data, ndays, *, include_bonus=None):
         "total": {"impressions": int(total_imp), "traffic": total_traffic},
         "lines": lines,
     }
+
+
+# =============================================================================
+# 一般 CUE（excel_renderer / html_generator 的 rows dict）共用入口
+# =============================================================================
+def _num(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else 0
+
+
+def _row_spots(r):
+    """該表內實際檔次＝schedule 數字加總（分月切表時 row["spots"] 仍是全期，不可用）。"""
+    sch = r.get("schedule")
+    if isinstance(sch, (list, tuple)):
+        return int(sum(_num(x) for x in sch))
+    return int(_num(r.get("spots")))
+
+
+def compute_reach_from_rows(rows, ndays):
+    """一般 CUE 的 rows（dict 列）→ 與 compute_reach 相同結構的曝光／人流。
+    全家廣播／新鮮視逐列 店數×檔次；加贈列店數非數字時沿用同平台同區域的店數。
+    家樂福沿用 _reach_carrefour（region 含「超市」算超市，其餘算量販）。"""
+    from types import SimpleNamespace as NS
+
+    by_media = {}
+    for r in rows or []:
+        by_media.setdefault(r.get("media"), []).append(r)
+
+    by_platform = []
+    for media in ("全家廣播", "新鮮視"):
+        mrows = by_media.get(media)
+        if not mrows:
+            continue
+        stores_map = {r.get("region"): r["program_num"] for r in mrows if _num(r.get("program_num"))}
+        agg = {}   # region → [stores, spots]（同區多列：秒數／回饋／加贈，檔次加總）
+        for r in mrows:
+            reg = r.get("region")
+            stores = _num(r.get("program_num")) or stores_map.get(reg, 0)
+            e = agg.setdefault(reg, [stores, 0])
+            e[0] = e[0] or stores
+            e[1] += _row_spots(r)
+        regions = [_region_entry(sc.REGION_LABELS.get(reg, reg), st, sp)
+                   for reg, (st, sp) in agg.items() if sp]
+        if not regions:
+            continue
+        by_platform.append({
+            "platform": media, "label": sc.REACH_LABEL[media],
+            "stores": sum(x["stores"] for x in regions), "spots": sum(x["spots"] for x in regions),
+            "impressions": int(sum(x["impressions"] for x in regions)),
+            "traffic": sum(x["traffic"] for x in regions), "regions": regions,
+        })
+
+    cf_rows = by_media.get("家樂福")
+    if cf_rows:
+        mag = [r for r in cf_rows if "超市" not in str(r.get("region", ""))]
+        sup = [r for r in cf_rows if "超市" in str(r.get("region", ""))]
+        blk = NS(rows=[NS(kind="main", spots=_row_spots(r)) for r in mag]
+                 + [NS(kind="super", spots=_row_spots(r)) for r in sup])
+        stores = {"量販": next((_num(r.get("program_num")) for r in mag if _num(r.get("program_num"))), 0),
+                  "超市": next((_num(r.get("program_num")) for r in sup if _num(r.get("program_num"))), 0)}
+        if any(x.spots for x in blk.rows):
+            by_platform.append(_reach_carrefour(blk, NS(stores={"家樂福": stores}), ndays, True))
+
+    return {
+        "by_platform": by_platform,
+        "total": {"impressions": int(sum(e["impressions"] for e in by_platform)),
+                  "traffic": sum(e["traffic"] for e in by_platform)},
+        "lines": [_client_line(e) for e in by_platform],
+    }

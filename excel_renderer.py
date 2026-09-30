@@ -18,6 +18,7 @@ from config import (
 )
 from pdf_converter import get_cloud_logo_bytes
 from utils import split_period_by_months
+from simple_reach import compute_reach_from_rows
 
 
 def _round_half_up(value):
@@ -67,6 +68,14 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         cell.border = Border(top=new_top, bottom=new_bottom, left=new_left, right=new_right)
 
     # 快速繪製外框 Helper
+    def write_reach_lines(ws, fee_rows, rows, ndays, size):
+        """預估曝光／人流（每平台一行）寫在費用區三列的 A 欄，左對齊、向右溢出到空白格（同簡易模式）。"""
+        lines = compute_reach_from_rows(rows, ndays).get("lines") or []
+        for r_idx, line in zip(fee_rows, lines[:3]):
+            c = ws.cell(r_idx, 1, line)
+            c.font = Font(name=FONT_MAIN, size=size)
+            c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+
     def draw_outer_border_fast(ws, min_r, max_r, min_c, max_c):
         for c in range(min_c, max_c + 1):
             set_border(ws.cell(min_r, c), top=BS_MEDIUM)
@@ -270,6 +279,8 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             if label == "Grand Total":
                 set_border(ws.cell(curr_row, 6), top=BS_MEDIUM, bottom=BS_MEDIUM); set_border(ws.cell(curr_row, 7), top=BS_MEDIUM, bottom=BS_MEDIUM)
             curr_row += 1
+        # 預估曝光／人流：A:E 空間較窄（約 90 字寬），字級 12 才放得下一行
+        write_reach_lines(ws, range(curr_row - 3, curr_row), rows, eff_days, 12)
         
         draw_outer_border_fast(ws, R(7), curr_row-1, 1, total_cols); curr_row += 1
         if skip_footer:
@@ -458,6 +469,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             if lbl == "Grand Total": b = BS_MEDIUM 
             c_v.border = Border(top=Side(style=t), bottom=Side(style=b), left=Side(style=l), right=Side(style=r))
             curr_row += 1
+        write_reach_lines(ws, range(curr_row - 3, curr_row), rows, eff_days, 16)
         
         # Remarks 欄位起點比照鉑霖：<14 天對齊秒數規格欄，>=14 天對齊右側欄
         curr_row += 1; start_footer = curr_row; r_col_start = 5 if eff_days < 14 else 6
@@ -754,6 +766,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             if lbl == "Grand Total": b = BS_MEDIUM 
             c_v.border = Border(top=Side(style=t), bottom=Side(style=b), left=Side(style=l), right=Side(style=r))
             curr_row += 1
+        write_reach_lines(ws, range(curr_row - 3, curr_row), rows, eff_days, 16)
         
         # Footer & 簽名區 (舊版樣式 + 統編對齊修正)
         # Remarks 欄位起點：<14 天對齊「秒數規格」欄；>=14 天對齊其右側欄

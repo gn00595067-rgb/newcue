@@ -7,6 +7,7 @@ from itertools import groupby
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from utils import html_escape, split_period_by_months
+from simple_reach import compute_reach_from_rows
 
 # 媒體顯示名（內部 key「家樂福」＝萬家福量販＋樂家康超市；客戶一律顯示萬家福．樂家康）
 _MEDIA_DISPLAY = {"家樂福": "萬家福．樂家康"}
@@ -14,6 +15,14 @@ _MEDIA_DISPLAY = {"家樂福": "萬家福．樂家康"}
 
 def _media_disp(m):
     return _MEDIA_DISPLAY.get(m, m)
+
+
+def _reach_html(rows, ndays):
+    """預估曝光／人流（每平台一行），放在費用區左側；與 Excel 同文字。"""
+    lines = compute_reach_from_rows(rows, ndays).get("lines") or []
+    if not lines:
+        return ""
+    return "<div style='margin-top:10px; float:left; text-align:left;'>" + "<br>".join(html_escape(x) for x in lines) + "</div>"
 
 
 def _round_half_up(value):
@@ -92,6 +101,7 @@ def _render_one_month_table(rows, days_in_month, month_start, month_end, full_to
     total_row_html += f"<td style='font-weight:bold; background-color:#d0d0d0; border: 2px solid #000;'>{grand_total_spots}</td></tr>"
     vat_month = _round_half_up(budget_month * 0.05)
     footer_html = f"<div style='margin-top:10px; font-weight:bold; text-align:right;'>製作費: ${prod_month:,}<br>5% VAT: ${vat_month:,}<br>Grand Total: ${grand_total_month:,}</div>"
+    footer_html = _reach_html(rows, days_in_month) + footer_html + "<div style='clear:both;'></div>"
     # Period 日期格式修正：%Y.%m.%d（原本誤用 'm' 導致畫面顯示 2026.m.01）
     return f"<div style='margin-bottom:24px;'><div style='margin-bottom:4px; font-weight:bold;'>Period: {month_start.strftime('%Y.%m.%d')} - {month_end.strftime('%Y.%m.%d')}</div><table><thead><tr>{th_fixed}{date_th1}{th_total_right}</tr><tr>{date_th2}</tr></thead><tbody>{tbody}{total_row_html}</tbody></table>{footer_html}</div>"
 
@@ -244,6 +254,7 @@ def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_di
     remarks_html = "<br>".join([html_escape(x) for x in remarks])
     vat = _round_half_up(budget * 0.05)
     footer_html = f"<div style='margin-top:10px; font-weight:bold; text-align:right;'>製作費: ${prod:,}<br>5% VAT: ${vat:,}<br>Grand Total: ${grand_total:,}</div>"
+    footer_html = _reach_html(rows, days_cnt) + footer_html + "<div style='clear:both;'></div>"
 
     # CSS 樣式
     css = """
