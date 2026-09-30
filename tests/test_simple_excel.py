@@ -67,6 +67,9 @@ _ALLOWED = [
     (r"^MERGE-MISSING \(\d+, 9, \d+, 11\)$", "乙方標籤+名合併為 I:O 單格(§5.6)"),
     (r"^MERGE-MISSING \(\d+, 12, \d+, 15\)$", "乙方標籤+名合併為 I:O 單格(§5.6)"),
     (r"^MERGE-EXTRA \(\d+, 9, \d+, 15\)$", "乙方標籤+名合併為 I:O 單格(§5.6)"),
+    # 甲方＝客戶、乙方＝我方（2026-09-30 改）：位置不動，第三列「客戶簽章」移左（甲方）、「承辦人」移右（乙方）
+    (r"^VALUE A\d+: tmpl='\s*承辦人：' ours='客戶簽章：'$", "甲方＝客戶：客戶簽章移至甲方(左)"),
+    (r"^VALUE I\d+: tmpl='客戶簽章：' ours='承辦人：.*'$", "乙方＝我方：承辦人移至乙方(右)"),
     # 非家樂福區塊底線：Station(A)/Day-part(D)/Size(E) 合併格下緣補 medium，與 B/C/F 一致連續粗線
     #（範本 A/D/E 誤用 hair，thin/hair=lvl1、medium=lvl2）(§5.4 改良)
     (r"^BD [ADE]\d+: (top|bottom).* tmpl_lvl=1 ours_lvl=2$", "區塊底線 A/D/E 補 medium 連續(§5.4)"),

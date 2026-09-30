@@ -75,14 +75,14 @@ def _to_sheetdata(store_counts_num, pricing_db, sec_factors):
 @st.cache_data(ttl=600, show_spinner=False)
 def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
               sales, campaign, prod_cost, made_iso, _data, regions=None,
-              party_a="", party_a_tax="", payment_date=""):
+              party_b="", party_b_tax="", payment_date=""):
     start = date.fromisoformat(start_iso)
     end = date.fromisoformat(end_iso)
     model = sm.build_model(combo_key, budget, start, end, client=client, tax_id=tax_id,
                            product=product, sales=sales, campaign=campaign,
                            prod_cost=prod_cost, today=date.fromisoformat(made_iso), data=_data,
                            regions=list(regions) if regions else None,
-                           party_a=party_a, party_a_tax=party_a_tax, payment_date=payment_date)
+                           party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date)
     xlsx = se.render(model, formulas=True)
     xlsx_val = se.render(model, formulas=False)
     htmls = shtml.render_html(model)
@@ -229,12 +229,12 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
 
     # 甲乙方／付款／其他（收合）
     with st.expander("甲乙方／付款／產品／其他（可留白）"):
-        st.caption("甲方＝我方（供應商）、乙方＝客戶；付款兌現日期預設為佔位，可直接改成實際日期。")
+        st.caption("甲方＝客戶、乙方＝我方（供應商）；付款兌現日期預設為佔位，可直接改成實際日期。")
         pcol = st.columns(2)
-        party_a = pcol[0].text_input("甲方名稱（我方）", "")
-        party_a_tax = pcol[0].text_input("甲方統一編號", "")
-        client = pcol[1].text_input("乙方／客戶名稱", "")
-        tax_id = pcol[1].text_input("乙方統一編號", "")
+        client = pcol[0].text_input("甲方／客戶名稱", "")
+        tax_id = pcol[0].text_input("甲方統一編號", "")
+        party_b = pcol[1].text_input("乙方名稱（我方）", "")
+        party_b_tax = pcol[1].text_input("乙方統一編號", "")
 
         default_pay = f"{start.year - 1911}.XX.XX"
         e1, e2, e3 = st.columns(3)
@@ -276,7 +276,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                 combo_key, int(budget), start.isoformat(), end.isoformat(),
                 client, tax_id, product, sales, campaign, int(prod_cost),
                 date.today().isoformat(), data, regions,
-                party_a=party_a, party_a_tax=party_a_tax, payment_date=payment_date)
+                party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date)
     except Exception as e:  # noqa: BLE001
         st.error(f"產生失敗：{e}")
         st.exception(e)

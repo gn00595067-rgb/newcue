@@ -465,25 +465,26 @@ def _subsidiary_remarks(ws, model, r_hd, r0, r_sign, formulas, C_V):
     for c in range(1, C_V + 1):
         _set(ws, r_sign - 1, c, border=_bd(b="thin"))
     # 簽章三列（§5.6）—— 甲/乙方公司名緊接標籤（併入同一格、左對齊，比照「統一編號：」列，無空格）
-    # 甲方（我方）：標籤格 A:C 夠寬，名稱直接接在標籤後
+    # 位置沿用範本（左甲方、右乙方），內容：甲方＝客戶、乙方＝我方（供應商）
+    # 甲方（客戶）：標籤格 A:C，名稱直接接在標籤後
     _merge(ws, r_sign, 1, r_sign, 3)
-    _set(ws, r_sign, 1, f"甲       方 ：{model.party_a}" if model.party_a else "甲       方 ：",
+    _set(ws, r_sign, 1, f"甲       方 ：{model.client}" if model.client else "甲       方 ：",
          size=26, halign="left", wrap=True)
-    # 乙方（客戶）：合併 I:O 成單格，名稱接在標籤後、左對齊；wrap=False 免長名折行觸發 PDF 縮放跑版
+    # 乙方（我方）：合併 I:O 成單格，名稱接在標籤後、左對齊；wrap=False 免長名折行觸發 PDF 縮放跑版
     _merge(ws, r_sign, 9, r_sign, 15)
-    _set(ws, r_sign, 9, f"乙    方：{model.client}" if model.client else "乙    方：",
+    _set(ws, r_sign, 9, f"乙    方：{model.party_b}" if model.party_b else "乙    方：",
          size=26, halign="left", wrap=False, border=_bd(t="thin"))
     _merge(ws, r_sign + 1, 1, r_sign + 1, 3)
-    _set(ws, r_sign + 1, 1, f"統一編號：{model.party_a_tax}" if model.party_a_tax else "統一編號：",
+    _set(ws, r_sign + 1, 1, f"統一編號：{model.tax_id}" if model.tax_id else "統一編號：",
          size=26, halign="left", wrap=True)
     _merge(ws, r_sign + 1, 9, r_sign + 1, 14)
-    _set(ws, r_sign + 1, 9, f"統一編號：{model.tax_id}" if model.tax_id else "統一編號：",
+    _set(ws, r_sign + 1, 9, f"統一編號：{model.party_b_tax}" if model.party_b_tax else "統一編號：",
          size=26, halign="left")
     _merge(ws, r_sign + 2, 1, r_sign + 2, 3)
-    _set(ws, r_sign + 2, 1, f"承辦人：{model.sales}" if model.sales else "承辦人：",
-         size=26, halign="left", wrap=True)
+    _set(ws, r_sign + 2, 1, "客戶簽章：", size=26, halign="left", wrap=True)
     _merge(ws, r_sign + 2, 9, r_sign + 2, 14)
-    _set(ws, r_sign + 2, 9, "客戶簽章：", size=26, halign="left")
+    _set(ws, r_sign + 2, 9, f"承辦人：{model.sales}" if model.sales else "承辦人：",
+         size=26, halign="left")
 
 
 # =============================================================================

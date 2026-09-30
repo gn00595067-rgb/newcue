@@ -283,24 +283,24 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         curr_row += 2; sig_start = curr_row
         for _r in (sig_start, sig_start+1, sig_start+2): ws.row_dimensions[_r].height = 28
         _sig_font = Font(name=FONT_MAIN, size=20)
-        ws.merge_cells(start_row=sig_start, start_column=1, end_row=sig_start, end_column=7); ws.cell(sig_start, 1, "甲    方：東吳廣告股份有限公司").alignment = ALIGN_LEFT; ws.cell(sig_start, 1).font = _sig_font
-        ws.merge_cells(start_row=sig_start+1, start_column=1, end_row=sig_start+1, end_column=7); ws.cell(sig_start+1, 1, "統一編號：20935458").alignment = ALIGN_LEFT; ws.cell(sig_start+1, 1).font = _sig_font
-        ws.merge_cells(start_row=sig_start+2, start_column=1, end_row=sig_start+2, end_column=7); ws.cell(sig_start+2, 1, sales_person).alignment = ALIGN_LEFT; ws.cell(sig_start+2, 1).font = _sig_font
+        ws.merge_cells(start_row=sig_start, start_column=1, end_row=sig_start, end_column=7); ws.cell(sig_start, 1, f"甲    方：{client_name}").alignment = ALIGN_LEFT; ws.cell(sig_start, 1).font = _sig_font
+        ws.merge_cells(start_row=sig_start+1, start_column=1, end_row=sig_start+1, end_column=7); ws.cell(sig_start+1, 1, f"統一編號：{tax_id}").alignment = ALIGN_LEFT; ws.cell(sig_start+1, 1).font = _sig_font
+        ws.merge_cells(start_row=sig_start+2, start_column=1, end_row=sig_start+2, end_column=7); ws.cell(sig_start+2, 1, "客戶簽章：").alignment = ALIGN_LEFT; ws.cell(sig_start+2, 1).font = _sig_font
         
-        # 乙方簽名區：短天期時 total_cols 較窄，固定從 Column T 開始會太靠外（且分隔線看起來變短）。
+        # 右側乙方（我方）簽名區：短天期時 total_cols 較窄，固定從 Column T 開始會太靠外（且分隔線看起來變短）。
         # 規則：<14 天時，乙方自動對齊「倒數第六欄」（即從 total_cols-5 開始，寬度 6 欄）。
         # 其他天期維持原本 8 欄寬，但若 total_cols 不足也會自動往左收。
         eff_days_for_sig = eff_days
         right_block_width = 6 if eff_days_for_sig < 14 else 8
         right_start_col = max(1, total_cols - right_block_width + 1)
         right_end_col = right_start_col + right_block_width - 1
-        ws.merge_cells(start_row=sig_start, start_column=right_start_col, end_row=sig_start, end_column=right_end_col); ws.cell(sig_start, right_start_col, f"乙    方：{client_name}").alignment = ALIGN_LEFT; ws.cell(sig_start, right_start_col).font = _sig_font
+        ws.merge_cells(start_row=sig_start, start_column=right_start_col, end_row=sig_start, end_column=right_end_col); ws.cell(sig_start, right_start_col, "乙    方：東吳廣告股份有限公司").alignment = ALIGN_LEFT; ws.cell(sig_start, right_start_col).font = _sig_font
         
-        # 填入 Excel 統編 (東吳格式)
+        # 乙方＝我方（東吳）統編；客戶統編已移至左側甲方區
         ws.merge_cells(start_row=sig_start+1, start_column=right_start_col, end_row=sig_start+1, end_column=right_end_col)
-        ws.cell(sig_start+1, right_start_col, f"統一編號：{tax_id}").alignment = ALIGN_LEFT; ws.cell(sig_start+1, right_start_col).font = _sig_font
+        ws.cell(sig_start+1, right_start_col, "統一編號：20935458").alignment = ALIGN_LEFT; ws.cell(sig_start+1, right_start_col).font = _sig_font
         
-        ws.merge_cells(start_row=sig_start+2, start_column=right_start_col, end_row=sig_start+2, end_column=right_end_col); ws.cell(sig_start+2, right_start_col, "客戶簽章：").alignment = ALIGN_LEFT; ws.cell(sig_start+2, right_start_col).font = _sig_font
+        ws.merge_cells(start_row=sig_start+2, start_column=right_start_col, end_row=sig_start+2, end_column=right_end_col); ws.cell(sig_start+2, right_start_col, sales_person).alignment = ALIGN_LEFT; ws.cell(sig_start+2, right_start_col).font = _sig_font
         # 乙方區塊上方分隔線：固定畫到 total_cols，與上方標題底線同長
         for c_idx in range(1, total_cols + 1): set_border(ws.cell(sig_start, c_idx), top=BS_MEDIUM)
         return curr_row + 3
@@ -542,7 +542,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
 
         sig_col_start = 1
         for _r in (start_footer, start_footer+1, start_footer+2, start_footer+3): ws.row_dimensions[_r].height = 28
-        ws.cell(start_footer, sig_col_start).value = "乙         方："; ws.cell(start_footer, sig_col_start).font = Font(name=FONT_MAIN, size=20)
+        ws.cell(start_footer, sig_col_start).value = "甲         方："; ws.cell(start_footer, sig_col_start).font = Font(name=FONT_MAIN, size=20)
         ws.cell(start_footer+1, sig_col_start+1).value = client_name; ws.cell(start_footer+1, sig_col_start+1).font = Font(name=FONT_MAIN, size=20)
         ws.cell(start_footer+2, sig_col_start).value = "統一編號："; ws.cell(start_footer+2, sig_col_start).font = Font(name=FONT_MAIN, size=20)
         
@@ -858,12 +858,12 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
 
         sig_col_start = 1
         
-        # 乙方區塊上方分隔線：延伸為整張表寬（與上方標題分隔線一致）
+        # 甲方（客戶）區塊上方分隔線：延伸為整張表寬（與上方標題分隔線一致）
         for c_idx in range(1, total_cols + 1):
             set_border(ws.cell(start_footer, c_idx), top=BS_MEDIUM)
         
-        # 乙方
-        ws.cell(start_footer, sig_col_start).value = "乙         方："; ws.cell(start_footer, sig_col_start).font = Font(name=FONT_MAIN, size=20)
+        # 甲方（客戶）
+        ws.cell(start_footer, sig_col_start).value = "甲         方："; ws.cell(start_footer, sig_col_start).font = Font(name=FONT_MAIN, size=20)
         # 客戶名稱 (B欄)
         ws.cell(start_footer+1, sig_col_start+1).value = client_name; ws.cell(start_footer+1, sig_col_start+1).font = Font(name=FONT_MAIN, size=20)
         
