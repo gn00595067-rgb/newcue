@@ -10,6 +10,15 @@ from config import REFERENCE_STD_SPOTS
 
 
 @st.cache_data(ttl=300)
+
+def _read_csv_url(url, timeout=20):
+    """讀 Google Sheet CSV；加逾時，避免 Cloud 連不到 Google 時整個 app 卡在轉圈。"""
+    import io
+    import requests
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    return pd.read_csv(io.StringIO(resp.content.decode("utf-8")))
+
 def load_config_from_cloud(share_url):
     """
     從 Google Spreadsheet 讀取所有基礎設定 (Store Count, Pricing, Factors, Sales)。
@@ -23,7 +32,7 @@ def load_config_from_cloud(share_url):
 
         def read_sheet(sheet_name):
             url = f"https://docs.google.com/spreadsheets/d/{file_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
-            return pd.read_csv(url)
+            return _read_csv_url(url)
 
         df_store = read_sheet("Stores")
         df_store.columns = [c.strip() for c in df_store.columns]
@@ -94,7 +103,7 @@ def load_agency_pricing_from_cloud(share_url):
             return None
         file_id = match.group(1)
         url = f"https://docs.google.com/spreadsheets/d/{file_id}/gviz/tq?tqx=out:csv&sheet=AgencyPricing"
-        df = pd.read_csv(url)
+        df = _read_csv_url(url)
         df.columns = [c.strip() for c in df.columns]
         need = {"Agency", "Platform", "Seconds", "List_Per_Spot"}
         if not need.issubset(set(df.columns)):
