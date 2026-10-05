@@ -375,8 +375,11 @@ def render_agency_cue(sales_map=None):
     components.html(html, height=560, scrolling=True)
 
     # 檔名
+    # 例：20261002 CUE 2008傳媒-統一企業 統一陽光 萬家福樂家康廣播 1001-1031（三家代理商同規則）
+    _channel = ac.agency_channel_text(model)
     fn_base = (f"{made_date:%Y%m%d} CUE {agency}-{client_name} {product_name} "
-               f"{start_date:%m%d}-{end_date:%m%d}")
+               + (f"{_channel} " if _channel else "")
+               + f"{start_date:%m%d}-{end_date:%m%d}")
     xlsx_name = safe_filename(fn_base) + ".xlsx"
     pdf_name = safe_filename(fn_base) + ".pdf"
 

@@ -33,3 +33,11 @@ def test_simple_subsidiary_filename_has_client():
     fn = sm._filename(sc.COMBOS["sub_qp_fv"], 250000, "宜", "萬國通路", date(2026, 10, 5))
     assert fn.startswith("1005 萬國通路 企頻+新鮮視(")
     assert fn.endswith(" 25萬專案-宜.xlsx")
+
+
+def test_agency_channel_text():
+    import agency_cue as ac
+    assert ac.agency_channel_text({"sheets": [{"platform": ac.PLATFORM_WJF}]}) == "萬家福樂家康廣播"
+    m = {"sheets": [{"platform": ac.PLATFORM_FAMILY}, {"platform": ac.PLATFORM_WJF},
+                    {"platform": ac.PLATFORM_WJF}]}
+    assert ac.agency_channel_text(m) == "全家廣播+萬家福樂家康廣播"

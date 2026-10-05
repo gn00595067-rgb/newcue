@@ -768,6 +768,19 @@ def agency_platform_text(model):
     return "、".join(seen)
 
 
+_CHANNEL_FNAME = {PLATFORM_FAMILY: "全家廣播", PLATFORM_WJF: "萬家福樂家康廣播"}
+
+
+def agency_channel_text(model):
+    """檔名用頻道名稱，如「萬家福樂家康廣播」；兩平台以 + 串接。"""
+    seen = []
+    for s in model.get("sheets", []):
+        name = _CHANNEL_FNAME.get(s.get("platform"), s.get("platform"))
+        if name and name not in seen:
+            seen.append(name)
+    return "+".join(seen)
+
+
 def agency_seconds_union(model):
     """使用到的秒數聯集文字，如「15、20」。"""
     secs = sorted({int(s["seconds"]) for s in model.get("sheets", []) if s.get("seconds")})
