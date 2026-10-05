@@ -234,6 +234,10 @@ def render_agency_cue(sales_map=None):
         end_date = st.date_input("結束日", st.session_state.get("ag_end", date(2026, 9, 1)), key="ag_end")
     with c6:
         default_mat = ac.minus_business_days(start_date, 5)
+        # 開始日一改，素材日自動重算為開始日−5個工作天（之後仍可手動改）
+        if st.session_state.get("_ag_mat_start") != start_date:
+            st.session_state["ag_material"] = default_mat
+            st.session_state["_ag_mat_start"] = start_date
         material_due = st.date_input("素材提供時間（預設開始日−5個工作天）", default_mat, key="ag_material")
     if end_date < start_date:
         st.error("結束日不可早於開始日")
@@ -336,7 +340,8 @@ def render_agency_cue(sales_map=None):
     # 備註（可編輯）；各代理商備註不同，切換公司時自動換成該家預設備註
     default_remarks = ac.default_remarks(agency, sign_date)
     default_text = "\n".join(default_remarks)
-    if st.session_state.get("ag_remarks_for") != agency:
+    # 切換代理商、或備註狀態遺失變空白（切換模式後 widget 狀態被清掉）時，補回預設備註
+    if st.session_state.get("ag_remarks_for") != agency or not (st.session_state.get("ag_remarks") or "").strip():
         st.session_state["ag_remarks"] = default_text
         st.session_state["ag_remarks_for"] = agency
     remarks_text = st.text_area("備註（每行一條）", key="ag_remarks", height=140)
@@ -599,6 +604,8 @@ def _restore_agency_state(record):
         dv = _d(ext.get(ek))
         if dv:
             ss[key] = dv
+    if ss.get("ag_start"):
+        ss["_ag_mat_start"] = ss["ag_start"]   # 舊案的素材日不要被自動重算蓋掉
     ss["ag_budget"] = int(ext.get("total_budget", 0) or 0)
 
     if ext.get("comp_mode") in ac.COMP_OPTIONS:
