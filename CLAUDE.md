@@ -14,6 +14,7 @@
 - Excel 產出一律用「值版」下載；openpyxl 公式版在受保護檢視會空白。
 - strict fidelity：樣式對齊母版 `simple_style_master.py`，改樣式必跑 `tests/fidelity.py`／`tests/visual_check.py`。
 - 家樂福已改名「萬家福．樂家康」（台灣通路改名，commit 73615cd）。
+- Streamlit Cloud 的 Python 版本以「App settings → General → Python version」為準（runtime.txt 不生效），必須設 3.12；3.14 會裝不起來（pyarrow 無 wheel）。requirements 已鎖上限，升版前先用 `uv pip compile --python-version 3.12 --only-binary :all:` 驗證。
 - <其他地雷待補>
 
 ## 架構速覽
