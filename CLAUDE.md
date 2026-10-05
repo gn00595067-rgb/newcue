@@ -7,7 +7,7 @@
 - 狀態：🟢 LIVE（簡易模式 v2 已上線，見 `newcue_簡易模式_開發摘要.md`）
 - 本機：`C:\dev\newcue`
 - push：`gn00595067-rgb/newcue.git` · `main`（push 後 Streamlit Cloud 自動部署）
-- 線上：https://newcue-uxlbmxtahmsegh4c6cbysb.streamlit.app/
+- 線上：https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/（2026-10-05 重建，舊網址失效）
 - Secrets（只列名稱）：`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`（見 `.streamlit/secrets.toml.example`）
 
 ## 地雷（踩過的坑，改 code 前先看）
@@ -15,6 +15,8 @@
 - strict fidelity：樣式對齊母版 `simple_style_master.py`，改樣式必跑 `tests/fidelity.py`／`tests/visual_check.py`。
 - 家樂福已改名「萬家福．樂家康」（台灣通路改名，commit 73615cd）。
 - Streamlit Cloud 的 Python 版本以「App settings → General → Python version」為準（runtime.txt 不生效），必須設 3.12；3.14 會裝不起來（pyarrow 無 wheel）。requirements 已鎖上限，升版前先用 `uv pip compile --python-version 3.12 --only-binary :all:` 驗證。
+- requirements.txt 是全套件鎖死版（頂層來源在 requirements.in）。2026-10-05 Cloud 重新佈機抓到 9/30 後新版套件（疑 gitpython 3.2.0）→ 伺服器卡死一直轉圈、log 空白；鎖回 9/29 版本後恢復。升版務必用 `uv pip compile requirements.in --python-version 3.12 --only-binary :all: --exclude-newer <日期>` 重產並本機跑過。
+- 線上 app 網址已變更（刪除重建）：https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/
 - <其他地雷待補>
 
 ## 架構速覽
