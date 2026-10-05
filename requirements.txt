@@ -1,4 +1,4 @@
-streamlit>=1.40,<2
+streamlit>=1.40,<1.52
 pandas<3
 openpyxl<4
 xlsxwriter<4
