@@ -86,7 +86,6 @@ from config import (
 )
 from utils import (
     safe_filename,
-    build_cue_filename,
     get_remarks_text,
     format_campaign_details,
     build_ragic_details_full,
@@ -1606,11 +1605,6 @@ def main():
             st.markdown("---")
             st.subheader("📥 檔案下載區")
 
-            # 檔名比照簡易模式：MMDD 客戶 平台(秒數) N萬專案-業務
-            _sales_nick = SALES_MAP.get(sales_person, sales_person) if sales_person else ""
-            def _cue_fn(_rows, ext, seg_label=""):
-                return build_cue_filename(client_name, _rows, final_budget_val, _sales_nick, ext=ext, seg_label=seg_label)
-
             _cue_def_s = st.session_state.get("cue_sign_deadline", datetime.now().date())
             if isinstance(_cue_def_s, datetime):
                 _cue_def_s = _cue_def_s.date() if hasattr(_cue_def_s, "date") else _cue_def_s
@@ -1633,12 +1627,12 @@ def main():
                         c1, c2 = st.columns(2)
                         with c1:
                             if can_download_excel:
-                                st.download_button(f"📥 波段{i+1} Excel", xlsx_seg, _cue_fn(segment_rows, "xlsx", f"波段{i+1}"), key=f"cue_seg_xlsx_{i}", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                                st.download_button(f"📥 波段{i+1} Excel", xlsx_seg, f"Cue_{safe_filename(client_name)}_波段{i+1}_{seg_start}_{seg_end}.xlsx", key=f"cue_seg_xlsx_{i}", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                             else:
                                 st.caption("Excel 下載已由主管關閉")
                         with c2:
                             if pdf_seg and can_download_pdf:
-                                st.download_button(f"📥 波段{i+1} PDF", pdf_seg, _cue_fn(segment_rows, "pdf", f"波段{i+1}"), key=f"cue_seg_pdf_{i}", mime="application/pdf")
+                                st.download_button(f"📥 波段{i+1} PDF", pdf_seg, f"Cue_{safe_filename(client_name)}_波段{i+1}_{seg_start}_{seg_end}.pdf", key=f"cue_seg_pdf_{i}", mime="application/pdf")
                             elif not can_download_pdf:
                                 st.caption("PDF 下載已由主管關閉")
                             else:
@@ -1663,14 +1657,14 @@ def main():
                 with col_dl2:
                     pdf_bytes, method, err = xlsx_bytes_to_pdf_bytes(xlsx_temp)
                     if pdf_bytes and can_download_pdf:
-                        st.download_button(f"📥 下載 PDF", pdf_bytes, _cue_fn(rows, "pdf"), key="pdf_dl_btn", mime="application/pdf")
+                        st.download_button(f"📥 下載 PDF", pdf_bytes, f"Cue_{safe_filename(client_name)}.pdf", key="pdf_dl_btn", mime="application/pdf")
                     elif not can_download_pdf:
                         st.caption("PDF 下載已由主管關閉")
                     else:
                         st.warning(f"PDF 生成失敗: {err}")
                 with col_dl1:
                     if can_download_excel:
-                        st.download_button("📥 下載 Excel", xlsx_temp, _cue_fn(rows, "xlsx"), key="xlsx_dl_btn", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        st.download_button("📥 下載 Excel", xlsx_temp, f"Cue_{safe_filename(client_name)}.xlsx", key="xlsx_dl_btn", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     else:
                         st.caption("Excel 下載已由主管關閉")
                 _ragic_col = col_ragic
@@ -1751,13 +1745,13 @@ def main():
 
                                 files_payload = {}
                                 files_payload[RAGIC_MAP['file_xls']] = (
-                                    _cue_fn(rows, "xlsx"),
+                                    f"Cue_{safe_filename(client_name)}.xlsx", 
                                     _xlsx_ragic,
                                     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                                 )
                                 if _pdf_ragic:
                                     files_payload[RAGIC_MAP['file_pdf']] = (
-                                        _cue_fn(rows, "pdf"),
+                                        f"Cue_{safe_filename(client_name)}.pdf", 
                                         _pdf_ragic, 
                                         'application/pdf'
                                     )

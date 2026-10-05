@@ -728,11 +728,10 @@ def _sheet_name(model, sheet):
     b = model["end_date"].strftime("%m%d")
     if model["agency"] == "2008傳媒":
         wan = round(sheet["budget"] / 10000) if sheet["budget"] else 0
-        plat = "全家" if sheet["platform"] == ac.PLATFORM_FAMILY else "萬家福樂家康"
+        plat = "全家" if sheet["platform"] == ac.PLATFORM_FAMILY else "萬家福"
         name = f"{a}-{b}-{plat}-{wan}萬-{sheet['seconds']}秒"
     else:
-        plat = "萬家福樂家康" if sheet["platform"] == ac.PLATFORM_WJF else sheet["platform"]
-        name = f"{plat} {a}-{b} {sheet.get('seconds','')}秒"
+        name = f"{sheet['platform']} {a}-{b} {sheet.get('seconds','')}秒"
     for ch in ':\\/?*[]':
         name = name.replace(ch, "")
     return name[:31]

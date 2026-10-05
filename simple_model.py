@@ -555,15 +555,14 @@ def _carat_payment(start, end, budget):
 
 
 def _filename(combo, budget, sales, client, today):
-    """§3-1 檔名：MMDD 前綴 + 客戶 + 半形組合名 + 業務暱稱（與一般 CUE 同規則）。"""
-    man = f"{budget / 10000:g}"
+    """§3-1 檔名：MMDD 前綴 + 半形組合名 + 業務暱稱。"""
+    man = budget // 10000
     secs = ".".join(str(s) for s in sorted(combo["seconds"]))
     mmdd = today.strftime("%m%d")
     if combo["family"] == "subsidiary":
         suffix = f"-{sales}" if sales else ""
-        # 例：0907 萬國通路 企頻+新鮮視(10.15.20.30秒) 25萬專案-宜.xlsx
-        head = f"{mmdd} {client}" if client else mmdd
-        return f"{head} {combo['fname']}({secs}秒) {man}萬專案{suffix}.xlsx"
+        # 例：0907 企頻+新鮮視(10.15.20.30秒) 25萬專案-宜.xlsx
+        return f"{mmdd} {combo['fname']}({secs}秒) {man}萬專案{suffix}.xlsx"
     plat = "全家" if combo["platform"] == "family" else "萬家福&樂家康"
     cli = f"-{client}" if client else ""
     # 例：0907 2008傳媒-統一企業 全家單組 (10.15.20.30秒) 25萬專案.xlsx

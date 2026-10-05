@@ -92,8 +92,8 @@ def test_excel_multi_month_each_sheet_own_reach(fmt):
                                        ["1.測試"], 100000, 0, "承辦人", 100000)
     per_sheet = _col_a_texts(xlsx)
     assert len(per_sheet) == 2
-    assert "總曝光次數 : 1,200 " in per_sheet[0][0]    # 10/20–10/31：12 天
-    assert "總曝光次數 : 3,000 " in per_sheet[1][0]    # 11 月：30 天
+    assert "總曝光次數 : 1200 " in per_sheet[0][0]    # 10/20–10/31：12 天
+    assert "總曝光次數 : 3000 " in per_sheet[1][0]    # 11 月：30 天
 
 
 def test_html_preview_shows_reach():

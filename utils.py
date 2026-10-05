@@ -289,26 +289,3 @@ def build_platform_text(rows):
         if label:
             seen.add(label)
     return ",".join([x for x in order if x in seen])
-
-
-def build_cue_filename(client, rows, budget, sales_nick="", today=None, ext="xlsx", seg_label=""):
-    """一般 CUE 檔名，比照簡易模式命名規則：
-    MMDD 客戶 平台(秒數) N萬專案[-波段X]-業務.ext
-    例：1005 萬國通路 全家+新鮮視(10.20秒) 25萬專案-宜.xlsx"""
-    today = today or date.today()
-    plat_map = {"全家廣播": "全家", "新鮮視": "新鮮視", "家樂福": "萬家福.樂家康"}
-    seen = {plat_map.get(r.get("media")) for r in (rows or [])}
-    plats = "+".join(p for p in ["全家", "新鮮視", "萬家福.樂家康"] if p in seen)
-    secs = ".".join(str(s) for s in sorted({int(r["seconds"]) for r in (rows or []) if r.get("seconds") is not None}))
-    sec_part = f"({secs}秒)" if secs else ""
-    man = f"{(budget or 0) / 10000:g}"
-    parts = [today.strftime("%m%d"), client or ""]
-    if plats or sec_part:
-        parts.append(f"{plats}{sec_part}")
-    parts.append(f"{man}萬專案")
-    name = " ".join(p for p in parts if p)
-    if seg_label:
-        name += f"-{seg_label}"
-    if sales_nick:
-        name += f"-{sales_nick}"
-    return safe_filename(f"{name}.{ext}")
