@@ -13,3 +13,4 @@
 - 2026-10-05 ｜ 簡易模式（子公司組合）檔名補上客戶名，與一般 CUE 一致：「MMDD 客戶 組合(秒數) N萬專案-業務」；千分位／去句點本來就共用 ｜ 老闆要求一般模式的修改簡易模式也要一樣 ｜ 無
 - 2026-10-05 ｜ 補 runtime.txt（python-3.12）、requirements 鎖版本上限 ｜ Cloud 重新佈機時會抓最新版（如 pandas 3）有壞掉風險，且違反部署起手式 ｜ 無
 - 2026-10-05 ｜ 修線上 Error installing requirements：鎖 streamlit/numpy/pyarrow，Cloud Python 改 3.12 ｜ Cloud 預設 3.14，pyarrow 需原始碼編譯失敗 ｜ 確認上線後請同事測三項回饋
+- 2026-10-05 ｜ 線上 app 卡在 Spinning up manager process：退回 572481a 驗證仍卡 9 分鐘，證實非程式改動，已恢復改動 ｜ 其他 app 正常、僅 newcue 容器異常 ｜ 請 Jonathan 刪除重建 Cloud app（Python 3.12、同網址）
