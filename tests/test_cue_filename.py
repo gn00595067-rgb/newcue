@@ -25,3 +25,11 @@ def test_agency_sheet_name_uses_full_wjf_name():
     assert _sheet_name(m, {"platform": ac.PLATFORM_WJF, "seconds": 15}) == "萬家福樂家康 1015-1105 15秒"
     m["agency"] = "2008傳媒"
     assert "萬家福樂家康" in _sheet_name(m, {"platform": ac.PLATFORM_WJF, "seconds": 15, "budget": 250000})
+
+
+def test_simple_subsidiary_filename_has_client():
+    import simple_model as sm
+    import simple_config as sc
+    fn = sm._filename(sc.COMBOS["sub_qp_fv"], 250000, "宜", "萬國通路", date(2026, 10, 5))
+    assert fn.startswith("1005 萬國通路 企頻+新鮮視(")
+    assert fn.endswith(" 25萬專案-宜.xlsx")
