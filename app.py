@@ -1,3 +1,8 @@
+# === 暫時診斷：只顯示一行就停，用來判斷卡住是程式碼還是 Cloud 環境（確認後移除）===
+import streamlit as _st_diag
+_st_diag.write("診斷模式：伺服器正常（2026-10-05）")
+_st_diag.stop()
+# === 診斷結束 ===
 """
 Cue Sheet Pro (媒體排程生成系統)
 重構版本 - 模組化架構
