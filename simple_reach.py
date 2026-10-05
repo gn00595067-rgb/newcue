@@ -125,11 +125,11 @@ def _reach_carrefour(blk, data, ndays, include_bonus):
 
 
 def _client_line(entry):
-    """客戶用文字（範本 A24～A26 原文格式，逐字照抄）：
-    【{label}總曝光次數 : {曝光}     曝光期間店舖總人流量 : {人流} .】
-    數字不加千分位、人流四捨五入取整。"""
-    return (f"【{entry['label']}總曝光次數 : {entry['impressions']}"
-            f"     曝光期間店舖總人流量 : {rhu(entry['traffic'])} .】")
+    """客戶用文字（源自範本 A24～A26 格式）：
+    【{label}總曝光次數 : {曝光}     曝光期間店舖總人流量 : {人流}】
+    數字加千分位、人流四捨五入取整；範本原有結尾「 .」無意義，依同事回饋移除。"""
+    return (f"【{entry['label']}總曝光次數 : {entry['impressions']:,}"
+            f"     曝光期間店舖總人流量 : {rhu(entry['traffic']):,}】")
 
 
 def compute_reach(blocks, data, ndays, *, include_bonus=None):
