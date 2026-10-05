@@ -14,3 +14,4 @@
 - 2026-10-05 ｜ 補 runtime.txt（python-3.12）、requirements 鎖版本上限 ｜ Cloud 重新佈機時會抓最新版（如 pandas 3）有壞掉風險，且違反部署起手式 ｜ 無
 - 2026-10-05 ｜ 修線上 Error installing requirements：鎖 streamlit/numpy/pyarrow，Cloud Python 改 3.12 ｜ Cloud 預設 3.14，pyarrow 需原始碼編譯失敗 ｜ 確認上線後請同事測三項回饋
 - 2026-10-05 ｜ 線上 app 卡在 Spinning up manager process：退回 572481a 驗證仍卡 9 分鐘，證實非程式改動，已恢復改動 ｜ 其他 app 正常、僅 newcue 容器異常 ｜ 請 Jonathan 刪除重建 Cloud app（Python 3.12、同網址）
+- 2026-10-05 ｜ requirements 改為全套件鎖死在 9/29 版本（requirements.in 為頂層來源）；修正 data_loader 快取裝飾器被我誤移位 ｜ 全新 Cloud app 也卡死，懷疑 9/30 後新版 gitpython 3.2.0 卡住 Streamlit 主線 ｜ 部署後確認能否開啟

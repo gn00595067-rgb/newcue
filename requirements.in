@@ -1,0 +1,10 @@
+streamlit>=1.40,<1.52
+pandas<3
+openpyxl<4
+xlsxwriter<4
+requests<3
+pymupdf<2
+reportlab<5
+pillow<13
+numpy<2.4
+pyarrow<22

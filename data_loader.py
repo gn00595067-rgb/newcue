@@ -9,8 +9,6 @@ import streamlit as st
 from config import REFERENCE_STD_SPOTS
 
 
-@st.cache_data(ttl=300)
-
 def _read_csv_url(url, timeout=20):
     """讀 Google Sheet CSV；加逾時，避免 Cloud 連不到 Google 時整個 app 卡在轉圈。"""
     import io
@@ -19,6 +17,8 @@ def _read_csv_url(url, timeout=20):
     resp.raise_for_status()
     return pd.read_csv(io.StringIO(resp.content.decode("utf-8")))
 
+
+@st.cache_data(ttl=300)
 def load_config_from_cloud(share_url):
     """
     從 Google Spreadsheet 讀取所有基礎設定 (Store Count, Pricing, Factors, Sales)。
