@@ -19,6 +19,7 @@ from config import (
 from pdf_converter import get_cloud_logo_bytes
 from utils import split_period_by_months
 from simple_reach import compute_reach_from_rows
+from simple_excel import fit_overflow_fonts
 
 
 def _round_half_up(value):
@@ -75,6 +76,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             c = ws.cell(r_idx, 1, line)
             c.font = Font(name=FONT_MAIN, size=size)
             c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
+        fit_overflow_fonts(ws, fee_rows)
 
     def draw_outer_border_fast(ws, min_r, max_r, min_c, max_c):
         for c in range(min_c, max_c + 1):

@@ -39,7 +39,7 @@ def _table_bottom(ws, r, c1, c2, style="medium"):
 import simple_config as sc
 import agency_cue as ac
 from simple_style_master import StyleMaster
-from simple_excel import thicken_hairlines, seal_grid
+from simple_excel import thicken_hairlines, seal_grid, fit_overflow_fonts
 
 _WD = "一二三四五六日"
 _WD_EN = ["M", "T", "W", "T", "F", "S", "S"]
@@ -74,6 +74,7 @@ def _agency_reach(ws, sheet, rows):
         a = cell.alignment
         cell.alignment = Alignment(horizontal="left", vertical=a.vertical or "center",
                                    wrap_text=bool(a.wrap_text))
+    fit_overflow_fonts(ws, writable)
 
 
 def _newsheet(wb, title, first):

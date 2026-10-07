@@ -153,3 +153,32 @@ def test_grid_sealed(case):
                     rb = ws.cell(r, rng.min_col - 1).border.right
                     assert rb and rb.style, \
                         f"{key}/{ws.title} 合併格 {rng} 左鄰格 R{r} 缺右框(左邊會斷)"
+
+
+def test_reach_lines_do_not_overflow_into_fee_labels():
+    """曝光／人流結論向右溢出時，字級須縮到不壓到右側「製作／5% VAT」欄（萬家福長名稱曾跑出表格）。"""
+    import io
+    from datetime import date
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+    import simple_model as sm
+    import simple_excel as se
+    import simple_config as sc
+    from fixtures_simple import sheetdata
+
+    for key in sc.SUBSIDIARY_COMBOS + sc.AGENCY_COMBOS:
+        m = sm.build_model(key, 250000, date(2026, 10, 19), date(2026, 11, 1),
+                           client="客", product="30秒", campaign="C", data=sheetdata())
+        ws = load_workbook(io.BytesIO(se.render(m, formulas=False))).worksheets[0]
+        for cell in ws["A"]:
+            if not (isinstance(cell.value, str) and "總曝光次數" in cell.value):
+                continue
+            if cell.alignment.wrap_text:
+                continue
+            avail, c = 0.0, 1
+            while c == 1 or ws.cell(row=cell.row, column=c).value in (None, ""):
+                w = ws.column_dimensions[get_column_letter(c)].width or 8.43
+                avail += (int(round(w * 7.0)) + 5) * 0.75
+                c += 1
+            need = se._text_em(cell.value) * cell.font.size
+            assert need <= avail, f"{key} {cell.coordinate} 文字寬 {need:.0f}pt > 可用 {avail:.0f}pt"

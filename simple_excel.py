@@ -14,6 +14,7 @@ render(model, formulas=True)：
 內部成本（實作價/計價模式）絕不寫入（§1.4）。
 """
 import io
+from copy import copy
 from datetime import datetime
 
 from openpyxl import Workbook
@@ -57,6 +58,54 @@ def _set(ws, r, c, value=None, *, size=22, bold=False, color=None, fill=None,
 
 def _merge(ws, r1, c1, r2, c2):
     ws.merge_cells(start_row=r1, start_column=c1, end_row=r2, end_column=c2)
+
+
+def _text_em(text):
+    """估算字串寬度（以字級 em 計）：全形字 1em、半形約 0.55em。"""
+    import unicodedata
+    return sum(1.0 if unicodedata.east_asian_width(ch) in ("W", "F") else 0.55
+               for ch in str(text))
+
+
+def _overflow_fit_size(ws, r, c, merged):
+    """回傳 (r,c) 文字向右溢出時，不撞到右側第一個有值／合併格所需的字級（不超過原字級）。"""
+    cell = ws.cell(row=r, column=c)
+    size = float(cell.font.size or 11)
+    if not cell.value or (cell.alignment and cell.alignment.wrap_text):
+        return size
+    default_w = ws.sheet_format.defaultColWidth or 8.43
+    avail_pt = 0.0
+    cc = c
+    while cc <= ws.max_column:
+        if cc > c and (ws.cell(row=r, column=cc).value not in (None, "") or (r, cc) in merged):
+            break
+        w = ws.column_dimensions[get_column_letter(cc)].width or default_w
+        avail_pt += (int(round(w * 7.0)) + 5) * 0.75      # 欄寬單位→pt（同 pdf_render）
+        cc += 1
+    avail_pt -= 8                                         # 左右內距＋渲染誤差
+    em = _text_em(cell.value)
+    if em * size <= avail_pt:
+        return size
+    return max(8.0, int(avail_pt / em * 2) / 2)           # 取 0.5 級距
+
+
+def fit_overflow_fonts(ws, rows, c=1):
+    """向右溢出的長文字（曝光／人流結論）若會壓到右側「製作」等有值格，
+    就把這幾列的字級一起縮到放得下（同一區塊字級一致，較整齊）。
+    須在右側格子都寫完後呼叫。"""
+    merged = {(rr, cc) for rng in ws.merged_cells.ranges
+              for rr in range(rng.min_row, rng.max_row + 1)
+              for cc in range(rng.min_col, rng.max_col + 1)}
+    rows = [r for r in rows if ws.cell(row=r, column=c).value]
+    if not rows:
+        return
+    size = min(_overflow_fit_size(ws, r, c, merged) for r in rows)
+    for r in rows:
+        cell = ws.cell(row=r, column=c)
+        if float(cell.font.size or 11) != size:
+            f = copy(cell.font)
+            f.size = size
+            cell.font = f
 
 
 _BORDER_RANK = {None: 0, "hair": 1, "dotted": 1, "thin": 2, "mediumDashed": 3,
@@ -454,6 +503,7 @@ def _subsidiary_totals(ws, sheet, r_first, r_last, r_total, r_prod, r_vat, r_gra
         lines = (sheet.reach or {}).get("lines") or []
         for tr, line in zip((r_prod, r_vat, r_grand), lines[:3]):
             _set(ws, tr, 1, line, size=22, bold=False, halign="left")
+        fit_overflow_fonts(ws, (r_prod, r_vat, r_grand))
 
 
 def _subsidiary_remarks(ws, model, r_hd, r0, r_sign, formulas, C_V):
