@@ -59,6 +59,10 @@ _ALLOWED = [
     (r"^VALUE A\d+: tmpl='4\.託播方.*mp3\)。'", "含新鮮視補影片素材(§5.6)"),
     (r"^VALUE A\d+: tmpl='5\.雙方同意費用請款月份 : 月", "請款月份自動填(§4.12/§5.6)"),
     (r"^VALUE A\d+: tmpl='6\.付款兌現日期：115", "付款日格式(§4.12)"),
+    # 2026-10-08 子公司備註改為 116 年度專案版 1~6 點（與一般 CUE 共用 utils.get_remarks_text）；
+    # 素材條由第 4 點移到第 3 點，紅字跟著移（3 紅、4 黑）
+    (r"^VALUE A\d+: tmpl='[1-4]\.(請於|以上節目名稱|通路店鋪數|託播方)", "子公司備註改 116 專案版(2026-10-08)"),
+    (r"^FC A\d+: tmpl=(BLACK ours=FFFF0000|FFFF0000 ours=BLACK)$", "子公司備註紅字隨條次移動(2026-10-08)"),
     # 簽章區乙方：公司名併入標籤格（I:O 單格、左對齊、緊接標籤，無空格）＋ wrap=False 免長名折行跑版(§5.6 改良)
     (r"^AL I\d+: tmpl=left/center/W ours=left/center/\.$", "乙方標籤格 wrap=False 免折行(§5.6)"),
     (r"^AL L\d+: tmpl=center/center/W ours=None/None/\.$", "乙方名併入 I 格→L 成合併內部空格(§5.6)"),

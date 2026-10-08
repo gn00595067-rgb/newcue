@@ -139,3 +139,63 @@ def test_general_excel_without_medium_label_unchanged():
                                        ["1.測試"], 300000, 0, "承辦人", 469250)
     ws = load_workbook(io.BytesIO(xlsx)).worksheets[0]
     assert "萬家福．樂家康" in [c.value for c in _cells(ws)]
+
+
+# ---------- 過年限定專案（參考檔「過年專案」工作表） ----------
+
+NY = FIXED_PROJECTS["萬家福/樂家康 116年度過年限定專案"]
+
+
+def test_new_year_rows_match_reference_sheet():
+    from fixed_projects import project_seconds_text
+    assert (NY["start"], NY["end"], NY["budget"]) == (date(2027, 1, 21), date(2027, 2, 10), 300000)
+    assert project_days(NY) == 21 and project_seconds_text(NY) == "15、20秒"
+    rows = build_project_rows(NY, STORES)
+    assert [r["seconds"] for r in rows] == [15, 20, 20, 20, 20, 20]
+    assert [r["region"] for r in rows] == ["全省超市", "全省量販", "全省超市", "全省量販", "全省超市", "全省超市"]
+    assert [r["daypart"] for r in rows] == ["00-24 賀歲拜年", "09-23 年貨大街專區", "00-24 年貨大街專區",
+                                            "09-23", "00-24", "00-24"]
+    assert [sum(r["schedule"]) for r in rows] == [126, 168, 288, 294, 504, 63]
+    # 賀歲拜年 15 秒：220000/720×126×0.85
+    assert [r["rate_display"] for r in rows] == [32725, 240000, "計量販", 210000, "計量販", 19250]
+    assert project_total_list(rows) == 501975
+    assert [r["skip_store_total"] for r in rows] == [False, False, True, True, True, True]
+
+
+@pytest.mark.parametrize("fmt", ["東吳", "聲活", "鉑霖"])
+def test_new_year_excel_three_formats(fmt):
+    rows = build_project_rows(NY, STORES)
+    rem = get_remarks_text(date(2026, 11, 30), "2027年2月", date(2027, 3, 31), project_remark=NY["remark"])
+    xlsx = generate_excel_from_scratch(fmt, NY["start"], NY["end"], "客戶", "", "產品", rows, rem,
+                                       NY["budget"], 0, "承辦人", 501975, medium_label=NY["medium"])
+    wb = load_workbook(io.BytesIO(xlsx))
+    assert len(wb.worksheets) == 1
+    values = [c.value for c in _cells(wb.worksheets[0])]
+    assert 300000 in values and 501975 in values and 1443 in values   # 總檔 126+168+288+294+504+63
+    assert "7.此為116年度過年專案，限定6席。" in values
+    assert "00-24 賀歲拜年" in values
+    if fmt == "東吳":
+        assert NY["medium"] in values and "15秒、20秒 產品" in values
+    else:
+        assert 62 + 217 in [c.value for c in wb.worksheets[0]["C"]]
+
+
+def test_new_year_filename():
+    fn = build_cue_filename("萬國通路", build_project_rows(NY, STORES), 300000, "宜",
+                            today=date(2026, 10, 8), seg_label=NY["short"])
+    assert fn == "1008 萬國通路 萬家福.樂家康(15.20秒) 30萬專案-過年限定-宜.xlsx"
+
+
+# ---------- 簡易模式備註與一般 CUE 同一份 ----------
+
+def test_simple_mode_remarks_same_as_general():
+    import simple_model as sm
+    import simple_config as sc
+    combo = next(c for c in sc.COMBOS.values() if c.get("family", "subsidiary") == "subsidiary")
+    out = sm._subsidiary_remarks(combo, date(2026, 11, 30), "2月", "116.03.10")
+    assert [t for t, _ in out] == get_remarks_text(date(2026, 11, 30), "2月", date(2027, 3, 10))
+    assert [red for _, red in out] == [True, False, True, False, False, False]
+
+
+def test_payment_text_passthrough():
+    assert get_remarks_text(None, "", "116.XX.XX")[5] == "6.付款兌現日期：116.XX.XX"

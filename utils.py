@@ -126,11 +126,15 @@ def expand_schedule_to_calendar(schedule_active, segments, start_date, end_date)
 
 def get_remarks_text(sign_deadline, billing_month, payment_date, project_remark=None):
     """生成一般 CUE 合約備註文字（依 116 年度專案版 1~6 點）。
-    project_remark：固定專案限定的第 7 點（如中元專案），一般排程不傳。"""
+    project_remark：固定專案限定的第 7 點（如中元專案），一般排程不傳。
+    payment_date 可傳 date（轉民國年）或已排好的文字（簡易模式手填，原樣帶入）。簡易模式子公司組合也共用這份。"""
     d_str = (f"{sign_deadline.strftime('%Y/%m/%d')} ({'一二三四五六日'[sign_deadline.weekday()]})"
              if sign_deadline else "____/__/__ (__)")
     # 付款兌現日用民國年（例：116.03.10）
-    p_str = f"{payment_date.year - 1911}.{payment_date.strftime('%m.%d')}" if payment_date else "___.__.__"
+    if isinstance(payment_date, str):
+        p_str = payment_date.strip() or "___.__.__"
+    else:
+        p_str = f"{payment_date.year - 1911}.{payment_date.strftime('%m.%d')}" if payment_date else "___.__.__"
     lines = [
         f"1.請於 {d_str} 中午12:00前 回簽及進單，方可順利上檔。",
         "2.通路店鋪數與開機率至少七成(以上)。每日因加盟數調整，或遇店舖年度季度改裝、設備維護升級及保修等狀況，會有一定幅度增減。",

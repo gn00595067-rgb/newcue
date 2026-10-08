@@ -17,6 +17,7 @@ import agency_cue as ac
 from agency_cue import rhu
 import simple_config as sc
 import simple_reach as sr
+from utils import get_remarks_text, remark_color
 
 _WEEK_CH = "一二三四五六日"
 
@@ -510,15 +511,8 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
 
 
 def _subsidiary_remarks(combo, sign, billing, pay):
-    has_fv = "新鮮視" in combo["blocks"]
-    wd = _WEEK_CH[sign.weekday()]
-    sign_s = f"{sign.strftime('%Y/%m/%d')} ({wd})"
-    out = []
-    for tmpl, red in sc.REMARKS_SUBSIDIARY:
-        txt = tmpl.format(sign=sign_s, bill=billing, pay=pay,
-                          fv=sc.REMARKS_SUB_FV_SUFFIX if has_fv else "")
-        out.append((txt, red))
-    return out
+    """與一般 CUE 同一份 1~6 點（utils.get_remarks_text）；紅字同 remark_color（回簽、素材）。"""
+    return [(t, remark_color(t) == "FF0000") for t in get_remarks_text(sign, billing, pay)]
 
 
 def _agency_remarks(combo, start, end, budget):

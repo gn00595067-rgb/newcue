@@ -103,7 +103,7 @@ from pdf_converter import xlsx_bytes_to_pdf_bytes
 from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even
 from agency_ui import render_agency_cue
 from simple_cue import render_simple_cue
-from fixed_projects import FIXED_PROJECTS, NO_PROJECT, build_project_rows, project_days, project_total_list
+from fixed_projects import FIXED_PROJECTS, NO_PROJECT, build_project_rows, project_days, project_seconds_text, project_total_list
 from ragic_api import (
     search_ragic_records,
     upload_to_ragic,
@@ -603,7 +603,7 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
     budget = p["budget"]
     st.info(
         f"🔒 **固定專案，走期／秒數／檔次／金額不能修改**\n\n"
-        f"走期 {p['start']:%Y/%m/%d} ~ {p['end']:%Y/%m/%d}（{ndays} 天）｜ {p['seconds']} 秒 ｜ "
+        f"走期 {p['start']:%Y/%m/%d} ~ {p['end']:%Y/%m/%d}（{ndays} 天）｜ {project_seconds_text(p)} ｜ "
         f"實收 ${budget:,}（未稅）"
     )
 
@@ -631,7 +631,7 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
     rows = build_project_rows(p, store_counts_num)
     total_list = project_total_list(rows)
     grand_total = budget + _round_half_up(budget * 0.05)
-    p_str = f"{p['seconds']}秒 {product_name}"
+    p_str = f"{project_seconds_text(p)} {product_name}"
 
     st.markdown("---")
     st.subheader("📥 檔案下載區")
