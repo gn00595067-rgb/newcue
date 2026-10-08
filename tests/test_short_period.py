@@ -49,3 +49,14 @@ def test_dongwu_party_b_block_right_of_party_a(s, e):
         a = next(c for v, c in cells.items() if v.startswith("甲    方："))
         b = next(c for v, c in cells.items() if v.startswith("乙    方："))
         assert a.row == b.row and b.column >= 8      # 甲方佔 A:G，乙方從 H 之後
+
+
+@pytest.mark.parametrize("fmt", ["聲活", "鉑霖"])
+def test_last_day_column_right_border_thin(fmt):
+    """最後一天與「檔次」之間：星期列、資料列、Total 列都是細線（同事回饋星期列與 Total 列誤用粗線）。"""
+    s, e = date(2027, 1, 21), date(2027, 2, 10)
+    ws = load_workbook(io.BytesIO(_gen(fmt, s, e))).worksheets[0]
+    spots_hdr = next(c for row in ws.iter_rows() for c in row if c.value == "檔次")
+    last = spots_hdr.column - 1
+    styles = {ws.cell(r, last).border.right.style for r in range(spots_hdr.row, spots_hdr.row + 4)}
+    assert styles == {"thin"}
