@@ -862,7 +862,13 @@ def main():
                     else:
                         st.error("密碼錯誤")
                 return
-            render_agency_cue(SALES_MAP)
+            # 一鍵CUE：原簡易模式中的 2008／凱絡模板（2026-10-08 由簡易模式移入）；自訂：原代理商CUE
+            ag_mode = st.radio("代理商CUE 方式", ["一鍵CUE（模板）", "自訂代理商CUE"], key="agency_sub_mode",
+                               horizontal=True, help="一鍵CUE：選 2008／凱絡模板＋預算＋開始日即出，用法同簡易模式。自訂：逐項設定平台、秒數、檔次。")
+            if ag_mode == "一鍵CUE（模板）":
+                render_simple_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, SALES_MAP, family="agency")
+            else:
+                render_agency_cue(SALES_MAP)
             return
 
         format_type = st.radio("選擇格式", fmt_options, index=fmt_idx, horizontal=True)

@@ -179,8 +179,10 @@ def _pills(label, options, fmt, key, default_index=0):
 # 主 UI
 # =============================================================================
 def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
-                      regions_order=None, sales_map=None):
-    st.title("⚡ 一鍵 CUE")
+                      regions_order=None, sales_map=None, family="subsidiary"):
+    """family="subsidiary"：簡易模式（子公司組合）；"agency"：代理商CUE 分頁內的一鍵模板（2008／凱絡）。"""
+    is_agency = family == "agency"
+    st.title("⚡ 代理商一鍵 CUE" if is_agency else "⚡ 一鍵 CUE")
     st.caption("選平台組合 → 輸入預算 → 選開始日，立即顯示與公司範本一致的預覽，可下載 Excel／PDF。")
 
     data, err = _to_sheetdata(store_counts_num, pricing_db, sec_factors)
@@ -190,9 +192,10 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
 
     # 【1】平台組合
     st.markdown("**【1】平台組合**")
-    all_keys = sc.SUBSIDIARY_COMBOS + sc.AGENCY_COMBOS
+    # 兩邊 widget key 分開：切換模式時，另一邊選過的組合不會帶進來（選項不在清單內會出錯）
+    all_keys = sc.AGENCY_COMBOS if is_agency else sc.SUBSIDIARY_COMBOS
     combo_key = _pills("平台組合", all_keys, lambda k: sc.COMBOS[k]["label"],
-                       key="simple_combo")
+                       key="agency_simple_combo" if is_agency else "simple_combo")
     st.caption("　" + sc.COMBOS[combo_key]["hint"])
 
     # 【2】預算

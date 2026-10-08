@@ -22,6 +22,16 @@ def _set_side(ws, r, c, **sides):
     ws.cell(row=r, column=c).border = Border(**kw)
 
 
+_SIDE_RANK = {None: 0, "hair": 1, "dotted": 1, "thin": 2, "medium": 3, "double": 4, "thick": 4}
+
+
+def _raise_side(ws, r, c, side, style):
+    """該邊比 style 細才改成 style（已較粗者保留，如 double）。"""
+    cur = getattr(ws.cell(row=r, column=c).border, side)
+    if _SIDE_RANK.get(cur.style if cur else None, 0) < _SIDE_RANK[style]:
+        _set_side(ws, r, c, **{side: style})
+
+
 def _box(ws, r1, c1, r2, c2, style="medium"):
     """畫一個外框方框（含合併格：四邊都設在構成格上，Excel 才連續）。"""
     for c in range(c1, c2 + 1):
@@ -108,10 +118,28 @@ def render_2008(wb, model, formulas):
         _add_logo_2008(ws, LAST)
         thicken_hairlines(ws)
         seal_grid(ws, 8, sm.data_last, 1, LAST)    # 只密封資料表；下方另畫
+        _fix_2008_grid(ws, FIRST, LAST, sm.data_last)
         _table_bottom(ws, sm.data_last, 1, LAST, "double")   # 合計列底邊 double(全寬)
         for r in range(17, 21):                    # 費用四列 F:G 上下 thin
             for c in (6, 7):
                 _set_side(ws, r, c, top="thin", bottom="thin")
+
+
+def _fix_2008_grid(ws, FIRST, LAST, total_row):
+    """修正 0902 範本本身的框線瑕疵（Excel 開啟會「跑版」，同事回饋；比照舊代理商模式 2008 框線）：
+    1) 月份列（OCT/NOV）下緣：範本除第一個日期欄外都是粗線 → 統一內線（同月份帶狀、跨月不出怪框）
+    2) 左右外框：回饋列（日期區合併）右緣範本為細線 → 每列都 medium，外框連續
+    3) 合計列上緣：B/E/G 合併格底邊範本為細線、鄰格為粗線 → 全寬 medium 不斷線"""
+    inner = getattr(sc, "INNER_GRID_STYLE", "hair")
+    for c in range(FIRST, LAST + 1):
+        _set_side(ws, 8, c, bottom=inner)
+        _set_side(ws, 9, c, top=inner)
+    for r in range(8, total_row + 1):        # 只加粗不降級（全家範本外框為 double）
+        _raise_side(ws, r, 1, "left", "medium")
+        _raise_side(ws, r, LAST, "right", "medium")
+    for c in range(1, LAST + 1):
+        _raise_side(ws, total_row - 1, c, "bottom", "medium")
+        _raise_side(ws, total_row, c, "top", "medium")
 
 
 def _2008_dateheader(ws, sheet, FIRST):

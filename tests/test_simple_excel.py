@@ -63,6 +63,8 @@ _ALLOWED = [
     # 素材條由第 4 點移到第 3 點，紅字跟著移（3 紅、4 黑）
     (r"^VALUE A\d+: tmpl='[1-4]\.(請於|以上節目名稱|通路店鋪數|託播方)", "子公司備註改 116 專案版(2026-10-08)"),
     (r"^FC A\d+: tmpl=(BLACK ours=FFFF0000|FFFF0000 ours=BLACK)$", "子公司備註紅字隨條次移動(2026-10-08)"),
+    # 2026-10-08 2008 框線修正（同事回饋 Excel 跑版，比照舊代理商 2008）：合計列上緣全寬 medium 不斷線
+    (r"^BD [A-Z]+(13: bottom|14: top).* tmpl_lvl=1 ours_lvl=2$", "2008 合計上緣統一 medium(2026-10-08)"),
     # 簽章區乙方：公司名併入標籤格（I:O 單格、左對齊、緊接標籤，無空格）＋ wrap=False 免長名折行跑版(§5.6 改良)
     (r"^AL I\d+: tmpl=left/center/W ours=left/center/\.$", "乙方標籤格 wrap=False 免折行(§5.6)"),
     (r"^AL L\d+: tmpl=center/center/W ours=None/None/\.$", "乙方名併入 I 格→L 成合併內部空格(§5.6)"),

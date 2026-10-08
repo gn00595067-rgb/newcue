@@ -174,3 +174,28 @@ def test_carat_outer_frame_is_continuous_medium(key, s, e):
     assert all(_style(ws.cell(r, out_last).border.right) == "medium" for r in range(TOP, BOT + 1)), "右框斷"
     assert all(_style(ws.cell(TOP, c).border.top) == "medium" for c in range(1, out_last + 1)), "頂框斷"
     assert all(_style(ws.cell(BOT, c).border.bottom) == "medium" for c in range(1, out_last + 1)), "底框斷"
+
+
+@pytest.mark.parametrize("key", ["ag_2008_wjf", "ag_2008_fam"])
+def test_2008_grid_consistent_cross_month(key):
+    """同事回饋 2008 Excel 跑版（跨月 10/19–11/01）：月份列下緣一致、左右外框每列都粗、合計上緣不斷線。"""
+    import io
+    from datetime import date
+    from openpyxl import load_workbook
+    import simple_model as sm
+    import simple_excel as se
+    from fixtures_simple import sheetdata
+    rank = {None: 0, "hair": 1, "thin": 2, "medium": 3, "double": 4}
+    m = sm.build_model(key, 250000, date(2026, 10, 19), date(2026, 11, 1), data=sheetdata())
+    ws = load_workbook(io.BytesIO(se.render(m, formulas=False))).worksheets[0]
+    hdr = next(c for c in ws[9] if c.value == 19)          # 第一個日期欄
+    first, last = hdr.column, hdr.column + 13
+    total = next(c.row for c in ws["B"] if c.value == "合計")
+    lvl = lambda s: rank.get(s.style if s else None, 0)
+    assert len({ws.cell(8, c).border.bottom.style for c in range(first, last + 1)}) == 1
+    assert all(lvl(ws.cell(r, last).border.right) >= 3 and lvl(ws.cell(r, 1).border.left) >= 3
+               for r in range(8, total + 1))
+    # 跨「合計列」的合併格（全家範本 A11:A14 媒體型態）內部本來就沒有線，略過
+    spans = {c for m in ws.merged_cells.ranges if m.min_row <= total - 1 and m.max_row >= total
+             for c in range(m.min_col, m.max_col + 1)}
+    assert all(lvl(ws.cell(total - 1, c).border.bottom) >= 3 for c in range(1, last + 1) if c not in spans)
