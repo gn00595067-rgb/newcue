@@ -308,7 +308,9 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         # 其他天期維持原本 8 欄寬，但若 total_cols 不足也會自動往左收。
         eff_days_for_sig = eff_days
         right_block_width = 6 if eff_days_for_sig < 14 else 8
-        right_start_col = max(1, total_cols - right_block_width + 1)
+        # 甲方佔 A:G（1~7 欄），乙方最左只能從 H 開始；天數很少（1~4 天、跨月拆表的短月份）時
+        # total_cols 太窄，原本會從 A:G 內起算而與甲方合併格重疊當掉 → 改為從 H 往右延伸
+        right_start_col = max(8, total_cols - right_block_width + 1)
         right_end_col = right_start_col + right_block_width - 1
         ws.merge_cells(start_row=sig_start, start_column=right_start_col, end_row=sig_start, end_column=right_end_col); ws.cell(sig_start, right_start_col, "乙    方：東吳廣告股份有限公司").alignment = ALIGN_LEFT; ws.cell(sig_start, right_start_col).font = _sig_font
         
