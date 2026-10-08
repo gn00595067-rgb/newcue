@@ -22,6 +22,28 @@ from simple_reach import compute_reach_from_rows
 from simple_excel import fit_overflow_fonts
 
 
+def _text_width(texts, font_size=16):
+    """一行放完最長文字所需欄寬。寬度單位≈11 級字一個半形字，全形算 2，左右各留邊。"""
+    def units(t):
+        return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in str(t or ""))
+    return round(max((units(t) for t in texts), default=0) * font_size / 11 + 4, 1)
+
+
+def _daypart_width(rows, base, font_size=16):
+    """Day-part／播出時間欄寬：放得下最長時段文字（如「09-23 年貨大街專區」）就不換行；
+    一般短時段（07-23）維持原本欄寬 base。"""
+    return max(base, _text_width([r.get("daypart") for r in rows], font_size))
+
+
+def _fit_station_cols(ws, rows, headers=("Station", "Location"), min_w=12.0):
+    """固定專案逐列寫 Station（萬家福／樂家康）、Location（量販店／超市），Location 文字短 → B 欄收窄，
+    讓出寬度給 Day-part。A 欄不動：上方「客戶名稱：／Medium :」20 級標籤也在 A 欄，收窄會黏字／換行。
+    一般 CUE（無 station）不動。"""
+    if not any(r.get("station") for r in rows):
+        return
+    ws.column_dimensions['B'].width = max(min_w, _text_width([headers[1]] + [r.get("region") for r in rows]))
+
+
 def _round_half_up(value):
     return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
@@ -119,6 +141,8 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         ROW_HEIGHTS = {1: 61.0, 2: 29.0, 3: 40.0, 4: 40.0, 5: 40.0, 6: 40.0, 7: 40.0, 8: 40.0}
         
         for k, v in COL_WIDTHS.items(): ws.column_dimensions[k].width = v
+        ws.column_dimensions['D'].width = _daypart_width(rows, COL_WIDTHS['D'])
+        _fit_station_cols(ws, rows)
         for i in range(eff_days): ws.column_dimensions[get_column_letter(8+i)].width = 8.5
         ws.column_dimensions[get_column_letter(spots_col_idx)].width = 13.0
         for r, h in ROW_HEIGHTS.items():
@@ -200,7 +224,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
 
             for idx, r in enumerate(data):
                 ws.row_dimensions[curr_row].height = 40
-                ws.cell(curr_row, 1, display_name).alignment = ALIGN_CENTER
+                ws.cell(curr_row, 1, r.get("station") or display_name).alignment = ALIGN_CENTER
                 ws.cell(curr_row, 2, r["region"]).alignment = ALIGN_CENTER
                 ws.cell(curr_row, 3, r.get("program_num", 0)).alignment = ALIGN_CENTER
                 ws.cell(curr_row, 4, r["daypart"]).alignment = ALIGN_CENTER
@@ -222,7 +246,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
                 curr_row += 1
 
             # 合併相同媒體名稱的欄位；Column 7 依 runs (全省塊、回饋塊) 分別合併
-            ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
+            if not any(x.get("station") for x in data): ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
             i = 0
             while i < len(data):
                 if data[i].get("is_pkg_member"):
@@ -332,7 +356,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         end_c_start = 6 + eff_days
         total_cols = end_c_start + 2
 
-        ws.column_dimensions['A'].width = 22.5; ws.column_dimensions['B'].width = 24.5; ws.column_dimensions['C'].width = 13.8; ws.column_dimensions['D'].width = 19.4; ws.column_dimensions['E'].width = 27.0
+        ws.column_dimensions['A'].width = 22.5; ws.column_dimensions['B'].width = 24.5; ws.column_dimensions['C'].width = 13.8; ws.column_dimensions['D'].width = _daypart_width(rows, 19.4); ws.column_dimensions['E'].width = 27.0; _fit_station_cols(ws, rows, ('頻道', '播出地區'))
         for i in range(eff_days): ws.column_dimensions[get_column_letter(6 + i)].width = 8.1 
         ws.column_dimensions[get_column_letter(end_c_start)].width = 9.5; ws.column_dimensions[get_column_letter(end_c_start+1)].width = 58.0; ws.column_dimensions[get_column_letter(end_c_start+2)].width = 20.0 
         ROW_H_MAP = {1:30, 2:30, 3:46, 4:46, 5:40, 6:40, 7:35, 8:35}; 
@@ -408,7 +432,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             if not data: continue
             start_merge = curr_row; d_name = f"全家便利商店\n{m_key}廣告" if m_key != "家樂福" else "萬家福．樂家康"
             for idx, r in enumerate(data):
-                ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
+                ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, r.get('station') or d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
                 # 加贈列 program_num 為文字（「加贈檔次」）→ 原樣顯示、不計入總店數（比照東吳）
                 p_raw = r.get('program_num', 0); suffix = "面" if m_key == "新鮮視" else "店"
                 if isinstance(p_raw, (int, float)): p_num = int(p_raw); total_store_count += 0 if r.get('skip_store_total') else p_num; p_txt = f"{p_num:,}{suffix}"
@@ -432,7 +456,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
                     c = ws.cell(curr_row, c_idx); c.border = BORDER_ALL_THIN
                     if c_idx < 6 or c_idx >= end_c_start: c.font = FONT_16
                 set_border(ws.cell(curr_row, 5), right=BS_MEDIUM); curr_row += 1
-            ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
+            if not any(x.get("station") for x in data): ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
             i = 0
             while i < len(data):
                 if data[i].get('is_pkg_member'):
@@ -589,7 +613,8 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         ws.column_dimensions['A'].width = 21.0
         ws.column_dimensions['B'].width = 21.0
         ws.column_dimensions['C'].width = 13.8
-        ws.column_dimensions['D'].width = 19.4
+        ws.column_dimensions['D'].width = _daypart_width(rows, 19.4)
+        _fit_station_cols(ws, rows, ('頻道', '播出地區'))
         ws.column_dimensions['E'].width = 27.0
         for i in range(eff_days): 
             ws.column_dimensions[get_column_letter(6 + i)].width = 8.1
@@ -706,7 +731,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             if not data: continue
             start_merge = curr_row; d_name = f"全家便利商店\n{m_key}廣告" if m_key != "家樂福" else "萬家福．樂家康"
             for idx, r in enumerate(data):
-                ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
+                ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, r.get('station') or d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
                 # 加贈列 program_num 為文字（「加贈檔次」）→ 原樣顯示、不計入總店數（比照東吳）
                 p_raw = r.get('program_num', 0); suffix = "面" if m_key == "新鮮視" else "店"
                 if isinstance(p_raw, (int, float)): p_num = int(p_raw); total_store_count += 0 if r.get('skip_store_total') else p_num; p_txt = f"{p_num:,}{suffix}"
@@ -730,7 +755,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
                     c = ws.cell(curr_row, c_idx); c.border = BORDER_ALL_THIN
                     if c_idx < 6 or c_idx >= end_c_start: c.font = FONT_16
                 set_border(ws.cell(curr_row, 5), right=BS_MEDIUM); curr_row += 1
-            ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
+            if not any(x.get("station") for x in data): ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
             i = 0
             while i < len(data):
                 if data[i].get('is_pkg_member'):

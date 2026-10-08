@@ -49,13 +49,18 @@ FIXED_PROJECTS = {
 
 NO_PROJECT = "不套用（一般排程）"
 
+# 照參考檔逐列寫：萬家福＝量販、樂家康＝超市（Location 含「超市」→ 曝光人流算超市）
+_STATION = {"量販": "萬家福", "超市": "樂家康"}
+_LOCATION = {"量販": "量販店", "超市": "超市"}
+
 
 def project_days(p):
     return (p["end"] - p["start"]).days + 1
 
 
 def build_project_rows(p, store_counts_num=None):
-    """固定專案 → 一般 CUE rows。Package-cost 五列合併為一格實收；超市列 rate 顯示「計量販」。
+    """固定專案 → 一般 CUE rows。Package-cost 合併為一格實收；超市列 rate 顯示「計量販」。
+    Station 逐列分開（萬家福／樂家康）不合併；Location 欄依字數收窄讓給 Day-part。
     同通路第二次出現的列標 skip_store_total，聲活／鉑霖總店數不重複加。"""
     store_counts_num = store_counts_num or {}
     stores = {"量販": store_counts_num.get("家樂福_量販") or 62,
@@ -74,7 +79,8 @@ def build_project_rows(p, store_counts_num=None):
             rate = round(lst / std * spots * mult)
         rows.append({
             "media": "家樂福",
-            "region": f"全省{kind}",
+            "station": _STATION[kind],
+            "region": _LOCATION[kind],
             "program_num": stores[kind],
             "daypart": daypart,
             "seconds": sec[0] if sec else p["seconds"],

@@ -37,7 +37,8 @@ def test_period_and_seconds_fixed():
 
 def test_rows_match_reference_sheet():
     rows = _rows()
-    assert [r["region"] for r in rows] == ["全省量販", "全省超市", "全省量販", "全省超市", "全省超市"]
+    assert [r["region"] for r in rows] == ["量販店", "超市", "量販店", "超市", "超市"]
+    assert [r["station"] for r in rows] == ["萬家福", "樂家康", "萬家福", "樂家康", "樂家康"]
     assert [r["daypart"] for r in rows] == ["09-23 中元專區", "00-24 中元專區", "09-23", "00-24", "00-24"]
     assert [sum(r["schedule"]) for r in rows] == [168, 288, 294, 504, 63]
     assert all(len(r["schedule"]) == 21 and r["seconds"] == 20 for r in rows)
@@ -152,7 +153,8 @@ def test_new_year_rows_match_reference_sheet():
     assert project_days(NY) == 21 and project_seconds_text(NY) == "15、20秒"
     rows = build_project_rows(NY, STORES)
     assert [r["seconds"] for r in rows] == [15, 20, 20, 20, 20, 20]
-    assert [r["region"] for r in rows] == ["全省超市", "全省量販", "全省超市", "全省量販", "全省超市", "全省超市"]
+    assert [r["region"] for r in rows] == ["超市", "量販店", "超市", "量販店", "超市", "超市"]
+    assert [r["station"] for r in rows] == ["樂家康", "萬家福", "樂家康", "萬家福", "樂家康", "樂家康"]
     assert [r["daypart"] for r in rows] == ["00-24 賀歲拜年", "09-23 年貨大街專區", "00-24 年貨大街專區",
                                             "09-23", "00-24", "00-24"]
     assert [sum(r["schedule"]) for r in rows] == [126, 168, 288, 294, 504, 63]
@@ -199,3 +201,31 @@ def test_simple_mode_remarks_same_as_general():
 
 def test_payment_text_passthrough():
     assert get_remarks_text(None, "", "116.XX.XX")[5] == "6.付款兌現日期：116.XX.XX"
+
+
+@pytest.mark.parametrize("fmt", ["東吳", "聲活", "鉑霖"])
+def test_daypart_column_fits_long_text(fmt):
+    """Day-part 長文字（09-23 年貨大街專區）欄寬要夠一行放完；一般短時段維持原寬。"""
+    from excel_renderer import _daypart_width
+    rows = build_project_rows(NY, STORES)
+    xlsx = generate_excel_from_scratch(fmt, NY["start"], NY["end"], "客戶", "", "產品", rows, ["1.測試"],
+                                       300000, 0, "承辦人", 501975)
+    ws = load_workbook(io.BytesIO(xlsx)).worksheets[0]
+    assert ws.column_dimensions["D"].width == _daypart_width(rows, 0) > 30
+    assert _daypart_width([{"daypart": "07-23"}], 20.0) == 20.0
+
+
+@pytest.mark.parametrize("fmt", ["東吳", "聲活", "鉑霖"])
+def test_station_per_row_not_merged(fmt):
+    """Station 逐列「萬家福／樂家康」不合併；A、B 欄比一般 CUE 窄；曝光人流量販／超市檔次不變。"""
+    from simple_reach import compute_reach_from_rows
+    rows = build_project_rows(NY, STORES)
+    xlsx = generate_excel_from_scratch(fmt, NY["start"], NY["end"], "客戶", "", "產品", rows, ["1.測試"],
+                                       300000, 0, "承辦人", 501975)
+    ws = load_workbook(io.BytesIO(xlsx)).worksheets[0]
+    col_a = [c.value for c in ws["A"]]
+    assert col_a.count("萬家福") == 2 and col_a.count("樂家康") == 4 and "萬家福．樂家康" not in col_a
+    assert ws.column_dimensions["A"].width >= 19.6     # A 欄放表頭標籤，不收
+    assert ws.column_dimensions["B"].width < 19
+    det = {e["platform"]: e for e in compute_reach_from_rows(rows, 21)["by_platform"]}["家樂福"]["detail"]
+    assert det["量販"]["spots"] == 168 + 294 and det["超市"]["spots"] == 126 + 288 + 504 + 63
