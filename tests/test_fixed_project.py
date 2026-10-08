@@ -37,8 +37,7 @@ def test_period_and_seconds_fixed():
 
 def test_rows_match_reference_sheet():
     rows = _rows()
-    assert [r["region"] for r in rows] == ["量販店", "超市", "量販店", "超市", "超市"]
-    assert [r["station"] for r in rows] == ["萬家福", "樂家康", "萬家福", "樂家康", "樂家康"]
+    assert [r["region"] for r in rows] == ["全省量販", "全省超市", "全省量販", "全省超市", "全省超市"]
     assert [r["daypart"] for r in rows] == ["09-23 中元專區", "00-24 中元專區", "09-23", "00-24", "00-24"]
     assert [sum(r["schedule"]) for r in rows] == [168, 288, 294, 504, 63]
     assert all(len(r["schedule"]) == 21 and r["seconds"] == 20 for r in rows)
@@ -153,8 +152,7 @@ def test_new_year_rows_match_reference_sheet():
     assert project_days(NY) == 21 and project_seconds_text(NY) == "15、20秒"
     rows = build_project_rows(NY, STORES)
     assert [r["seconds"] for r in rows] == [15, 20, 20, 20, 20, 20]
-    assert [r["region"] for r in rows] == ["超市", "量販店", "超市", "量販店", "超市", "超市"]
-    assert [r["station"] for r in rows] == ["樂家康", "萬家福", "樂家康", "萬家福", "樂家康", "樂家康"]
+    assert [r["region"] for r in rows] == ["全省超市", "全省量販", "全省超市", "全省量販", "全省超市", "全省超市"]
     assert [r["daypart"] for r in rows] == ["00-24 賀歲拜年", "09-23 年貨大街專區", "00-24 年貨大街專區",
                                             "09-23", "00-24", "00-24"]
     assert [sum(r["schedule"]) for r in rows] == [126, 168, 288, 294, 504, 63]

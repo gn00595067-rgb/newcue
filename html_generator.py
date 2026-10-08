@@ -6,7 +6,7 @@ HTML 預覽生成模組 (HTML Preview Generator)
 from itertools import groupby
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from utils import html_escape, split_period_by_months
+from utils import html_escape, split_period_by_months, cue_station, cue_location
 from simple_reach import compute_reach_from_rows
 
 # 媒體顯示名（內部 key「家樂福」＝萬家福量販＋樂家康超市；客戶一律顯示萬家福．樂家康）
@@ -77,11 +77,11 @@ def _render_one_month_table(rows, days_in_month, month_start, month_end, full_to
                 pkg_val_str = f"<td style='text-align:center'>{val}</td>"
             if format_type == "聲活":
                 sec_txt = f"{r['seconds']}秒"
-                tbody += f"<td>{r.get('station') or _media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{sec_txt}</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{cue_station(r, _media_disp(r['media']))}</td><td>{cue_location(r)}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{sec_txt}</td><td>{rate}</td>{pkg_val_str}"
             elif format_type == "鉑霖":
-                tbody += f"<td>{r.get('station') or _media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}秒</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{cue_station(r, _media_disp(r['media']))}</td><td>{cue_location(r)}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}秒</td><td>{rate}</td>{pkg_val_str}"
             else:
-                tbody += f"<td>{r.get('station') or _media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{cue_station(r, _media_disp(r['media']))}</td><td>{cue_location(r)}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}</td><td>{rate}</td>{pkg_val_str}"
             row_spots_sum = 0
             for d_idx, d in enumerate(r['schedule'][:days_in_month]):
                 cell_val = "" if (d == 0 or d is None) else d
@@ -225,11 +225,11 @@ def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_di
             # 填充列內容
             if format_type == "聲活":
                 sec_txt = f"{r['seconds']}秒"
-                tbody += f"<td>{r.get('station') or _media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{sec_txt}</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{cue_station(r, _media_disp(r['media']))}</td><td>{cue_location(r)}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{sec_txt}</td><td>{rate}</td>{pkg_val_str}"
             elif format_type == "鉑霖":
-                tbody += f"<td>{r.get('station') or _media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}秒</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{cue_station(r, _media_disp(r['media']))}</td><td>{cue_location(r)}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}秒</td><td>{rate}</td>{pkg_val_str}"
             else:
-                tbody += f"<td>{r.get('station') or _media_disp(r['media'])}</td><td>{r['region']}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}</td><td>{rate}</td>{pkg_val_str}"
+                tbody += f"<td>{cue_station(r, _media_disp(r['media']))}</td><td>{cue_location(r)}</td><td>{r.get('program_num','')}</td><td>{r['daypart']}</td><td>{r['seconds']}</td><td>{rate}</td>{pkg_val_str}"
 
             # 填入每日檔次（未執行日為 0 時顯示空白）
             row_spots_sum = 0

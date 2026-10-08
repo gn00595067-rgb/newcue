@@ -38,3 +38,9 @@
 ### 2026-10-08 簡易模式備註共用一般 CUE
 - 選項：A simple_config 另抄一份新文字 / B 刪掉 simple_config 範本，直接呼叫 utils.get_remarks_text
 - 決定：B，只有一份真相源，下次改備註不會漏改。代價：素材條不再依「有無新鮮視」決定是否加 mp4（參考檔本身就一律含 mp4）。
+
+### 2026-10-08 一般 CUE 萬家福．樂家康逐列分開的做法
+- 背景：Jonathan 要一般 CUE 也比照固定專案，Station 寫萬家福／樂家康、Location 寫量販店／超市。
+- 選項：A 改 rows 的 region / B rows 不動，渲染時由 utils.cue_station／cue_location 轉顯示文字
+- 決定：B。region「全省量販／全省超市」被回饋（rebate.py）、業務加贈分組、Ragic 平台明細拿來比對，改了會連帶壞；B 只動顯示，回饋列、加贈列、年約季約、固定專案自動一致。
+- 影響：含萬家福．樂家康的一般 CUE，Location 欄依最長地區文字收窄（不超過原寬），寬度讓給 Day-part。

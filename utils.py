@@ -148,6 +148,23 @@ def get_remarks_text(sign_deadline, billing_month, payment_date, project_remark=
     return lines
 
 
+def cue_station(r, default=""):
+    """CUE 表 Station／頻道欄顯示文字。萬家福．樂家康逐列分開：量販＝萬家福、超市＝樂家康。
+    只改顯示，rows 的 region（全省量販／全省超市）仍供回饋、Ragic 邏輯比對。"""
+    if r.get("station"):
+        return r["station"]
+    if r.get("media") == "家樂福":
+        return "樂家康" if "超市" in str(r.get("region", "")) else "萬家福"
+    return default
+
+
+def cue_location(r):
+    """CUE 表 Location／播出地區欄顯示文字：家樂福列顯示「量販店／超市」，其餘照 region。"""
+    if r.get("media") == "家樂福":
+        return "超市" if "超市" in str(r.get("region", "")) else "量販店"
+    return r.get("region", "")
+
+
 def remark_color(text, blue_payment=False):
     """一般 CUE 備註字色（Excel RGB）。依內容判斷，不看編號，舊版手改備註（素材在第 4 點）也不會錯色。
     紅：回簽期限、託播方素材；藍：專案限定條款（限定N席），聲活／鉑霖另含付款兌現日。"""

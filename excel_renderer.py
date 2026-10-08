@@ -17,7 +17,7 @@ from config import (
     FONT_MAIN, BS_THIN, BS_MEDIUM, BS_HAIR, FMT_MONEY, FMT_NUMBER
 )
 from pdf_converter import get_cloud_logo_bytes
-from utils import split_period_by_months, remark_color
+from utils import split_period_by_months, remark_color, cue_station, cue_location
 from simple_reach import compute_reach_from_rows
 from simple_excel import fit_overflow_fonts
 
@@ -36,12 +36,14 @@ def _daypart_width(rows, base, font_size=16):
 
 
 def _fit_station_cols(ws, rows, headers=("Station", "Location"), min_w=12.0):
-    """固定專案逐列寫 Station（萬家福／樂家康）、Location（量販店／超市），Location 文字短 → B 欄收窄，
-    讓出寬度給 Day-part。A 欄不動：上方「客戶名稱：／Medium :」20 級標籤也在 A 欄，收窄會黏字／換行。
-    一般 CUE（無 station）不動。"""
-    if not any(r.get("station") for r in rows):
+    """含萬家福．樂家康時 Station 逐列寫（萬家福／樂家康）、Location 寫量販店／超市，若整張表 Location 都短
+    → B 欄收窄，讓出寬度給 Day-part（不會比原寬更寬）。A 欄不動：上方「客戶名稱：／Medium :」
+    20 級標籤也在 A 欄，收窄會黏字／換行。不含萬家福．樂家康的 CUE 不動。"""
+    if not any(r.get("media") == "家樂福" for r in rows):
         return
-    ws.column_dimensions['B'].width = max(min_w, _text_width([headers[1]] + [r.get("region") for r in rows]))
+    cur = ws.column_dimensions['B'].width
+    need = max(min_w, _text_width([headers[1]] + [cue_location(r) for r in rows]))
+    ws.column_dimensions['B'].width = min(cur, need) if cur else need
 
 
 def _round_half_up(value):
@@ -224,8 +226,8 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
 
             for idx, r in enumerate(data):
                 ws.row_dimensions[curr_row].height = 40
-                ws.cell(curr_row, 1, r.get("station") or display_name).alignment = ALIGN_CENTER
-                ws.cell(curr_row, 2, r["region"]).alignment = ALIGN_CENTER
+                ws.cell(curr_row, 1, cue_station(r, display_name)).alignment = ALIGN_CENTER
+                ws.cell(curr_row, 2, cue_location(r)).alignment = ALIGN_CENTER
                 ws.cell(curr_row, 3, r.get("program_num", 0)).alignment = ALIGN_CENTER
                 ws.cell(curr_row, 4, r["daypart"]).alignment = ALIGN_CENTER
                 ws.cell(curr_row, 5, f"{r['seconds']}秒").alignment = ALIGN_CENTER
@@ -246,7 +248,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
                 curr_row += 1
 
             # 合併相同媒體名稱的欄位；Column 7 依 runs (全省塊、回饋塊) 分別合併
-            if not any(x.get("station") for x in data): ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
+            if m_key != "家樂福": ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
             i = 0
             while i < len(data):
                 if data[i].get("is_pkg_member"):
@@ -432,7 +434,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             if not data: continue
             start_merge = curr_row; d_name = f"全家便利商店\n{m_key}廣告" if m_key != "家樂福" else "萬家福．樂家康"
             for idx, r in enumerate(data):
-                ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, r.get('station') or d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
+                ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, cue_station(r, d_name)).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, cue_location(r)).alignment = ALIGN_CENTER
                 # 加贈列 program_num 為文字（「加贈檔次」）→ 原樣顯示、不計入總店數（比照東吳）
                 p_raw = r.get('program_num', 0); suffix = "面" if m_key == "新鮮視" else "店"
                 if isinstance(p_raw, (int, float)): p_num = int(p_raw); total_store_count += 0 if r.get('skip_store_total') else p_num; p_txt = f"{p_num:,}{suffix}"
@@ -456,7 +458,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
                     c = ws.cell(curr_row, c_idx); c.border = BORDER_ALL_THIN
                     if c_idx < 6 or c_idx >= end_c_start: c.font = FONT_16
                 set_border(ws.cell(curr_row, 5), right=BS_MEDIUM); curr_row += 1
-            if not any(x.get("station") for x in data): ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
+            if m_key != "家樂福": ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
             i = 0
             while i < len(data):
                 if data[i].get('is_pkg_member'):
@@ -731,7 +733,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             if not data: continue
             start_merge = curr_row; d_name = f"全家便利商店\n{m_key}廣告" if m_key != "家樂福" else "萬家福．樂家康"
             for idx, r in enumerate(data):
-                ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, r.get('station') or d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
+                ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, cue_station(r, d_name)).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, cue_location(r)).alignment = ALIGN_CENTER
                 # 加贈列 program_num 為文字（「加贈檔次」）→ 原樣顯示、不計入總店數（比照東吳）
                 p_raw = r.get('program_num', 0); suffix = "面" if m_key == "新鮮視" else "店"
                 if isinstance(p_raw, (int, float)): p_num = int(p_raw); total_store_count += 0 if r.get('skip_store_total') else p_num; p_txt = f"{p_num:,}{suffix}"
@@ -755,7 +757,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
                     c = ws.cell(curr_row, c_idx); c.border = BORDER_ALL_THIN
                     if c_idx < 6 or c_idx >= end_c_start: c.font = FONT_16
                 set_border(ws.cell(curr_row, 5), right=BS_MEDIUM); curr_row += 1
-            if not any(x.get("station") for x in data): ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
+            if m_key != "家樂福": ws.merge_cells(start_row=start_merge, start_column=1, end_row=curr_row-1, end_column=1)
             i = 0
             while i < len(data):
                 if data[i].get('is_pkg_member'):

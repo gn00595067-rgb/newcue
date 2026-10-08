@@ -116,3 +116,28 @@ def test_custom_bonus_row_renders(fmt):
     if fmt != "東吳":
         # 總店數＝數字列加總（1673+850+1209+68+250），不含加贈列
         assert 1673 + 850 + 1209 + 68 + 250 in col_c
+
+
+@pytest.mark.parametrize("fmt", ["東吳", "聲活", "鉑霖"])
+def test_carrefour_rows_split_station(fmt):
+    """一般 CUE 的萬家福．樂家康逐列分：量販＝萬家福／量販店、超市＝樂家康／超市；其他平台照舊合併。"""
+    rows = _rows(14)
+    xlsx = generate_excel_from_scratch(fmt, date(2026, 11, 2), date(2026, 11, 15), "客戶", "", "產品", rows,
+                                       ["1.測試"], 250000, 0, "承辦人", 300000)
+    ws = load_workbook(io.BytesIO(xlsx)).worksheets[0]
+    vals = {(c.row, c.column): c.value for row in ws.iter_rows() for c in row if c.value is not None}
+    wjf = [r for (r, col), v in vals.items() if col == 1 and v == "萬家福"]
+    lkk = [r for (r, col), v in vals.items() if col == 1 and v == "樂家康"]
+    assert len(wjf) == 1 and len(lkk) == 1
+    assert vals[(wjf[0], 2)] == "量販店" and vals[(lkk[0], 2)] == "超市"
+    assert "萬家福．樂家康" not in [v for (r, col), v in vals.items() if col == 1]
+    # 第一欄只有全家／新鮮視合併，萬家福、樂家康各自一格
+    merged_a = [m for m in ws.merged_cells.ranges if m.min_col == 1 and m.max_col == 1 and m.min_row != m.max_row]
+    assert all(not (m.min_row <= wjf[0] <= m.max_row) and not (m.min_row <= lkk[0] <= m.max_row) for m in merged_a)
+
+
+def test_html_carrefour_split_station():
+    html = generate_html_preview(_rows(14), 14, date(2026, 11, 2), date(2026, 11, 15), "客戶", "", "產品",
+                                 "東吳", ["1.測試"], 300000, 262500, 250000, 0)
+    html = "".join(html) if isinstance(html, list) else html
+    assert "<td>萬家福</td><td>量販店</td>" in html and "<td>樂家康</td><td>超市</td>" in html
