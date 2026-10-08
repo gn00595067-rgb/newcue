@@ -82,7 +82,8 @@ from config import (
     RAGIC_MAP,
     REGIONS_ORDER,
     DURATIONS,
-    SUPERVISOR_PASSWORD
+    SUPERVISOR_PASSWORD,
+    AGENCY_PASSWORD
 )
 from utils import (
     safe_filename,
@@ -103,7 +104,7 @@ from pdf_converter import xlsx_bytes_to_pdf_bytes
 from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even
 from agency_ui import render_agency_cue
 from simple_cue import render_simple_cue
-from fixed_projects import FIXED_PROJECTS, NO_PROJECT, build_project_rows, project_days, project_seconds_text, project_total_list
+from fixed_projects import FIXED_PROJECTS, build_project_rows, project_days, project_seconds_text, project_total_list
 from ragic_api import (
     search_ragic_records,
     upload_to_ragic,
@@ -836,30 +837,40 @@ def main():
             fmt_idx = 0
         
         # 製作模式（先分流：簡易模式／代理商CUE 與「選擇格式／交換合約」無關，須在其之前分流）
-        mode_options = ["簡易模式", "一般CUE", "年約季約細CUE", "代理商CUE"]
+        mode_options = ["簡易模式", "一般CUE", "年約季約細CUE", "代理商CUE", "專案CUE"]
         cur_mode = st.session_state.get("cue_mode", "簡易模式")
         try:
             mode_idx = mode_options.index(cur_mode)
         except ValueError:
             mode_idx = 0
         cue_mode = st.radio("製作模式", mode_options, index=mode_idx, key="cue_mode", horizontal=True,
-                            help="簡易模式：只選平台組合＋輸入預算，自動產各秒數版 CUE。年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式。")
+                            help="簡易模式：只選平台組合＋輸入預算，自動產各秒數版 CUE。年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式（需密碼）。專案CUE：走期／檔次／金額固定的專案（如萬家福／樂家康過年、中元限定專案）。")
 
         if cue_mode == "簡易模式":
             render_simple_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, SALES_MAP)
             return
 
         if cue_mode == "代理商CUE":
+            # 代理商案僅限負責業務：輸入密碼解鎖（本次登入有效）；已登入主管免輸入
+            if not (st.session_state.get("is_supervisor") or st.session_state.get("agency_unlocked")):
+                st.info("🔒 代理商CUE 需輸入密碼才能使用")
+                _apwd = st.text_input("代理商CUE 密碼", type="password", key="agency_pwd_input")
+                if st.button("解鎖", key="agency_unlock_btn"):
+                    if _apwd == AGENCY_PASSWORD:
+                        st.session_state.agency_unlocked = True
+                        st.rerun()
+                    else:
+                        st.error("密碼錯誤")
+                return
             render_agency_cue(SALES_MAP)
             return
 
         format_type = st.radio("選擇格式", fmt_options, index=fmt_idx, horizontal=True)
-        if cue_mode == "一般CUE":
-            project_name = st.selectbox("專案", [NO_PROJECT] + list(FIXED_PROJECTS), key="cue_fixed_project",
-                                        help="固定專案：走期、秒數、檔次與金額皆固定，只需填客戶資料。")
-            if project_name in FIXED_PROJECTS:
-                _render_fixed_project_cue(project_name, format_type, STORE_COUNTS_NUM, SALES_MAP)
-                return
+        if cue_mode == "專案CUE":
+            project_name = st.selectbox("專案", list(FIXED_PROJECTS), key="cue_fixed_project",
+                                        help="走期、秒數、檔次與金額皆固定，只需填客戶資料。")
+            _render_fixed_project_cue(project_name, format_type, STORE_COUNTS_NUM, SALES_MAP)
+            return
         is_barter_contract = st.checkbox("是否為交換合約", value=st.session_state.get("is_barter_contract", False), key="is_barter_contract", help="交換合約：檔次依定價計算，不提供優惠回饋檔次。")
 
         if cue_mode == "年約季約細CUE":

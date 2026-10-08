@@ -47,8 +47,6 @@ FIXED_PROJECTS = {
     },
 }
 
-NO_PROJECT = "不套用（一般排程）"
-
 
 def project_days(p):
     return (p["end"] - p["start"]).days + 1

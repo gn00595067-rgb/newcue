@@ -8,7 +8,7 @@
 - 本機：`C:\dev\newcue`
 - push：`gn00595067-rgb/newcue.git` · `main`（push 後 Streamlit Cloud 自動部署）
 - 線上：https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/（2026-10-05 重建，舊網址失效）
-- Secrets（只列名稱）：`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`（見 `.streamlit/secrets.toml.example`）
+- Secrets（只列名稱）：`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`、`AGENCY_PASSWORD`（代理商CUE 密碼，未設時預設 123）（見 `.streamlit/secrets.toml.example`）
 
 ## 地雷（踩過的坑，改 code 前先看）
 - Excel 產出一律用「值版」下載；openpyxl 公式版在受保護檢視會空白。
@@ -24,7 +24,7 @@
 ## 架構速覽
 - 入口：`app.py`
 - 簡易模式：`simple_cue.py`／`simple_model.py`／`simple_excel.py`／`simple_html.py`／`simple_style_master.py`／`simple_reach.py`（預估曝光／人流）／`simple_preview.py`
-- 固定專案：`fixed_projects.py`（一般CUE「專案」下拉，目前：萬家福/樂家康 116年度過年、中元限定專案；新增專案只加資料）
+- 固定專案：`fixed_projects.py`（製作模式「專案CUE」，目前：萬家福/樂家康 116年度過年、中元限定專案；新增專案只加資料）
 - 代理商：`agency_cue.py`／`agency_excel.py`／`agency_ui.py`／`rebate.py`（牌價／折讓）
 - 產出渲染：`excel_renderer.py`／`html_generator.py`／`pdf_render.py`／`pdf_converter.py`／`xlsx_numfmt.py`
 - 資料／設定：`data_loader.py`／`config.py`／`simple_config.py`／`各平台人流計算方式.xlsx`／`AgencyPricing範本.csv`

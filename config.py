@@ -188,6 +188,8 @@ AGENCY_LIST_PRICE_FALLBACK = {
 # 主管登入密碼 (用於解鎖 Excel 下載與價格覆寫功能)
 # 可用 st.secrets / 環境變數 SUPERVISOR_PASSWORD 覆寫；未設定時沿用本機預設。
 SUPERVISOR_PASSWORD = _secret("SUPERVISOR_PASSWORD", "1234")
+# 代理商CUE 模式密碼（僅限負責代理商案的業務）；可用 st.secrets / 環境變數 AGENCY_PASSWORD 覆寫
+AGENCY_PASSWORD = _secret("AGENCY_PASSWORD", "123")
 
 # =============================================================================
 # Streamlit Session State 預設值
