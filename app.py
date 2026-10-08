@@ -103,6 +103,7 @@ from pdf_converter import xlsx_bytes_to_pdf_bytes
 from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even
 from agency_ui import render_agency_cue
 from simple_cue import render_simple_cue
+from fixed_projects import FIXED_PROJECTS, NO_PROJECT, build_project_rows, project_days, project_total_list
 from ragic_api import (
     search_ragic_records,
     upload_to_ragic,
@@ -595,6 +596,74 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
                 st.caption("PDF 需 LibreOffice")
 
 
+def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales_map):
+    """一般 CUE 的固定專案：走期／秒數／檔次／實收鎖死，只填客戶資料與備註日期（spec：固定專案_中元限定.md）。"""
+    p = FIXED_PROJECTS[project_name]
+    ndays = project_days(p)
+    budget = p["budget"]
+    st.info(
+        f"🔒 **固定專案，走期／秒數／檔次／金額不能修改**\n\n"
+        f"走期 {p['start']:%Y/%m/%d} ~ {p['end']:%Y/%m/%d}（{ndays} 天）｜ {p['seconds']} 秒 ｜ "
+        f"實收 ${budget:,}（未稅）"
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        client_name = st.text_input("客戶名稱", st.session_state.get("temp_client_name", ""), key="fp_client")
+        client_tax_id = st.text_input("統一編號", st.session_state.get("temp_tax_id", ""), key="fp_tax")
+    with c2:
+        product_name = st.text_input("產品名稱", st.session_state.get("temp_product_name", ""), key="fp_product")
+    with c3:
+        prod_cost = st.number_input("製作費 (未稅)", value=0.0, step=1000.0, key="fp_prod_cost")
+    with c4:
+        sales_options = list(sales_map.keys()) if sales_map else []
+        sales_person = st.selectbox("業務名稱", options=sales_options, key="fp_sales") if sales_options else ""
+
+    _def_sign = date.today() + timedelta(days=3)
+    with st.expander("📝 備註欄位設定", expanded=False):
+        rc1, rc2, rc3 = st.columns(3)
+        sign_deadline = rc1.date_input("回簽及進單期限", _def_sign, key="fp_sign_deadline")
+        billing_month = rc2.text_input("請款月份", f"{p['end'].year}年{p['end'].month}月", key="fp_billing_month")
+        payment_date = rc3.date_input("付款兌現日期（預設走期結束下月最後一天）", _last_day_of_month_after(p["end"]), key="fp_payment_date")
+        rem = get_remarks_text(sign_deadline, billing_month, payment_date, project_remark=p["remark"])
+        st.text("\n".join(rem))
+
+    rows = build_project_rows(p, store_counts_num)
+    total_list = project_total_list(rows)
+    grand_total = budget + _round_half_up(budget * 0.05)
+    p_str = f"{p['seconds']}秒 {product_name}"
+
+    st.markdown("---")
+    st.subheader("📥 檔案下載區")
+    html_preview = generate_html_preview(rows, ndays, p["start"], p["end"], client_name, client_tax_id, p_str, format_type,
+                                         rem, total_list, grand_total, budget, prod_cost, medium_label=p["medium"])
+    for idx, one_html in enumerate(html_preview if isinstance(html_preview, list) else [html_preview]):
+        st.components.v1.html(one_html, height=700, scrolling=True)
+
+    xlsx_bytes = generate_excel_from_scratch(format_type, p["start"], p["end"], client_name, client_tax_id, product_name, rows,
+                                             rem, budget, prod_cost, sales_person, total_list, medium_label=p["medium"])
+    _nick = sales_map.get(sales_person, sales_person) if sales_person else ""
+    fn = lambda ext: build_cue_filename(client_name, rows, budget, _nick, ext=ext, seg_label=p["short"])
+    can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
+    can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
+    d1, d2 = st.columns(2)
+    with d1:
+        if can_download_excel:
+            st.download_button("📥 下載 Excel", xlsx_bytes, fn("xlsx"), key="fp_xlsx_dl",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        else:
+            st.caption("Excel 下載已由主管關閉")
+    with d2:
+        pdf_bytes, _, err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
+        if pdf_bytes and can_download_pdf:
+            st.download_button("📥 下載 PDF", pdf_bytes, fn("pdf"), key="fp_pdf_dl", mime="application/pdf")
+        elif not can_download_pdf:
+            st.caption("PDF 下載已由主管關閉")
+        else:
+            st.warning(f"PDF 生成失敗: {err}")
+    st.caption("固定專案暫不提供上傳 Ragic。")
+
+
 # =============================================================================
 # 主程式邏輯 (Main Execution Block)
 # =============================================================================
@@ -785,6 +854,12 @@ def main():
             return
 
         format_type = st.radio("選擇格式", fmt_options, index=fmt_idx, horizontal=True)
+        if cue_mode == "一般CUE":
+            project_name = st.selectbox("專案", [NO_PROJECT] + list(FIXED_PROJECTS), key="cue_fixed_project",
+                                        help="固定專案：走期、秒數、檔次與金額皆固定，只需填客戶資料。")
+            if project_name in FIXED_PROJECTS:
+                _render_fixed_project_cue(project_name, format_type, STORE_COUNTS_NUM, SALES_MAP)
+                return
         is_barter_contract = st.checkbox("是否為交換合約", value=st.session_state.get("is_barter_contract", False), key="is_barter_contract", help="交換合約：檔次依定價計算，不提供優惠回饋檔次。")
 
         if cue_mode == "年約季約細CUE":

@@ -17,7 +17,7 @@ from config import (
     FONT_MAIN, BS_THIN, BS_MEDIUM, BS_HAIR, FMT_MONEY, FMT_NUMBER
 )
 from pdf_converter import get_cloud_logo_bytes
-from utils import split_period_by_months
+from utils import split_period_by_months, remark_color
 from simple_reach import compute_reach_from_rows
 from simple_excel import fit_overflow_fonts
 
@@ -27,7 +27,7 @@ def _round_half_up(value):
 
 
 @st.cache_data(show_spinner="正在生成 Excel 報表...", ttl=3600)
-def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum=None):
+def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum=None, medium_label=None):
     """
     主函式：根據格式類型生成 Excel 報表
 
@@ -41,6 +41,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         total_list_accum: 未使用，保留參數相容；檔次計算以實作價為準
         prod_cost: 製作費
         sales_person: 業務名稱
+        medium_label: 東吳 Medium 欄覆寫文字（固定專案用），None 時依平台自動組
     """
     if total_list_accum is None:
         total_list_accum = final_budget_val
@@ -130,7 +131,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         unique_secs = sorted(list(set([r['seconds'] for r in rows])))
         p_str = f"{'、'.join([f'{s}秒' for s in unique_secs])} {product_name}"
         unique_media = sorted(list(set([r['media'] for r in rows])))
-        medium_str = "/".join(("萬家福．樂家康" if m == "家樂福" else m) for m in unique_media)
+        medium_str = medium_label or "/".join(("萬家福．樂家康" if m == "家樂福" else m) for m in unique_media)
         
         infos = [("A3", "客戶名稱：", client_name), ("A4", "Product：", p_str), ("A5", "Period :", f"{start_dt.strftime('%Y. %m. %d')} - {end_dt.strftime('%Y. %m. %d')}"), ("A6", "Medium :", medium_str)]
         pos_to_row = {"A3": 3, "A4": 4, "A5": 5, "A6": 6}
@@ -288,10 +289,12 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         if skip_footer:
             return curr_row
         ws.cell(curr_row, 1, "Remarks:本排程表經雙方確認後視同合約之延伸，具同等法律約束力與效力").font = Font(name=FONT_MAIN, size=18, bold=True, underline='single')
+        # 18 級字需明確列高，否則 PDF 備註行距過密疊字
+        ws.row_dimensions[curr_row].height = 28
         for rm in remarks_list:
             curr_row += 1
-            is_red = rm.strip().startswith("1.") or rm.strip().startswith("4.")
-            c = ws.cell(curr_row, 1); c.value = rm; c.font = Font(name=FONT_MAIN, size=18, color="FF0000" if is_red else "000000")
+            ws.row_dimensions[curr_row].height = 26
+            c = ws.cell(curr_row, 1); c.value = rm; c.font = Font(name=FONT_MAIN, size=18, color=remark_color(rm))
 
         curr_row += 2; sig_start = curr_row
         for _r in (sig_start, sig_start+1, sig_start+2): ws.row_dimensions[_r].height = 28
@@ -406,7 +409,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
                 ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
                 # 加贈列 program_num 為文字（「加贈檔次」）→ 原樣顯示、不計入總店數（比照東吳）
                 p_raw = r.get('program_num', 0); suffix = "面" if m_key == "新鮮視" else "店"
-                if isinstance(p_raw, (int, float)): p_num = int(p_raw); total_store_count += p_num; p_txt = f"{p_num:,}{suffix}"
+                if isinstance(p_raw, (int, float)): p_num = int(p_raw); total_store_count += 0 if r.get('skip_store_total') else p_num; p_txt = f"{p_num:,}{suffix}"
                 else: p_txt = str(p_raw)
                 ws.cell(curr_row, 3, p_txt).alignment = ALIGN_CENTER
                 ws.cell(curr_row, 4, r['daypart']).alignment = ALIGN_CENTER
@@ -537,9 +540,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
 
         r_row = start_footer
         for rm in remarks_list:
-            is_red = rm.strip().startswith("1.") or rm.strip().startswith("4.")
-            is_blue = rm.strip().startswith("6.")
-            color = "FF0000" if is_red else ("0000FF" if is_blue else "000000")
+            color = remark_color(rm, blue_payment=True)
             max_units = _remark_chars_per_line(r_col_start, total_cols)
             lines = _simulate_wrapped_lines(rm, max_units=max_units)
             # 每個模擬行獨立輸出成一列，避免 PDF 二次換行造成重疊或截字
@@ -706,7 +707,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
                 ws.row_dimensions[curr_row].height = 54; ws.cell(curr_row, 1, d_name).alignment = ALIGN_CENTER; ws.cell(curr_row, 2, r['region']).alignment = ALIGN_CENTER
                 # 加贈列 program_num 為文字（「加贈檔次」）→ 原樣顯示、不計入總店數（比照東吳）
                 p_raw = r.get('program_num', 0); suffix = "面" if m_key == "新鮮視" else "店"
-                if isinstance(p_raw, (int, float)): p_num = int(p_raw); total_store_count += p_num; p_txt = f"{p_num:,}{suffix}"
+                if isinstance(p_raw, (int, float)): p_num = int(p_raw); total_store_count += 0 if r.get('skip_store_total') else p_num; p_txt = f"{p_num:,}{suffix}"
                 else: p_txt = str(p_raw)
                 ws.cell(curr_row, 3, p_txt).alignment = ALIGN_CENTER
                 ws.cell(curr_row, 4, r['daypart']).alignment = ALIGN_CENTER
@@ -852,9 +853,7 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
 
         r_row = start_footer
         for rm in remarks_list:
-            is_red = rm.strip().startswith("1.") or rm.strip().startswith("4.")
-            is_blue = rm.strip().startswith("6.")
-            color = "FF0000" if is_red else ("0000FF" if is_blue else "000000")
+            color = remark_color(rm, blue_payment=True)
 
             max_units = _remark_chars_per_line(r_col_start, total_cols)
             lines = _simulate_wrapped_lines(rm, max_units=max_units)

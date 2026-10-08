@@ -106,7 +106,8 @@ def _render_one_month_table(rows, days_in_month, month_start, month_end, full_to
     return f"<div style='margin-bottom:24px;'><div style='margin-bottom:4px; font-weight:bold;'>Period: {month_start.strftime('%Y.%m.%d')} - {month_end.strftime('%Y.%m.%d')}</div><table><thead><tr>{th_fixed}{date_th1}{th_total_right}</tr><tr>{date_th2}</tr></thead><tbody>{tbody}{total_row_html}</tbody></table>{footer_html}</div>"
 
 
-def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_display, format_type, remarks, total_list, grand_total, budget, prod):
+def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_display, format_type, remarks, total_list, grand_total, budget, prod, medium_label=None):
+    # medium_label：Medium 覆寫文字（固定專案用），None 時依平台自動組
     eff_days = days_cnt
     total_days = (end_dt - start_dt).days + 1
     month_ranges = split_period_by_months(start_dt, end_dt)
@@ -119,7 +120,7 @@ def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_di
         unique_media = sorted(list(set([r['media'] for r in rows])))
         order_map = {"全家廣播": 1, "新鮮視": 2, "家樂福": 3}
         unique_media.sort(key=lambda x: order_map.get(x, 99))
-        medium_str = "/".join(_media_disp(m) for m in unique_media)
+        medium_str = medium_label or "/".join(_media_disp(m) for m in unique_media)
         remarks_html = "<br>".join([html_escape(x) for x in remarks])
         remarks_block = f"<div style='margin-top:10px; font-size:11px;'><b>Remarks：本排程表經雙方確認後視同合約之延伸，具同等法律約束力與效力</b><br>{remarks_html}</div>"
         client_info_base = f"<b>客戶名稱：</b>{html_escape(c_name)} &nbsp; <b>統編：</b>{html_escape(tax_id)} &nbsp; <b>Product：</b>{html_escape(p_display)} &nbsp; <b>Medium：</b>{html_escape(medium_str)}"
@@ -187,7 +188,7 @@ def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_di
     unique_media = sorted(list(set([r['media'] for r in rows])))
     order_map = {"全家廣播": 1, "新鮮視": 2, "家樂福": 3}
     unique_media.sort(key=lambda x: order_map.get(x, 99))
-    medium_str = "/".join(unique_media)
+    medium_str = medium_label or "/".join(unique_media)
 
     tbody = ""
     # 排序資料列，確保同一媒體與秒數在一起

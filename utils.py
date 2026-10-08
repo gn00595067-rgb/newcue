@@ -124,18 +124,37 @@ def expand_schedule_to_calendar(schedule_active, segments, start_date, end_date)
     return result
 
 
-def get_remarks_text(sign_deadline, billing_month, payment_date):
-    """生成標準合約備註文字 (包含日期填空)。"""
-    d_str = sign_deadline.strftime("%Y/%m/%d (%a)") if sign_deadline else "____/__/__ (__)"
-    p_str = payment_date.strftime("%Y/%m/%d") if payment_date else "____/__/__"
-    return [
-        f"1.請於 {d_str} 11:30前 回簽及進單，方可順利上檔。",
-        "2.以上節目名稱如有異動，以上檔時節目名稱為主，如遇電台時段滿檔，上檔時間挪後或更換至同級時段。",
-        "3.通路店鋪數與開機率開機率至少七成(以上)。每日因加盟數調整，或遇店舖年度季度改裝、設備維護升級及保修等狀況，會有一定幅度增減。",
-        "4.託播方需於上檔前 5 個工作天，提供廣告帶(mp3)、影片/影像 1920x1080 (mp4)。",
+def get_remarks_text(sign_deadline, billing_month, payment_date, project_remark=None):
+    """生成一般 CUE 合約備註文字（依 116 年度專案版 1~6 點）。
+    project_remark：固定專案限定的第 7 點（如中元專案），一般排程不傳。"""
+    d_str = (f"{sign_deadline.strftime('%Y/%m/%d')} ({'一二三四五六日'[sign_deadline.weekday()]})"
+             if sign_deadline else "____/__/__ (__)")
+    # 付款兌現日用民國年（例：116.03.10）
+    p_str = f"{payment_date.year - 1911}.{payment_date.strftime('%m.%d')}" if payment_date else "___.__.__"
+    lines = [
+        f"1.請於 {d_str} 中午12:00前 回簽及進單，方可順利上檔。",
+        "2.通路店鋪數與開機率至少七成(以上)。每日因加盟數調整，或遇店舖年度季度改裝、設備維護升級及保修等狀況，會有一定幅度增減。",
+        "3.託播方需於上檔前 5 個工作天，提供廣告帶(mp3)、影片/影像 1920x1080 (mp4)。",
+        "4.結案資料以電子版提供為主，不另行提供紙本結案。雲端資料保留2個月（自提供日起算），敬請於期限內自行下載留存，逾期資料恕不保留。",
         f"5.雙方同意費用請款月份 : {billing_month}，如有修正必要，將另行E-Mail告知，並視為正式合約之一部分。",
-        f"6.付款兌現日期：{p_str}"
+        f"6.付款兌現日期：{p_str}",
     ]
+    if project_remark:
+        lines.append(f"7.{project_remark}")
+    return lines
+
+
+def remark_color(text, blue_payment=False):
+    """一般 CUE 備註字色（Excel RGB）。依內容判斷，不看編號，舊版手改備註（素材在第 4 點）也不會錯色。
+    紅：回簽期限、託播方素材；藍：專案限定條款（限定N席），聲活／鉑霖另含付款兌現日。"""
+    t = (text or "").strip()
+    if "回簽及進單" in t or "託播方需於上檔前" in t:
+        return "FF0000"
+    if "限定" in t and "席" in t:
+        return "0000FF"
+    if blue_payment and "付款兌現日期" in t:
+        return "0000FF"
+    return "000000"
 
 
 def format_campaign_details(config):
