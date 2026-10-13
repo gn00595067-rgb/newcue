@@ -20,6 +20,7 @@
 - 線上 app 網址已變更（刪除重建）：https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/
 - 一般 CUE 備註來源是 `utils.get_remarks_text`（年約季約共用）；簡易模式子公司組合也共用同一份（2026-10-08 起）；改備註要同步更新 `tests/test_simple_excel.py` 的允許差異。備註字色看內容（`utils.remark_color`），不看編號。
 - 萬家福．樂家康在 CUE 上逐列顯示萬家福／樂家康、量販店／超市，是渲染時 `utils.cue_station／cue_location` 轉的；rows 的 region 仍是「全省量販／全省超市」（回饋、Ragic 靠它比對），不要改 region。
+- Streamlit Cloud 推版後若 app.py 改為 import 其他模組「新增」的函式，Cloud 可能沿用記憶體裡的舊模組 → `ImportError`（2026-10-13 正式＋測試版同時發生）。程式本身沒壞，到 Manage app → ⋮ → Reboot app 即恢復；推這類改動後要提醒 Jonathan 重啟。
 - <其他地雷待補>
 
 ## 架構速覽
