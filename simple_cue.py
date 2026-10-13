@@ -15,6 +15,7 @@ import simple_model as sm
 import simple_excel as se
 import simple_html as shtml
 import simple_preview as spv
+import simple_general as sg
 from utils import safe_filename
 from pdf_converter import xlsx_bytes_to_pdf_bytes
 
@@ -87,6 +88,20 @@ def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
     xlsx_val = se.render(model, formulas=False)
     htmls = shtml.render_html(model)
     return model, xlsx, xlsx_val, htmls
+
+
+# 一鍵CUE 公司格式：東吳＝簡易模式原版面（宜歆範本）；聲活／鉑霖＝一般CUE 同款版面（simple_general）
+FORMAT_OPTIONS = ["東吳", "聲活", "鉑霖"]
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _render_general(fmt, sales_full, combo_key, budget, start_iso, end_iso, client, tax_id, product,
+                    sales, campaign, prod_cost, made_iso, _data, regions=None, payment_date=""):
+    """聲活／鉑霖：同一份簡易模式 model，改用一般 CUE renderer 產 Excel／HTML。"""
+    model, _x, _xv, _h = _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
+                                   sales, campaign, prod_cost, made_iso, _data, regions,
+                                   payment_date=payment_date)
+    return sg.render_xlsx(model, fmt, sales_person=sales_full), sg.render_htmls(model, fmt)
 
 
 def _next_monday_after(days_ahead=10):
@@ -198,6 +213,12 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                        key="agency_simple_combo" if is_agency else "simple_combo")
     st.caption("　" + sc.COMBOS[combo_key]["hint"])
 
+    # 公司格式（僅子公司組合；代理商模板有自己的抬頭）
+    fmt = "東吳"
+    if not is_agency:
+        fmt = st.radio("選擇格式", FORMAT_OPTIONS, horizontal=True, key="simple_format",
+                       help="東吳：公司範本版面。聲活／鉑霖：與一般CUE 選該格式時的版面相同。")
+
     # 【2】預算
     st.markdown("**【2】預算（未稅 Net）**")
     if "simple_budget2" not in st.session_state:
@@ -249,8 +270,13 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
         pcol = st.columns(2)
         client = pcol[0].text_input("甲方／客戶名稱", "")
         tax_id = pcol[0].text_input("甲方統一編號", "")
-        party_b = pcol[1].text_input("乙方名稱（我方）", "")
-        party_b_tax = pcol[1].text_input("乙方統一編號", "")
+        if fmt == "東吳":
+            party_b = pcol[1].text_input("乙方名稱（我方）", "")
+            party_b_tax = pcol[1].text_input("乙方統一編號", "")
+        else:
+            # 聲活／鉑霖版面的公司抬頭與乙方由一般CUE 版面固定帶入
+            party_b = party_b_tax = ""
+            pcol[1].caption(f"乙方：依{fmt}格式自動帶入")
 
         default_pay = f"{start.year - 1911}.XX.XX"
         e1, e2, e3 = st.columns(3)
@@ -293,6 +319,13 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                 client, tax_id, product, sales, campaign, int(prod_cost),
                 date.today().isoformat(), data, regions,
                 party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date)
+        if fmt != "東吳":
+            with st.spinner("產生中…"):
+                xlsx_val, htmls = _render_general(
+                    fmt, sales_name if sales_name != "—" else "",
+                    combo_key, int(budget), start.isoformat(), end.isoformat(),
+                    client, tax_id, product, sales, campaign, int(prod_cost),
+                    date.today().isoformat(), data, regions, payment_date=payment_date)
     except Exception as e:  # noqa: BLE001
         st.error(f"產生失敗：{e}")
         st.exception(e)
@@ -356,7 +389,8 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
             if pngs is not None:
                 st.image(pngs[idx], use_container_width=True)
             else:
-                components.html(html, height=shtml.estimate_height(sheet), scrolling=True)
+                components.html(html, height=shtml.estimate_height(sheet) if fmt == "東吳" else 700,
+                                scrolling=True)
             with st.expander("檔次明細（僅供業務/主管，不進客戶檔案）"):
                 for blk in sheet.blocks:
                     disp = sc.PLATFORM_DISPLAY.get(

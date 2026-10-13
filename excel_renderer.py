@@ -52,6 +52,11 @@ def _round_half_up(value):
 
 @st.cache_data(show_spinner="正在生成 Excel 報表...", ttl=3600)
 def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum=None, medium_label=None):
+    """快取版入口（一般CUE／年約季約／專案CUE 用），參數說明見 render_excel_into。"""
+    return render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum, medium_label)
+
+
+def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum=None, medium_label=None, wb=None, sheet_prefix=""):
     """
     主函式：根據格式類型生成 Excel 報表
 
@@ -66,6 +71,8 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         prod_cost: 製作費
         sales_person: 業務名稱
         medium_label: 東吳 Medium 欄覆寫文字（固定專案用），None 時依平台自動組
+        wb: 傳入既有 Workbook 時改為「追加工作表」（一鍵CUE 多秒數版併成一檔用），回傳 None
+        sheet_prefix: 工作表名稱前綴（例：「10秒」→「10秒」或「10秒-9月」）
     """
     if total_list_accum is None:
         total_list_accum = final_budget_val
@@ -928,9 +935,16 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         return r_row + 2
         
     # Main Execution of Excel Generation
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Schedule"
+    own_wb = wb is None
+    if own_wb:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+    else:
+        ws = wb.create_sheet()
+    ws.title = sheet_prefix or "Schedule"
+
+    def _title(month_label):
+        return f"{sheet_prefix}-{month_label}" if sheet_prefix else month_label
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.fitToPage = True
@@ -970,10 +984,9 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             for i, (m_start, m_end) in enumerate(month_ranges):
                 rows_month, budget_month, prod_month = build_rows_and_budget(m_start, m_end)
                 if i == 0:
-                    ws = wb.active
-                    ws.title = f"{m_start.month}月"
+                    ws.title = _title(f"{m_start.month}月")
                 else:
-                    ws = wb.create_sheet(title=f"{m_start.month}月")
+                    ws = wb.create_sheet(title=_title(f"{m_start.month}月"))
                 ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
                 ws.page_setup.paperSize = ws.PAPERSIZE_A4
                 ws.page_setup.fitToPage = True
@@ -983,10 +996,9 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
             for i, (m_start, m_end) in enumerate(month_ranges):
                 rows_month, budget_month, prod_month = build_rows_and_budget(m_start, m_end)
                 if i == 0:
-                    ws = wb.active
-                    ws.title = f"{m_start.month}月"
+                    ws.title = _title(f"{m_start.month}月")
                 else:
-                    ws = wb.create_sheet(title=f"{m_start.month}月")
+                    ws = wb.create_sheet(title=_title(f"{m_start.month}月"))
                 ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
                 ws.page_setup.paperSize = ws.PAPERSIZE_A4
                 ws.page_setup.fitToPage = True
@@ -1003,6 +1015,8 @@ def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_
         else:
             render_bolin_optimized(ws, start_dt, end_dt, rows, final_budget_val, prod_cost)
 
+    if not own_wb:
+        return None
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()

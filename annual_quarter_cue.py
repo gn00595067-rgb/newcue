@@ -153,3 +153,71 @@ def build_wave_rows(combos, wave_start, wave_end, wave_spots_list, wave_net_list
                 "is_pkg_member": False,
             })
     return rows
+
+
+# =============================================================================
+# 年約季約 → 代理商格式（2008傳媒／凱絡），規格見 docs/specs/格式選擇擴充.md 需求 2
+# =============================================================================
+AGENCY_MEDIA = ("全家廣播", "家樂福")   # 代理商格式只有全家企頻、萬家福．樂家康（全省）
+
+
+def agency_combo_ok(combo):
+    """組合能否出代理商格式：限全家廣播（全省）／萬家福．樂家康。"""
+    return combo["media"] in AGENCY_MEDIA and (combo["media"] == "家樂福" or combo["region"] == "全省")
+
+
+def build_wave_agency_model(agency, combos, wave_start, wave_end, wave_spots_list, wave_net_list, *,
+                            client_name="", product_name="", campaign="", comp_mode=None,
+                            fam_auto_rebate=True, fam_rebate_pct=0.0, wjf_rebate_pct=0.0,
+                            ac_pct=None, material_due=None, agency_pricing=None,
+                            remarks=None, payment_note=""):
+    """
+    單一波段 → 代理商 CUE model（交給 agency_excel.generate_agency_excel／agency_ui.build_agency_html）。
+    每個組合各建一張表（同平台不同秒數各一張），檔次＝業務填的檔次、實收＝業務填的實收；
+    回饋列、凌晨補償、AC 沿用代理商CUE 規則。不支援的組合（新鮮視、分區）略過。
+    """
+    import agency_cue as ac
+
+    if comp_mode is None:
+        comp_mode = ac.COMP_PLAN1
+    if material_due is None:
+        material_due = ac.minus_business_days(wave_start, 5)
+    sheets, logs = [], []
+    net_total = 0
+    for idx, combo in enumerate(combos):
+        spots = int(wave_spots_list[idx]) if idx < len(wave_spots_list) else 0
+        net = int(wave_net_list[idx]) if idx < len(wave_net_list) else 0
+        if spots <= 0 or not agency_combo_ok(combo):
+            continue
+        sec = int(combo["seconds"])
+        if combo["media"] == "全家廣播":
+            fam_cfg = {"enabled": True, "seconds": sec, "share": 100, "rebate_pct": float(fam_rebate_pct),
+                       "spots_override": spots, "auto_rebate": bool(fam_auto_rebate)}
+            wjf_cfg = None
+        else:
+            fam_cfg = None
+            wjf_cfg = {"enabled": True, "seconds": sec, "share": 100, "rebate_pct": float(wjf_rebate_pct),
+                       "mag_override": spots, "is_rebate_wave": False}
+        m = ac.build_agency_model(agency, client_name, product_name, campaign, wave_start, wave_end,
+                                  net, fam_cfg, wjf_cfg, comp_mode, material_due, ac_pct,
+                                  agency_pricing=agency_pricing, payment_note="x", remarks=[])
+        for sh in m["sheets"]:
+            if sh["platform"] == ac.PLATFORM_FAMILY and agency == "2008傳媒":
+                # 2008 全家「合計」原為 單檔實作價×檔次；年約以業務填的實收為準
+                for r in sh["rows"]:
+                    if r["kind"] == ac.KIND_MAIN:
+                        r["net_display"] = net
+                sh["fees"] = ac._build_fees(agency, net, ac_pct)
+        sheets.extend(m["sheets"])
+        logs.extend(m["logs"])
+        net_total += net
+    if remarks is None:
+        remarks = ac.default_remarks(agency)
+    if not payment_note:
+        payment_note = ac.default_payment_note(wave_start, wave_end, net_total)
+    return {
+        "agency": agency, "client_name": client_name, "product_name": product_name,
+        "campaign": campaign, "start_date": wave_start, "end_date": wave_end,
+        "budget_total": net_total, "material_due": material_due, "payment_note": payment_note,
+        "remarks": remarks, "sheets": sheets, "logs": logs,
+    }

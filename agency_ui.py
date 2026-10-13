@@ -655,3 +655,108 @@ def _restore_agency_state(record):
     ss["ag_paynote"] = ext.get("payment_note", "")
 
     return True, "✅ 已載入，請檢查下方設定。"
+
+
+# =============================================================================
+# 年約季約細CUE → 代理商格式（docs/specs/格式選擇擴充.md 需求 2）
+# =============================================================================
+def render_annual_agency_waves(agency, combos, waves, client_name, product_name):
+    """年約季約選 2008／凱絡：共用代理商設定，每波一份代理商格式 CUE（預覽＋Excel／PDF）。"""
+    from annual_quarter_cue import build_wave_agency_model
+
+    can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
+    can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
+    agency_pricing = load_agency_pricing_from_cloud(config.GSHEET_SHARE_URL)
+
+    st.markdown("---")
+    st.subheader(f"⚙️ {agency} 設定（各波共用）")
+    campaign = st.text_input("Campaign（僅 2008 顯示）", key="aq_ag_campaign") if agency == "2008傳媒" else ""
+    comp_mode = st.radio("凌晨補償方式（2026/03 起全家凌晨停播）", ac.COMP_OPTIONS,
+                         index=ac.COMP_OPTIONS.index(ac.COMP_PLAN1), key="aq_ag_comp")
+    c1, c2, c3 = st.columns(3)
+    fam_auto = c1.checkbox("全家 自帶專案回饋（凌晨時數轉換）", value=True, key="aq_ag_fam_auto",
+                           help="非主時段時數(24−主時段)×30檔×30/秒，自動另立一列「專案回饋」。")
+    fam_reb = c2.number_input("全家 專案回饋 %（手動另計）", 0, 100, 0, key="aq_ag_fam_reb")
+    wjf_reb = c3.number_input("萬家福 專案回饋 %", 0, 100, 0, key="aq_ag_wjf_reb",
+                              help="2008 萬家福固定 +10% 回饋檔已折進每日排檔，此欄不適用 2008。")
+    if agency == "2008傳媒":
+        ac_pct = st.number_input("AC %", 0.0, 100.0, float(config.AGENCY_AC_DEFAULT.get("2008傳媒") or 3.0),
+                                 step=0.5, key="aq_ag_ac")
+    else:
+        ac_pct = None if st.checkbox("A.C 3% 免收（顯示「-」）", value=False, key="aq_ag_ac_free") else 3.0
+    st.caption("檔次與實收以上方表格為準；萬家福的檔次指量販檔次，超市檔次依 720/420 自動換算。")
+
+    st.markdown("---")
+    st.subheader("📥 各波段下載（每波獨立 Excel / PDF）")
+    made_date = date.today()
+    for i, w in enumerate(waves):
+        start_d, end_d = w["start"], w["end"]
+        cs = list(w.get("combo_spots") or [])
+        cn = list(w.get("combo_net") or [])
+        spots = [int(cs[j]) if j < len(cs) else 0 for j in range(len(combos))]
+        nets = [int(cn[j]) if j < len(cn) else 0 for j in range(len(combos))]
+        if sum(spots) <= 0:
+            st.caption(f"波段 {i+1}：{start_d} ~ {end_d} — 請輸入各組合檔次")
+            continue
+        # 波段最終價格覆寫：各組合實收依比例縮放，尾差給第一個有實收的組合
+        ov = w.get("price_override")
+        if isinstance(ov, (int, float)) and ov > 0 and sum(nets) > 0:
+            scaled = [int(round(n * ov / sum(nets))) for n in nets]
+            k = next(j for j, n in enumerate(scaled) if n > 0)
+            scaled[k] += int(ov) - sum(scaled)
+            nets = scaled
+
+        with st.expander(f"**波段 {i+1}**：{start_d} ~ {end_d} — 素材／備註／請款", expanded=False):
+            r1, r2 = st.columns(2)
+            material_due = r1.date_input("素材提供時間（預設開始日−5個工作天）",
+                                         ac.minus_business_days(start_d, 5), key=f"aq_ag_mat_{i}_{start_d}")
+            sign_date = None
+            if agency == "凱絡":
+                sign_date = r2.date_input("凱絡 簽回期限", start_d - timedelta(days=3), key=f"aq_ag_sign_{i}_{start_d}")
+            # 備註 key 含代理商與走期：切換代理商或改日期時重新帶入預設
+            rem_text = st.text_area("備註（每行一條）", "\n".join(ac.default_remarks(agency, sign_date)),
+                                    height=140, key=f"aq_ag_rem_{i}_{agency}_{start_d}_{sign_date}")
+            pay_note = st.text_input("請款金額說明（留空自動依走期各月比例拆分）", "", key=f"aq_ag_pay_{i}")
+        remarks = [x for x in rem_text.split("\n") if x.strip()]
+
+        try:
+            model = build_wave_agency_model(
+                agency, combos, start_d, end_d, spots, nets, client_name=client_name,
+                product_name=product_name, campaign=campaign, comp_mode=comp_mode,
+                fam_auto_rebate=fam_auto, fam_rebate_pct=fam_reb, wjf_rebate_pct=wjf_reb, ac_pct=ac_pct,
+                material_due=material_due, agency_pricing=agency_pricing, remarks=remarks,
+                payment_note=pay_note)
+        except Exception as e:  # noqa: BLE001
+            st.error(f"波段 {i+1} 計算失敗：{e}")
+            continue
+        if not model["sheets"]:
+            st.caption(f"波段 {i+1}：沒有可出代理商格式的組合")
+            continue
+
+        with st.expander(f"波段 {i+1} 預覽：{start_d} ~ {end_d}", expanded=False):
+            components.html(build_agency_html(model, made_date), height=560, scrolling=True)
+            with st.popover("🧮 運算邏輯"):
+                for line in model["logs"]:
+                    st.text(line)
+        _channel = ac.agency_channel_text(model)
+        fn_base = safe_filename(f"{made_date:%Y%m%d} CUE {agency}-{client_name} {product_name} "
+                                + (f"{_channel} " if _channel else "")
+                                + f"波段{i+1} {start_d:%m%d}-{end_d:%m%d}")
+        xlsx_bytes = generate_agency_excel(model, made_date)
+        col_x, col_p = st.columns(2)
+        with col_x:
+            if can_download_excel:
+                st.download_button(f"📥 波段{i+1} Excel", xlsx_bytes, fn_base + ".xlsx", key=f"aq_ag_xlsx_{i}",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            else:
+                st.caption("Excel 下載已由主管關閉")
+        with col_p:
+            if not can_download_pdf:
+                st.caption("PDF 下載已由主管關閉")
+            else:
+                pdf_bytes, _m, _err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
+                if pdf_bytes:
+                    st.download_button(f"📥 波段{i+1} PDF", pdf_bytes, fn_base + ".pdf", key=f"aq_ag_pdf_{i}",
+                                       mime="application/pdf")
+                else:
+                    st.caption("PDF 需 LibreOffice")

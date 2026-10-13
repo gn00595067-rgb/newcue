@@ -101,8 +101,8 @@ from rebate import compute_rebate_rows, merge_rebate_into_rows, get_rebate_summa
 from html_generator import generate_html_preview
 from excel_renderer import generate_excel_from_scratch
 from pdf_converter import xlsx_bytes_to_pdf_bytes
-from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even
-from agency_ui import render_agency_cue
+from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even, AGENCY_MEDIA, agency_combo_ok, build_wave_agency_model
+from agency_ui import render_agency_cue, render_annual_agency_waves
 from simple_cue import render_simple_cue
 from fixed_projects import FIXED_PROJECTS, build_project_rows, project_days, project_seconds_text, project_total_list
 from ragic_api import (
@@ -226,6 +226,24 @@ def _get_ragic_extra_state(row_groups):
     return state
 
 
+def _agency_unlock_gate(key_prefix="agency"):
+    """代理商格式需密碼（本次登入解鎖一次即可，已登入主管免輸入）；已解鎖回傳 True。"""
+    if st.session_state.get("is_supervisor") or st.session_state.get("agency_unlocked"):
+        return True
+    st.info("🔒 代理商格式需輸入密碼才能使用")
+    _apwd = st.text_input("代理商CUE 密碼", type="password", key=f"{key_prefix}_pwd_input")
+    if st.button("解鎖", key=f"{key_prefix}_unlock_btn"):
+        if _apwd == AGENCY_PASSWORD:
+            st.session_state.agency_unlocked = True
+            st.rerun()
+        else:
+            st.error("密碼錯誤")
+    return False
+
+
+AQ_AGENCY_FORMATS = ["2008傳媒", "凱絡"]
+
+
 def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, regions_order, fmt_options, fmt_idx, sales_map):
     """年約／季約細 CUE：以已知檔次與實收分配至各波段，每波段獨立 Excel/PDF。每個廣告組合可個別設定每波檔次與實收；若不知道各波分配則填該組合總檔次／總實收後按「依天數均分」。"""
     st.caption("以已知**執行區域、平台、秒數**設定各波段檔次與實收；若不知各波分配，可填該**廣告組合**的總檔次／總實收後按「依波段天數均分」。")
@@ -257,7 +275,12 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
         fmt_idx_cur = fmt_options.index(loaded_fmt)
     except Exception:
         fmt_idx_cur = 0
-    format_type = st.radio("選擇格式", fmt_options, index=fmt_idx_cur, key="aq_format", horizontal=True)
+    format_type = st.radio("選擇格式", list(fmt_options) + AQ_AGENCY_FORMATS, index=fmt_idx_cur, key="aq_format",
+                           horizontal=True, format_func=lambda f: "2008" if f == "2008傳媒" else f,
+                           help="2008／凱絡：每波產出代理商格式 CUE（限全家企頻、萬家福．樂家康，全省；需代理商密碼）。")
+    is_agency_fmt = format_type in AQ_AGENCY_FORMATS
+    if is_agency_fmt and not _agency_unlock_gate("aq_agency"):
+        return
     sales_options = list(sales_map.keys()) if sales_map else []
     def_client = st.session_state.get("temp_client_name", "萬國通路")
     def_tax = st.session_state.get("temp_tax_id", "")
@@ -271,10 +294,10 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
     st.markdown("#### 廣告組合（平台、區域、秒數）")
     col_list, col_add = st.columns([1, 1])
     with col_add:
-        media_aq = st.selectbox("平台", ["全家廣播", "新鮮視", "家樂福"],
+        media_aq = st.selectbox("平台", list(AGENCY_MEDIA) if is_agency_fmt else ["全家廣播", "新鮮視", "家樂福"],
                                 format_func=lambda m: "萬家福．樂家康" if m == "家樂福" else m,
                                 key="aq_add_media")
-        if media_aq == "家樂福":
+        if media_aq == "家樂福" or is_agency_fmt:
             region_aq = "全省"
         else:
             region_aq = st.selectbox("區域", ["全省"] + list(regions_order), key="aq_add_region")
@@ -304,6 +327,10 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
                     st.rerun()
 
     _ensure_wave_combo_arrays()
+    if is_agency_fmt:
+        _bad = [f"【{c['media']}】{c['region']} {c['seconds']}秒" for c in combos if not agency_combo_ok(c)]
+        if _bad:
+            st.warning("代理商格式只支援全家廣播（全省）與萬家福．樂家康，以下組合不會出現在 CUE 上：" + "、".join(_bad))
 
     st.markdown("#### 波段設定（只設定每波起訖日）")
     if st.button("➕ 新增一波段", key="aq_add_wave"):
@@ -448,6 +475,10 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
     if not waves:
         return
     _ensure_wave_combo_arrays()
+
+    if is_agency_fmt:
+        render_annual_agency_waves(format_type, combos, waves, client_name, product_name)
+        return
 
     # 各波段備註以各波自己的三個欄位為準，不再使用上方範本
     _def_sign = datetime.now() + timedelta(days=3)
@@ -852,15 +883,7 @@ def main():
 
         if cue_mode == "代理商CUE":
             # 代理商案僅限負責業務：輸入密碼解鎖（本次登入有效）；已登入主管免輸入
-            if not (st.session_state.get("is_supervisor") or st.session_state.get("agency_unlocked")):
-                st.info("🔒 代理商CUE 需輸入密碼才能使用")
-                _apwd = st.text_input("代理商CUE 密碼", type="password", key="agency_pwd_input")
-                if st.button("解鎖", key="agency_unlock_btn"):
-                    if _apwd == AGENCY_PASSWORD:
-                        st.session_state.agency_unlocked = True
-                        st.rerun()
-                    else:
-                        st.error("密碼錯誤")
+            if not _agency_unlock_gate("agency"):
                 return
             # 一鍵CUE：原簡易模式中的 2008／凱絡模板（2026-10-08 由簡易模式移入）；自訂：原代理商CUE
             ag_mode = st.radio("代理商CUE 方式", ["一鍵CUE（模板）", "自訂代理商CUE"], key="agency_sub_mode",
@@ -871,6 +894,11 @@ def main():
                 render_agency_cue(SALES_MAP)
             return
 
+        if cue_mode == "年約季約細CUE":
+            # 年約季約自帶「選擇格式」（含 2008／凱絡），外層不再重複顯示
+            _render_annual_quarter_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, fmt_options, fmt_idx, SALES_MAP)
+            return
+
         format_type = st.radio("選擇格式", fmt_options, index=fmt_idx, horizontal=True)
         if cue_mode == "專案CUE":
             project_name = st.selectbox("專案", list(FIXED_PROJECTS), key="cue_fixed_project",
@@ -878,10 +906,6 @@ def main():
             _render_fixed_project_cue(project_name, format_type, STORE_COUNTS_NUM, SALES_MAP)
             return
         is_barter_contract = st.checkbox("是否為交換合約", value=st.session_state.get("is_barter_contract", False), key="is_barter_contract", help="交換合約：檔次依定價計算，不提供優惠回饋檔次。")
-
-        if cue_mode == "年約季約細CUE":
-            _render_annual_quarter_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, fmt_options, fmt_idx, SALES_MAP)
-            return
 
         c1, c2, c3, c4, c5_sales = st.columns(5)
         # 載入資料後的預設值

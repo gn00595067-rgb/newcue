@@ -53,3 +53,13 @@
 ### 2026-10-08 代理商一鍵模板搬家 & 2008 框線
 - 代理商CUE 分頁內加「一鍵CUE（模板）／自訂」切換，一鍵沿用簡易模式畫面（render_simple_cue(family="agency")），不另寫一套；widget key 與簡易模式分開避免切換時選項不符。
 - 2008 框線：不改母版轉印，渲染後補正三處範本瑕疵（月份列下緣、左右外框、合計上緣），只加粗不降級（全家範本外框 double 保留）。
+
+### 2026-10-13 一鍵CUE 聲活／鉑霖怎麼出
+- 選項：A 簡易版面只換抬頭 / B 轉成一般CUE rows，用一般CUE renderer 出
+- 決定：B（Jonathan 要「一模一樣」）。東吳仍走簡易原版面（宜歆 0902 範本、fidelity 測試保護），不改成一般CUE 東吳。
+- 做法：excel_renderer 拆出不快取的 `render_excel_into(wb=…, sheet_prefix=…)`，多秒數寫進同一活頁簿；快取版 `generate_excel_from_scratch` 簽名不變。各平台 Package-cost 依隱藏實收比例拆預算。
+
+### 2026-10-13 年約季約套 2008／凱絡
+- 選項：A 另寫年約專用代理商 renderer / B 每波每組合呼叫既有 build_agency_model 再合併 sheets
+- 決定：B。檔次用 spots_override／mag_override、實收用業務填的數字；2008 全家合計原本由檔次反算，改以實收為準並重算費用區。不做年度總表（Jonathan 確認不需要）。
+- 限制：只支援全家廣播（全省）、萬家福．樂家康；新鮮視、分區組合略過並警告。
