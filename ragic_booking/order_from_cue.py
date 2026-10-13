@@ -104,3 +104,27 @@ def missing(snap, orders):
                 for k in ("平台檔數", "秒數")}
         out["訂檔"] = [x for x in m.get("blocking", []) if not x.startswith("CUE號") and x not in prod]
     return out
+
+
+def submit_booking(snap, orders, *, applicant="", attachments=None, submit=None):
+    """依序送出各波訂檔（寫入正式 Ragic，呼叫端須先確認已開放寫入）。
+    第 1 波：申請 CUE號 → 建訂檔；之後各波沿用同一 CUE號、各自建訂檔（波段 = 2, 3 …）。
+    attachments：{波段索引 或 "all": {欄位ID: 檔案路徑}}，如 訂檔CUE表、客戶回簽檔。
+    任一波失敗即停，回傳已完成結果（含 cueupload 的殘留 rid 偵測）。"""
+    if submit is None:
+        from ragic_booking.write import submit_full_order as submit
+    attachments = attachments or {}
+    waves = snap.get("waves", [])
+    start = _d(waves[0].get("start")) if waves else ""
+    cue_id, results = "", []
+    for i, d in enumerate(orders):
+        if cue_id:
+            d.CUE號 = cue_id
+        files = {**attachments.get("all", {}), **attachments.get(i, {})}
+        r = submit(d, apply_cue=not d.CUE號, 起走日期=start, 總波段=str(len(orders)),
+                   申請人=applicant, 產品名稱=d.產品名稱, attachments=files)
+        results.append(r)
+        cue_id = r.get("cue_id") or cue_id
+        if not r.get("ok"):
+            return {"ok": False, "cue_id": cue_id, "results": results, "error": f"第 {i + 1} 波：{r.get('error')}"}
+    return {"ok": True, "cue_id": cue_id, "results": results, "error": ""}

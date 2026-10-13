@@ -257,7 +257,8 @@ def json_copy(obj):
 def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None, key_prefix="save",
                       allow_style_excel=True):
     """存檔到 Ragic（cue/2）。同一份 CUE 再存＝更新同一筆、版本 +1，異動寫進快照 history。
-    files：{"xlsx": (檔名, bytes), "pdf": (檔名, bytes)}。未開 RAGIC_WRITE_ENABLED 時只乾跑。"""
+    files：{"xlsx": (檔名, bytes), "pdf": (檔名, bytes)}，或回傳該 dict 的函式（存檔時才產生）。
+    未開 RAGIC_WRITE_ENABLED 時只乾跑。"""
     import cue_store as cs
     from config import RAGIC_MAP
     from ragic_booking import cue2
@@ -265,7 +266,15 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     st.markdown("---")
     st.markdown("#### ☁️ 存檔到 Ragic")
     msg_key = f"{key_prefix}_saved_msg"
-    if st.session_state.get(msg_key):
+    rec = st.session_state.get(SS_RECORD)
+    linked = rec if rec and rec.get("mode") == snap.get("mode") else None
+    pv = ((linked or {}).get("snap") or {}).get("version", 0)
+    # 「改了還沒存」：與已存版本比對（側欄「我的 CUE」也讀這個旗標）
+    dirty = bool(linked) and cs.has_changes(linked.get("snap"), snap)
+    st.session_state["_cue_dirty"] = dirty
+    if dirty:
+        st.warning(f"⚠️ 內容已修改，尚未存檔（Ragic 上目前是 v{pv}）")
+    elif st.session_state.get(msg_key):
         st.success(st.session_state[msg_key])
 
     u = current_user()
@@ -273,11 +282,8 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
         st.caption("以 Ragic 帳號登入後可存檔；存檔後可在左側「📂 我的 CUE」找回、修改。")
         return
 
-    rec = st.session_state.get(SS_RECORD)
-    linked = rec if rec and rec.get("mode") == snap.get("mode") else None
     as_new = True
     if linked:
-        pv = (linked.get("snap") or {}).get("version", 0)
         choice = st.radio("存檔方式", [f"更新 #{linked.get('serial') or linked['rid']}（v{pv} → v{pv + 1}）",
                                        "另存為新的一筆"], key=f"{key_prefix}_how", horizontal=True)
         as_new = choice.startswith("另存")
@@ -305,7 +311,8 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
         st.json({"動作": "新建" if as_new else f"更新紀錄 {linked['rid']}",
                  "欄位": {k: (v if k != RAGIC_MAP["details"] else f"（{len(v):,} 字，含快照 v{final['version']}）")
                         for k, v in fields.items()},
-                 "附件": [f[0] for f in (files or {}).values() if f] + ([style.name] if style else []),
+                 "附件": (["（存檔時合併各波 Excel／PDF）"] if callable(files) else
+                        [f[0] for f in (files or {}).values() if f]) + ([style.name] if style else []),
                  "異動紀錄": final["history"][-1]})
     if not live:
         st.info("目前為**乾跑模式**：只預覽、不會寫入 Ragic。")
@@ -313,6 +320,9 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     if not st.button("💾 存檔到 Ragic", key=f"{key_prefix}_btn", type="primary", disabled=not live):
         return
     up = {}
+    if callable(files):   # 合併多波附件較耗時，只在按下存檔時才產生
+        with st.spinner("合併附件中…"):
+            files = files()
     xl, pdf = (files or {}).get("xlsx"), (files or {}).get("pdf")
     if xl:
         up[RAGIC_MAP["file_xls"]] = (xl[0], xl[1], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -334,7 +344,7 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
 
 def clear_loaded():
     """解除與 Ragic 存檔的關聯，並清掉讀回時設定的覆寫值。"""
-    for k in (SS_RECORD, "_simple_restore"):
+    for k in (SS_RECORD, "_simple_restore", "_cue_dirty"):
         st.session_state.pop(k, None)
 
 
@@ -368,6 +378,8 @@ def render_my_cues_sidebar():
     rec = st.session_state.get(SS_RECORD)
     if rec:
         st.caption(f"編輯中：#{rec.get('serial') or rec['rid']}（{rec.get('mode')} v{(rec.get('snap') or {}).get('version')}）")
+        if st.session_state.get("_cue_dirty"):
+            st.warning("⚠️ 有尚未存檔的修改")
     kw = st.text_input("關鍵字（客戶、產品、Cue號，可留白）", key="mycue_kw")
     mine = st.checkbox("只看我存過的", value=True, key="mycue_mine")
     url, key = _ragic_conn()
@@ -458,6 +470,8 @@ def render_order_preview(snap, key_prefix):
             st.caption(f"第 {i} 波｜{d.執行開始日期}～{d.執行結束日期}｜" + "；".join(
                 f"{r['平台細項']}{(' ' + str(r['秒數']) + '秒') if r['秒數'] else ''} "
                 f"{r['平台檔數']:,}檔 ${r['實收金額未稅']:,}" for r in d.收入明細))
+        st.button("📤 送出訂檔（申請 CUE號＋建立各波訂檔）", key=f"{key_prefix}_od_submit", disabled=True,
+                  help="送出程式已備妥（order_from_cue.submit_booking）；審核方式（Ragic 原生簽核或 app 內審核）確定後開放。")
         with st.popover("檢視將寫入 Ragic 的欄位"):
             st.json({"CUE號申請（forms13/4）": oc.cue_apply_payload(snap, u.get("name", "")),
                      "訂檔（forms12/17）": [rf.order_payload_json(d) for d in orders]})

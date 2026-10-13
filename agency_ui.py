@@ -622,17 +622,27 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
             scaled[k] += int(ov) - sum(scaled)
             nets = scaled
 
+        # 各波手改的設定記在 aq_waves[i]["ag"]，隨年約存檔／開啟還原（同開始日才沿用，改日期回到預設）
+        agw = w.get("ag") if isinstance(w.get("ag"), dict) and w["ag"].get("start") == start_d else {}
         with st.expander(f"**波段 {i+1}**：{start_d} ~ {end_d} — 素材／備註／請款", expanded=False):
             r1, r2 = st.columns(2)
             material_due = r1.date_input("素材提供時間（預設開始日−5個工作天）",
-                                         ac.minus_business_days(start_d, 5), key=f"aq_ag_mat_{i}_{start_d}")
+                                         agw.get("mat") or ac.minus_business_days(start_d, 5),
+                                         key=f"aq_ag_mat_{i}_{start_d}")
             sign_date = None
             if agency == "凱絡":
-                sign_date = r2.date_input("凱絡 簽回期限", start_d - timedelta(days=3), key=f"aq_ag_sign_{i}_{start_d}")
+                sign_date = r2.date_input("凱絡 簽回期限", agw.get("sign") or start_d - timedelta(days=3),
+                                          key=f"aq_ag_sign_{i}_{start_d}")
             # 備註 key 含代理商與走期：切換代理商或改日期時重新帶入預設
-            rem_text = st.text_area("備註（每行一條）", "\n".join(ac.default_remarks(agency, sign_date)),
+            rem_for = f"{agency}|{sign_date}"
+            rem_default = (agw["rem"] if agw.get("rem_for") == rem_for and agw.get("rem")
+                           else "\n".join(ac.default_remarks(agency, sign_date)))
+            rem_text = st.text_area("備註（每行一條）", rem_default,
                                     height=140, key=f"aq_ag_rem_{i}_{agency}_{start_d}_{sign_date}")
-            pay_note = st.text_input("請款金額說明（留空自動依走期各月比例拆分）", "", key=f"aq_ag_pay_{i}")
+            pay_note = st.text_input("請款金額說明（留空自動依走期各月比例拆分）", agw.get("pay", ""),
+                                     key=f"aq_ag_pay_{i}")
+        w["ag"] = {"start": start_d, "mat": material_due, "sign": sign_date, "rem": rem_text,
+                   "rem_for": rem_for, "pay": pay_note}
         remarks = [x for x in rem_text.split("\n") if x.strip()]
 
         try:

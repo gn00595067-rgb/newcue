@@ -20,6 +20,7 @@ from datetime import date, datetime
 from agency_cue import rhu
 
 SNAP_MARK = "[CUESNAP]"
+NO_CHANGE = "內容無變動（重新存檔）"
 SCHEMA = 1
 REGIONS6 = ["北區", "桃竹苗", "中區", "雲嘉南", "高屏", "東區"]
 
@@ -268,8 +269,13 @@ def diff_summary(old, new):
         if [r.get("schedule") for r in all_rows(old)] != [r.get("schedule") for r in all_rows(new)]:
             msgs.append("每日檔次分配調整")
         else:
-            msgs.append("內容無變動（重新存檔）")
+            msgs.append(NO_CHANGE)
     return msgs
+
+
+def has_changes(old, new):
+    """目前畫面（new）相對已存版本（old）是否有尚未存檔的變更。"""
+    return bool(old) and diff_summary(old, new) != [NO_CHANGE]
 
 
 def next_version(old, new, user_name, now=None):

@@ -435,7 +435,9 @@ def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov
     sec = st.selectbox("這份 CUE 採用的秒數版（存檔／訂檔以此為準）", secs, key=pick_key,
                        format_func=lambda x: f"{x}秒版")
     sheet = model.sheets[secs.index(sec)]
-    rows = cs.scale_net(cs.norm_simple_sheet(model, sheet), budget) if model.family == "subsidiary"         else cs.norm_simple_sheet(model, sheet)
+    rows = cs.norm_simple_sheet(model, sheet)
+    if model.family == "subsidiary":
+        rows = cs.scale_net(rows, budget)
     header = {"client": model.client, "tax_id": model.tax_id, "product": model.product,
               "format": fmt if not is_agency else sc.COMBOS[model.combo_key]["label"],
               "sales": sales, "start": model.start, "end": model.end, "budget": budget, "final": budget,

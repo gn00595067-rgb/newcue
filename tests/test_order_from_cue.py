@@ -52,3 +52,26 @@ def test_missing_without_customer():
     orders = oc.build_orders(snap)
     m = oc.missing(snap, orders)
     assert m["CUE號申請"] and any("客戶編號" in x for x in m["訂檔"])
+
+
+def test_submit_booking_applies_cue_once():
+    snap = _snap()
+    orders = oc.build_orders(snap, applicant="王小明")
+    calls = []
+
+    def fake_submit(d, *, apply_cue, attachments, **kw):
+        calls.append((d.波段, apply_cue, d.CUE號, sorted(attachments), kw["總波段"], kw["起走日期"]))
+        return {"ok": True, "cue_id": d.CUE號 or "1160101", "order_rid": str(len(calls)), "error": ""}
+
+    res = oc.submit_booking(snap, orders, applicant="王小明", submit=fake_submit,
+                            attachments={"all": {"回簽": "a.pdf"}, 0: {"CUE表": "w1.xlsx"}, 1: {"CUE表": "w2.xlsx"}})
+    assert res["ok"] and res["cue_id"] == "1160101"
+    assert calls == [("1", True, "", ["CUE表", "回簽"], "2", "2027/01/04"),
+                     ("2", False, "1160101", ["CUE表", "回簽"], "2", "2027/01/04")]
+
+
+def test_submit_booking_stops_on_failure():
+    snap = _snap()
+    orders = oc.build_orders(snap)
+    res = oc.submit_booking(snap, orders, submit=lambda d, **kw: {"ok": False, "cue_id": "", "error": "INVALID"})
+    assert not res["ok"] and len(res["results"]) == 1 and "第 1 波" in res["error"]

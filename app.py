@@ -672,10 +672,16 @@ def _aq_save_panel(format_type, waves_out, client_name, client_tax_id, product_n
                  "_clear_prefixes": ["aq_tbl_", "aq_w_", "aq_wave_", "aq_ct_", "aq_ag_mat_", "aq_ag_sign_",
                                      "aq_ag_rem_", "aq_ag_pay_"]},
         customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
-    w0 = waves_out[0]
-    ragic_ui.render_save_panel(
-        snap, files={"xlsx": w0.get("xlsx"), "pdf": w0["pdf"] if w0.get("pdf") and w0["pdf"][1] else None},
-        key_prefix="aq_save")
+    def _files():
+        """各波 Excel 合成一檔（每波一張工作表），PDF 由合併檔產生。"""
+        from xlsx_merge import merge_xlsx
+        merged = merge_xlsx([(w["label"], w["xlsx"][1]) for w in waves_out if w.get("xlsx")])
+        pdf, _m, _e = xlsx_bytes_to_pdf_bytes(merged)
+        name = (f"Cue_{safe_filename(client_name)}_年約{len(waves_out)}波_"
+                f"{snap['header']['start']['__date__']}_{snap['header']['end']['__date__']}")
+        return {"xlsx": (name + ".xlsx", merged), "pdf": (name + ".pdf", pdf) if pdf else None}
+
+    ragic_ui.render_save_panel(snap, files=_files, key_prefix="aq_save")
 
 
 def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales_map):
