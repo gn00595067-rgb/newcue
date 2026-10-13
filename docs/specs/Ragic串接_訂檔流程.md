@@ -2,7 +2,14 @@
 
 > 狀態：**規劃中，待 Jonathan 確認後動工**（2026-10-13）
 > 已確認（2026-10-13）：CUE號於主管核准時才申請；暫存區先用現有 `cue/2` 加欄位；下載維持現狀（不強制先存檔，業務常只想下載看看）。
-> 身分：評估「用 Ragic 帳號登入」—— 見下方〈身分：串 Ragic 帳號〉，待 Jonathan 決定。
+> 身分：採 Ragic 帳號登入（公司已替同事設 Ragic 密碼）。開發在 `ragic-dev` 分支＋獨立 Streamlit 測試 app。
+
+## 第 1 期實作結果（2026-10-13，ragic-dev）
+- `ragic_booking/`：自 cueupload 搬入 `fields.py`、`write.py`、`platform_map.py`（只改 import、金鑰改讀 config），新增 `auth.py`（Ragic AUTH 登入）、`fields.customer_form_tuples`。
+- 側欄「👤 Ragic 帳號」：公司信箱＋Ragic 密碼登入，顯示姓名與群組；不保存密碼。
+- 五種製作模式頂端「🔎 從 Ragic 帶入客戶」：搜尋統編／名稱／客戶編號 → 選一筆 → 帶入客戶名稱、統編、產品（代理商自訂無統編欄）；帶入的客戶（編號、類別、現折、退佣、付款條件）存在 session，供之後存檔／訂檔用。未登入只顯示提示，原本手打流程不變。
+- 「➕ 新增客戶到 Ragic」：表單欄位照客戶表必填（含工商登記 PDF），必填檢查、預覽將寫入內容；Secrets `RAGIC_WRITE_ENABLED` 不是 true 時按鈕停用（乾跑）。
+- 待實測：真實帳號登入（含有開兩步驟驗證的帳號）、正式新增一筆客戶（開寫入後先用測試客戶，再於 Ragic 刪除）。
 > 來源：Jonathan 需求（CUE表系統功能優化需求 一～六）＋ 現況調查（newcue ragic_api、cueupload 訂檔程式）
 
 ## 目標

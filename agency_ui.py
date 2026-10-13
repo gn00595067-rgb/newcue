@@ -220,9 +220,11 @@ def render_agency_cue(sales_map=None):
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        client_name = st.text_input("客戶名稱", st.session_state.get("ag_client", "統一企業"), key="ag_client")
+        st.session_state.setdefault("ag_client", "統一企業")
+        client_name = st.text_input("客戶名稱", key="ag_client")
     with c2:
-        product_name = st.text_input("產品名稱", st.session_state.get("ag_product", ""), key="ag_product")
+        st.session_state.setdefault("ag_product", "")
+        product_name = st.text_input("產品名稱", key="ag_product")
     with c3:
         campaign = st.text_input("Campaign（僅 2008 顯示）", st.session_state.get("ag_campaign", ""),
                                  key="ag_campaign") if agency == "2008傳媒" else ""

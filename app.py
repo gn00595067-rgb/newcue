@@ -104,6 +104,7 @@ from pdf_converter import xlsx_bytes_to_pdf_bytes
 from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even, AGENCY_MEDIA, agency_combo_ok, build_wave_agency_model
 from agency_ui import render_agency_cue, render_annual_agency_waves
 from simple_cue import render_simple_cue
+import ragic_ui
 from fixed_projects import FIXED_PROJECTS, build_project_rows, project_days, project_seconds_text, project_total_list
 from ragic_api import (
     search_ragic_records,
@@ -226,6 +227,30 @@ def _get_ragic_extra_state(row_groups):
     return state
 
 
+# 各製作模式「客戶名稱／統編／產品」輸入欄的 session key（Ragic 客戶帶入用）
+# 一般CUE 欄位無 key，以 temp_* 當預設值（同「載入舊排程」機制）
+_CUSTOMER_TARGETS = {
+    "簡易模式": {"client": "simple_client", "tax": "simple_tax", "product": "simple_product"},
+    "一般CUE": {"client": "temp_client_name", "tax": "temp_tax_id", "product": "temp_product_name"},
+    "年約季約細CUE": {"client": "aq_client", "tax": "aq_tax", "product": "aq_product"},
+    "專案CUE": {"client": "fp_client", "tax": "fp_tax", "product": "fp_product"},
+    # 代理商：一鍵模板沿用簡易模式欄位、自訂用 ag_*（無統編欄）
+    "代理商CUE": {"client": "ag_client", "product": "ag_product"},
+}
+
+
+def _customer_bar(cue_mode):
+    """Ragic 客戶帶入＋新增客戶（第 1 期，spec：Ragic串接_訂檔流程.md）。"""
+    targets = dict(_CUSTOMER_TARGETS.get(cue_mode, {}))
+    if cue_mode == "代理商CUE" and str(st.session_state.get("agency_sub_mode", "一鍵")).startswith("一鍵"):
+        targets = dict(_CUSTOMER_TARGETS["簡易模式"])
+    cc1, cc2 = st.columns(2)
+    with cc1:
+        ragic_ui.customer_picker(targets, key_prefix="cust")
+    with cc2:
+        ragic_ui.render_new_customer()
+
+
 def _agency_unlock_gate(key_prefix="agency"):
     """代理商格式需密碼（本次登入解鎖一次即可，已登入主管免輸入）；已解鎖回傳 True。"""
     if st.session_state.get("is_supervisor") or st.session_state.get("agency_unlocked"):
@@ -285,9 +310,12 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
     def_client = st.session_state.get("temp_client_name", "萬國通路")
     def_tax = st.session_state.get("temp_tax_id", "")
     def_prod = st.session_state.get("temp_product_name", "統一布丁")
-    client_name = st.text_input("客戶名稱", def_client, key="aq_client")
-    client_tax_id = st.text_input("統一編號", def_tax, key="aq_tax")
-    product_name = st.text_input("產品名稱", def_prod, key="aq_product")
+    # 預設值只在第一次寫入 session（之後由 Ragic 帶入或使用者輸入覆寫，不再傳 value 以免衝突警告）
+    for _k, _v in (("aq_client", def_client), ("aq_tax", def_tax), ("aq_product", def_prod)):
+        st.session_state.setdefault(_k, _v)
+    client_name = st.text_input("客戶名稱", key="aq_client")
+    client_tax_id = st.text_input("統一編號", key="aq_tax")
+    product_name = st.text_input("產品名稱", key="aq_product")
     sales_person = st.selectbox("業務名稱", options=sales_options, index=0, key="aq_sales") if sales_options else ""
 
     st.markdown("---")
@@ -641,10 +669,13 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        client_name = st.text_input("客戶名稱", st.session_state.get("temp_client_name", ""), key="fp_client")
-        client_tax_id = st.text_input("統一編號", st.session_state.get("temp_tax_id", ""), key="fp_tax")
+        st.session_state.setdefault("fp_client", st.session_state.get("temp_client_name", ""))
+        st.session_state.setdefault("fp_tax", st.session_state.get("temp_tax_id", ""))
+        st.session_state.setdefault("fp_product", st.session_state.get("temp_product_name", ""))
+        client_name = st.text_input("客戶名稱", key="fp_client")
+        client_tax_id = st.text_input("統一編號", key="fp_tax")
     with c2:
-        product_name = st.text_input("產品名稱", st.session_state.get("temp_product_name", ""), key="fp_product")
+        product_name = st.text_input("產品名稱", key="fp_product")
     with c3:
         prod_cost = st.number_input("製作費 (未稅)", value=0.0, step=1000.0, key="fp_prod_cost")
     with c4:
@@ -713,6 +744,8 @@ def main():
         with st.sidebar:
             with st.expander("ℹ️ 版本", expanded=False):
                 st.caption(f"Streamlit {st.__version__}")
+            ragic_ui.render_login_sidebar()
+            st.markdown("---")
             st.header("🕵️ 主管登入")
             if not st.session_state.is_supervisor:
                 pwd = st.text_input("輸入密碼", type="password", key="pwd_input")
@@ -877,6 +910,9 @@ def main():
         cue_mode = st.radio("製作模式", mode_options, index=mode_idx, key="cue_mode", horizontal=True,
                             help="簡易模式：只選平台組合＋輸入預算，自動產各秒數版 CUE。年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式（需密碼）。專案CUE：走期／檔次／金額固定的專案（如萬家福／樂家康過年、中元限定專案）。")
 
+        if cue_mode != "代理商CUE":
+            _customer_bar(cue_mode)
+
         if cue_mode == "簡易模式":
             render_simple_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, SALES_MAP)
             return
@@ -888,6 +924,7 @@ def main():
             # 一鍵CUE：原簡易模式中的 2008／凱絡模板（2026-10-08 由簡易模式移入）；自訂：原代理商CUE
             ag_mode = st.radio("代理商CUE 方式", ["一鍵CUE（模板）", "自訂代理商CUE"], key="agency_sub_mode",
                                horizontal=True, help="一鍵CUE：選 2008／凱絡模板＋預算＋開始日即出，用法同簡易模式。自訂：逐項設定平台、秒數、檔次。")
+            _customer_bar(cue_mode)
             if ag_mode == "一鍵CUE（模板）":
                 render_simple_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, SALES_MAP, family="agency")
             else:

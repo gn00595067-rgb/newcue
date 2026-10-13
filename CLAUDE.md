@@ -7,6 +7,7 @@
 - 狀態：🟢 LIVE（簡易模式 v2 已上線，見 `newcue_簡易模式_開發摘要.md`）
 - 本機：`C:\dev\newcue`
 - push：`gn00595067-rgb/newcue.git` · `main`（push 後 Streamlit Cloud 自動部署）
+- 開發分支：`ragic-dev`（Ragic 串接／訂檔流程，spec `docs/specs/Ragic串接_訂檔流程.md`）→ 只推此分支，另有 Streamlit 測試 app 指向它；全部確認後才 merge 回 main。Ragic 寫入預設乾跑，Secrets `RAGIC_WRITE_ENABLED="true"` 才寫入。
 - 線上：https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/（2026-10-05 重建，舊網址失效）
 - Secrets（只列名稱）：`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`、`AGENCY_PASSWORD`（代理商CUE 密碼，未設時預設 123）（見 `.streamlit/secrets.toml.example`）
 

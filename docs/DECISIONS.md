@@ -63,3 +63,9 @@
 - 選項：A 另寫年約專用代理商 renderer / B 每波每組合呼叫既有 build_agency_model 再合併 sheets
 - 決定：B。檔次用 spots_override／mag_override、實收用業務填的數字；2008 全家合計原本由檔次反算，改以實收為準並重算費用區。不做年度總表（Jonathan 確認不需要）。
 - 限制：只支援全家廣播（全省）、萬家福．樂家康；新鮮視、分區組合略過並警告。
+
+### 2026-10-13 Ragic 串接的開發方式與身分
+- 開發位置：A 推 cue-restruct（cueapp 測試庫）/ B newcue 開 ragic-dev 分支＋獨立 Streamlit 測試 app → B。cue-restruct 是 cueapp 測試版、歷史不相連，推上去要 force push 且會蓋掉 cueapp。
+- 身分：A 自建帳密 / B Ragic AUTH API → B。公司已替同事設 Ragic 密碼；姓名與 Ragic 使用者一致，訂檔申請人可直接用。寫入仍用共用 API 金鑰。
+- Ragic 程式：A 重寫 / B 搬 cueupload 已驗證的 ragic_fields／ragic_write → B，檔頭註明兩邊修改要同步。
+- 寫入安全：新增客戶等寫入動作預設乾跑，Secrets RAGIC_WRITE_ENABLED=true 才送出。

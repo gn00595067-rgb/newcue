@@ -268,8 +268,10 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     with st.expander("甲乙方／付款／產品／其他（可留白）"):
         st.caption("甲方＝客戶、乙方＝我方（供應商）；付款兌現日期預設為佔位，可直接改成實際日期。")
         pcol = st.columns(2)
-        client = pcol[0].text_input("甲方／客戶名稱", "")
-        tax_id = pcol[0].text_input("甲方統一編號", "")
+        for _k in ("simple_client", "simple_tax", "simple_product"):
+            st.session_state.setdefault(_k, "")   # 可由 Ragic 客戶帶入
+        client = pcol[0].text_input("甲方／客戶名稱", key="simple_client")
+        tax_id = pcol[0].text_input("甲方統一編號", key="simple_tax")
         if fmt == "東吳":
             party_b = pcol[1].text_input("乙方名稱（我方）", "")
             party_b_tax = pcol[1].text_input("乙方統一編號", "")
@@ -281,7 +283,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
         default_pay = f"{start.year - 1911}.XX.XX"
         e1, e2, e3 = st.columns(3)
         payment_date = e1.text_input("付款兌現日期（民國，可留白）", default_pay)
-        product = e2.text_input("產品名稱", "")
+        product = e2.text_input("產品名稱", key="simple_product")
         sales_options = list(sales_map.keys()) if sales_map else []
         sales_name = e2.selectbox("業務", ["—"] + sales_options) if sales_options else "—"
         # 下拉顯示姓名、傳暱稱給 model（檔名用暱稱，§3-1）
