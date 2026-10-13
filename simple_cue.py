@@ -197,6 +197,8 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                       regions_order=None, sales_map=None, family="subsidiary"):
     """family="subsidiary"：簡易模式（子公司組合）；"agency"：代理商CUE 分頁內的一鍵模板（2008／凱絡）。"""
     is_agency = family == "agency"
+    # 從 Ragic「我的 CUE」開啟時的覆寫值（無 key 的欄位以此為預設值；開新 CUE 時清除）
+    _ov = cue_store_from(st.session_state.get("_simple_restore") or {})
     st.title("⚡ 代理商一鍵 CUE" if is_agency else "⚡ 一鍵 CUE")
     st.caption("選平台組合 → 輸入預算 → 選開始日，立即顯示與公司範本一致的預覽，可下載 Excel／PDF。")
 
@@ -246,10 +248,13 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     st.markdown("**【3】走期**")
     d1, d2, d3 = st.columns([2, 2, 2])
     with d1:
-        start = st.date_input("開始日", value=_next_monday_after(), format="YYYY-MM-DD")
+        start = st.date_input("開始日", value=_ov.get("start", _next_monday_after()), format="YYYY-MM-DD")
     with d2:
-        weeks = st.select_slider("週數", options=list(range(1, sc.MAX_WEEKS + 1)), value=2)
+        weeks = st.select_slider("週數", options=list(range(1, sc.MAX_WEEKS + 1)), value=_ov.get("weeks", 2))
     default_end = start + timedelta(days=weeks * 7 - 1)
+    # 讀回的結束日只在開始日／週數沒改時沿用（改了就回到自動計算）
+    if _ov.get("end") and _ov.get("start") == start and _ov.get("weeks") == weeks:
+        default_end = _ov["end"]
     with d3:
         end = st.date_input("結束日", value=default_end, format="YYYY-MM-DD")
     if end < start:
@@ -273,8 +278,8 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
         client = pcol[0].text_input("甲方／客戶名稱", key="simple_client")
         tax_id = pcol[0].text_input("甲方統一編號", key="simple_tax")
         if fmt == "東吳":
-            party_b = pcol[1].text_input("乙方名稱（我方）", "")
-            party_b_tax = pcol[1].text_input("乙方統一編號", "")
+            party_b = pcol[1].text_input("乙方名稱（我方）", _ov.get("party_b", ""))
+            party_b_tax = pcol[1].text_input("乙方統一編號", _ov.get("party_b_tax", ""))
         else:
             # 聲活／鉑霖版面的公司抬頭與乙方由一般CUE 版面固定帶入
             party_b = party_b_tax = ""
@@ -282,14 +287,16 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
 
         default_pay = f"{start.year - 1911}.XX.XX"
         e1, e2, e3 = st.columns(3)
-        payment_date = e1.text_input("付款兌現日期（民國，可留白）", default_pay)
+        payment_date = e1.text_input("付款兌現日期（民國，可留白）", _ov.get("payment", default_pay))
         product = e2.text_input("產品名稱", key="simple_product")
         sales_options = list(sales_map.keys()) if sales_map else []
-        sales_name = e2.selectbox("業務", ["—"] + sales_options) if sales_options else "—"
+        _s_opts = ["—"] + sales_options
+        _s_idx = _s_opts.index(_ov["sales_name"]) if _ov.get("sales_name") in _s_opts else 0
+        sales_name = e2.selectbox("業務", _s_opts, index=_s_idx) if sales_options else "—"
         # 下拉顯示姓名、傳暱稱給 model（檔名用暱稱，§3-1）
         sales = "" if sales_name == "—" else (sales_map.get(sales_name) or sales_name)
-        prod_cost = e3.number_input("製作費（未稅）", min_value=0, value=0, step=1000)
-        campaign = e3.text_input("Campaign（2008 用）", "")
+        prod_cost = e3.number_input("製作費（未稅）", min_value=0, value=int(_ov.get("prod_cost", 0)), step=1000)
+        campaign = e3.text_input("Campaign（2008 用）", _ov.get("campaign", ""))
 
     # 進階：指定投放區域（僅子公司；含全家企頻／新鮮視的區塊才有分區）
     regions = ()
@@ -403,3 +410,42 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                 if model.family == "subsidiary":
                     fill = sheet.hidden_net_total / sheet.budget * 100 if sheet.budget else 0
                     st.caption(f"隱藏實收 ${int(sheet.hidden_net_total):,}／填滿率 {fill:.1f}%")
+
+    _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, locals().get("pdf"),
+                   combo_key="agency_simple_combo" if is_agency else "simple_combo",
+                   ov={"start": start, "weeks": weeks, "end": end, "party_b": party_b, "party_b_tax": party_b_tax,
+                       "payment": payment_date, "sales_name": sales_name, "prod_cost": int(prod_cost),
+                       "campaign": campaign},
+                   sales=sales, budget=int(budget))
+
+
+def cue_store_from(d):
+    import cue_store as cs
+    return cs.from_jsonable(d)
+
+
+def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov, sales, budget):
+    """Ragic 存檔（第 2 期）。簡易模式各秒數版是給客戶挑的選項，存檔時選定採用的秒數版。"""
+    import cue_store as cs
+    import ragic_ui
+    secs = [s.seconds for s in model.sheets]
+    pick_key = "agency_simple_pick_sec" if is_agency else "simple_pick_sec"
+    if st.session_state.get(pick_key) not in secs:
+        st.session_state.pop(pick_key, None)
+    sec = st.selectbox("這份 CUE 採用的秒數版（存檔／訂檔以此為準）", secs, key=pick_key,
+                       format_func=lambda x: f"{x}秒版")
+    sheet = model.sheets[secs.index(sec)]
+    rows = cs.scale_net(cs.norm_simple_sheet(model, sheet), budget) if model.family == "subsidiary"         else cs.norm_simple_sheet(model, sheet)
+    header = {"client": model.client, "tax_id": model.tax_id, "product": model.product,
+              "format": fmt if not is_agency else sc.COMBOS[model.combo_key]["label"],
+              "sales": sales, "start": model.start, "end": model.end, "budget": budget, "final": budget,
+              "prod_cost": model.sheets[0].prod_cost, "seconds_pick": sec}
+    restore = ragic_ui.capture([combo_key, combo_key + "_r", "simple_format", "simple_budget2", "simple_client",
+                                "simple_tax", "simple_product", "simple_regions", pick_key])
+    restore["_simple_restore"] = ov
+    mode = "代理商一鍵" if is_agency else "簡易模式"
+    snap = cs.make_snapshot(mode, header, [{"label": "", "start": model.start, "end": model.end, "rows": rows}],
+                            restore=restore, customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+    ragic_ui.render_save_panel(
+        snap, files={"xlsx": (fname, xlsx_val), "pdf": (fname.replace(".xlsx", ".pdf"), pdf) if pdf else None},
+        extra_fields={}, key_prefix="agsimple_save" if is_agency else "simple_save")

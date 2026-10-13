@@ -192,7 +192,9 @@ def restore_state_from_ragic(record):
 
         # 2. 複雜設定還原 (解析 Details 字串)
         # 需解析如: "【全家廣播】 預算佔比: 50% | 秒數分配: 20秒(100%) | 區域: 全省聯播"
-        details = record.get(RAGIC_MAP['details'], '')
+        details = record.get(RAGIC_MAP['details'], '') or ''
+        # 新版存檔在尾端附 [CUESNAP] 快照 JSON；舊還原只看其前的文字
+        details = details.split("[CUESNAP]", 1)[0]
 
         # 先重置開關
         st.session_state['cb_rad'] = False

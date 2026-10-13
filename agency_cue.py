@@ -817,7 +817,8 @@ def parse_agency_ext(details):
     if not details or AGENCY_EXT_MARKER not in details:
         return None
     try:
-        ext_part = details.split(AGENCY_EXT_MARKER, 1)[1].strip()
+        # 新版存檔在尾端附 [CUESNAP] 快照 JSON，先切掉
+        ext_part = details.split(AGENCY_EXT_MARKER, 1)[1].split("[CUESNAP]", 1)[0].strip()
         if not ext_part:
             return None
         return json.loads(ext_part)

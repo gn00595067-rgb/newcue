@@ -7,7 +7,6 @@ Cue Sheet Pro (媒體排程生成系統)
 """
 
 import calendar
-import mimetypes
 import streamlit as st
 import traceback
 import time
@@ -101,14 +100,13 @@ from rebate import compute_rebate_rows, merge_rebate_into_rows, get_rebate_summa
 from html_generator import generate_html_preview
 from excel_renderer import generate_excel_from_scratch
 from pdf_converter import xlsx_bytes_to_pdf_bytes
-from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even, AGENCY_MEDIA, agency_combo_ok, build_wave_agency_model
+from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even, wave_net_total, apply_wave_price_override, AGENCY_MEDIA, agency_combo_ok, build_wave_agency_model
 from agency_ui import render_agency_cue, render_annual_agency_waves
 from simple_cue import render_simple_cue
 import ragic_ui
 from fixed_projects import FIXED_PROJECTS, build_project_rows, project_days, project_seconds_text, project_total_list
 from ragic_api import (
     search_ragic_records,
-    upload_to_ragic,
     restore_state_from_ragic,
     _ragic_number,
 )
@@ -505,7 +503,8 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
     _ensure_wave_combo_arrays()
 
     if is_agency_fmt:
-        render_annual_agency_waves(format_type, combos, waves, client_name, product_name)
+        _aq_out = render_annual_agency_waves(format_type, combos, waves, client_name, product_name)
+        _aq_save_panel(format_type, _aq_out, client_name, client_tax_id, product_name, sales_person, sales_map)
         return
 
     # 各波段備註以各波自己的三個欄位為準，不再使用上方範本
@@ -582,6 +581,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
 
     st.markdown("---")
     st.subheader("📥 各波段下載（每波獨立 Excel / PDF）")
+    _aq_out = []   # 各波結果，供 Ragic 存檔
     for i, w in enumerate(waves):
         start_d = w["start"]
         end_d = w["end"]
@@ -601,20 +601,11 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
             continue
         total_days_wave = (end_d - start_d).days + 1
         total_list_wave = sum(r.get("rate_display", 0) for r in rows if isinstance(r.get("rate_display"), (int, float)))
-        budget_wave = sum(r.get("pkg_display", 0) for r in rows if isinstance(r.get("pkg_display"), (int, float)))
-        # 波段最終價格覆寫：若有設定則以該金額為總實收，各列 pkg_display 依比例縮放
+        budget_wave = wave_net_total(rows)
+        # 波段最終價格覆寫：若有設定則以該金額為總實收，各組合實收依比例縮放
         price_override = w.get("price_override") if isinstance(w.get("price_override"), (int, float)) and w.get("price_override") > 0 else None
-        if price_override is not None and budget_wave and budget_wave > 0:
-            scale = price_override / budget_wave
-            pkg_list = [r.get("pkg_display", 0) for r in rows if isinstance(r.get("pkg_display"), (int, float))]
-            scaled = [int(round(p * scale)) for p in pkg_list]
-            delta = price_override - sum(scaled)
-            if scaled:
-                scaled[0] = scaled[0] + delta
-            for j, r in enumerate(rows):
-                if isinstance(r.get("pkg_display"), (int, float)) and j < len(scaled):
-                    r["pkg_display"] = scaled[j]
-            budget_wave = price_override
+        if price_override is not None and budget_wave > 0:
+            budget_wave = apply_wave_price_override(rows, price_override)
         # 年約/季約細 CUE：標題 Product 僅顯示「秒數種類」一次，例如「5秒」而不是重複多次
         unique_secs = sorted(list({r['seconds'] for r in rows}))
         p_str = f"{'、'.join([f'{s}秒' for s in unique_secs])} {product_name}"
@@ -641,6 +632,11 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
                 st.components.v1.html(html_preview, height=400, scrolling=True)
         xlsx_bytes = generate_excel_from_scratch(format_type, start_d, end_d, client_name, client_tax_id, product_name, rows, _wave_rem, budget_wave, 0, sales_person, total_list_wave)
         pdf_bytes, _, _ = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
+        import cue_store as _cst
+        _aq_out.append({"label": f"波段{i+1}", "start": start_d, "end": end_d,
+                        "rows": _cst.scale_net(_cst.norm_general_rows(rows), budget_wave),
+                        "xlsx": (f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.xlsx", xlsx_bytes),
+                        "pdf": (f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.pdf", pdf_bytes)})
         col_x, col_p = st.columns(2)
         with col_x:
             if can_download_excel:
@@ -654,6 +650,32 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
                 st.caption("PDF 下載已由主管關閉")
             else:
                 st.caption("PDF 需 LibreOffice")
+    _aq_save_panel(format_type, _aq_out, client_name, client_tax_id, product_name, sales_person, sales_map)
+
+
+def _aq_save_panel(format_type, waves_out, client_name, client_tax_id, product_name, sales_person, sales_map):
+    """年約季約 Ragic 存檔（第 2 期）：一份年約＝一筆存檔，各波結果放快照；附件放第 1 波的 Excel／PDF。"""
+    import cue_store as cs
+    if not waves_out:
+        return
+    budget = sum(r["net"] for w in waves_out for r in w["rows"])
+    snap = cs.make_snapshot(
+        "年約季約細CUE",
+        {"client": client_name, "tax_id": client_tax_id, "product": product_name, "format": format_type,
+         "sales": (sales_map or {}).get(sales_person, sales_person), "start": min(w["start"] for w in waves_out),
+         "end": max(w["end"] for w in waves_out), "budget": budget, "final": budget, "prod_cost": 0},
+        [{k: w[k] for k in ("label", "start", "end", "rows")} for w in waves_out],
+        restore={**ragic_ui.capture(["aq_combos", "aq_waves", "aq_format", "aq_client", "aq_tax", "aq_product",
+                                     "aq_sales", "aq_ag_campaign", "aq_ag_comp", "aq_ag_fam_auto", "aq_ag_fam_reb",
+                                     "aq_ag_wjf_reb", "aq_ag_ac", "aq_ag_ac_free"]),
+                 # 由 aq_waves 重算的表格／備註欄位，開啟時先清掉讓預設值從 aq_waves 帶入
+                 "_clear_prefixes": ["aq_tbl_", "aq_w_", "aq_wave_", "aq_ct_", "aq_ag_mat_", "aq_ag_sign_",
+                                     "aq_ag_rem_", "aq_ag_pay_"]},
+        customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+    w0 = waves_out[0]
+    ragic_ui.render_save_panel(
+        snap, files={"xlsx": w0.get("xlsx"), "pdf": w0["pdf"] if w0.get("pdf") and w0["pdf"][1] else None},
+        key_prefix="aq_save")
 
 
 def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales_map):
@@ -724,7 +746,24 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
             st.caption("PDF 下載已由主管關閉")
         else:
             st.warning(f"PDF 生成失敗: {err}")
-    st.caption("固定專案暫不提供上傳 Ragic。")
+    # Ragic 存檔（第 2 期）
+    import cue_store as cs
+    _rows_n = cs.scale_net(cs.norm_general_rows(rows), budget)
+    _snap = cs.make_snapshot(
+        "專案CUE",
+        {"client": client_name, "tax_id": client_tax_id, "product": product_name, "format": format_type,
+         "sales": _nick, "start": p["start"], "end": p["end"], "budget": budget, "final": budget,
+         "prod_cost": prod_cost, "project": project_name},
+        [{"label": p["short"], "start": p["start"], "end": p["end"], "rows": _rows_n}],
+        restore={**ragic_ui.capture(["cue_fixed_project", "fp_client", "fp_tax", "fp_product", "fp_prod_cost",
+                                     "fp_sales", "fp_sign_deadline", "fp_billing_month", "fp_payment_date"]),
+                 "temp_format_type": format_type},
+        customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+    ragic_ui.render_save_panel(
+        _snap, files={"xlsx": (fn("xlsx"), xlsx_bytes), "pdf": (fn("pdf"), pdf_bytes) if pdf_bytes else None},
+        extra_fields={RAGIC_MAP["date_sign"]: str(sign_deadline), RAGIC_MAP["bill_month"]: billing_month,
+                      RAGIC_MAP["date_pay"]: str(payment_date)},
+        key_prefix="fp_save")
 
 
 # =============================================================================
@@ -745,6 +784,8 @@ def main():
             with st.expander("ℹ️ 版本", expanded=False):
                 st.caption(f"Streamlit {st.__version__}")
             ragic_ui.render_login_sidebar()
+            st.markdown("---")
+            ragic_ui.render_my_cues_sidebar()
             st.markdown("---")
             st.header("🕵️ 主管登入")
             if not st.session_state.is_supervisor:
@@ -1796,7 +1837,6 @@ def main():
                                 st.caption("PDF 下載已由主管關閉")
                             else:
                                 st.caption("PDF 需 LibreOffice")
-                _ragic_col = st.columns(3)[2]
                 seg0_start, seg0_end = segments[0][0], segments[0][1]
                 _seg0_rem = _get_cue_segment_rem(0, seg0_end, _cue_def_s)
                 _seg0_rows = _slice_rows_to_segment(rows, start_date, seg0_start, seg0_end)
@@ -1812,7 +1852,7 @@ def main():
                 else:
                     st.components.v1.html(html_preview, height=700, scrolling=True)
                 xlsx_temp = generate_excel_from_scratch(format_type, start_date, end_date, client_name, client_tax_id, product_name, rows, rem, final_budget_val, prod_cost, sales_person, total_list_accum)
-                col_dl1, col_dl2, col_ragic = st.columns([1, 1, 2])
+                col_dl1, col_dl2, _ = st.columns([1, 1, 2])
                 with col_dl2:
                     pdf_bytes, method, err = xlsx_bytes_to_pdf_bytes(xlsx_temp)
                     if pdf_bytes and can_download_pdf:
@@ -1826,123 +1866,37 @@ def main():
                         st.download_button("📥 下載 Excel", xlsx_temp, _cue_fn(rows, "xlsx"), key="xlsx_dl_btn", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     else:
                         st.caption("Excel 下載已由主管關閉")
-                _ragic_col = col_ragic
                 _xlsx_ragic, _pdf_ragic = xlsx_temp, pdf_bytes
 
-            with _ragic_col:
-                st.markdown("#### ☁️ 上傳至 Ragic")
-                style_excel_file = st.file_uploader(
-                    "自調外觀excel上傳",
-                    type=["xlsx", "xlsm", "xls"],
-                    key="ragic_style_excel_upload",
-                    help="僅能調整外觀及呈列方式，請勿調整每日檔次及金額等重要資訊(訂檔資訊將以程式設定為主)。",
-                )
-                st.caption("僅能調整外觀及呈列方式，請勿調整每日檔次及金額等重要資訊(訂檔資訊將以程式設定為主)。")
-                
-                # === [新增功能] 顯示上傳成功的歷史訊息 (不會一閃即逝) ===
-                if 'upload_success_msg' in st.session_state:
-                    st.success(st.session_state['upload_success_msg'])
-                    if st.button("👌 我知道了 (清除訊息)"):
-                        del st.session_state['upload_success_msg']
-                        st.rerun()
-                # ====================================================
-
-                if not st.session_state.ragic_confirm_state:
-                    if st.button("🚀 上傳資料至 Ragic", type="primary"):
-                        st.session_state.ragic_confirm_state = True
-                        st.rerun()
-                else:
-                    st.warning(f"即將上傳【{client_name} - {product_name}】至 Ragic，請確認？")
-                    c_conf1, c_conf2 = st.columns(2)
-                    
-                    with c_conf1:
-                        if st.button("❌ 取消"):
-                            st.session_state.ragic_confirm_state = False
-                            st.rerun()
-                            
-                    with c_conf2:
-                        if st.button("✅ 確認上傳"):
-                            with st.spinner("正在上傳資料與檔案..."):
-                                row_groups_upload = get_row_groups(rows, REGIONS_ORDER)
-                                campaign_summary = build_ragic_details_full(config, _get_ragic_extra_state(row_groups_upload))
-                                platform_detail = build_platform_detail_text(rows, config)
-                                platform_text = build_platform_text(rows)
-                                # Ragic 追加欄位：總檔數（含一般+回饋+加贈）與秒數聯集
-                                total_spots_all = int(sum(
-                                    (d if isinstance(d, (int, float)) else 0)
-                                    for r in rows for d in (r.get("schedule") or [])
-                                ))
-                                seconds_union_text = "、".join([
-                                    str(s) for s in sorted({int(r.get("seconds")) for r in rows if r.get("seconds") is not None})
-                                ])
-                                sales_nickname = SALES_MAP.get(sales_person, sales_person)
-
-                                data_payload = {
-                                    RAGIC_MAP['client']:     client_name,
-                                    RAGIC_MAP['product']:    product_name,
-                                    RAGIC_MAP['budget_raw']: total_budget_input,
-                                    RAGIC_MAP['budget_fin']: final_budget_val,
-                                    RAGIC_MAP['prod_cost']:  prod_cost_input,
-                                    RAGIC_MAP['format']:     format_type,
-                                    RAGIC_MAP['sales']:      sales_nickname,
-                                    RAGIC_MAP['date_start']: str(start_date),
-                                    RAGIC_MAP['date_end']:   str(end_date),
-                                    RAGIC_MAP['date_sign']:  str(sign_deadline),
-                                    RAGIC_MAP['bill_month']: billing_month,
-                                    RAGIC_MAP['date_pay']:   str(payment_date),
-                                    RAGIC_MAP['details']:    campaign_summary,
-                                    RAGIC_MAP['tax_id']:     client_tax_id
-                                }
-                                if RAGIC_MAP.get('platform_detail'):
-                                    data_payload[RAGIC_MAP['platform_detail']] = platform_detail
-                                if RAGIC_MAP.get('platform'):
-                                    data_payload[RAGIC_MAP['platform']] = platform_text
-                                if RAGIC_MAP.get('total_spots'):
-                                    data_payload[RAGIC_MAP['total_spots']] = total_spots_all
-                                if RAGIC_MAP.get('seconds_union'):
-                                    data_payload[RAGIC_MAP['seconds_union']] = seconds_union_text
-
-                                files_payload = {}
-                                files_payload[RAGIC_MAP['file_xls']] = (
-                                    _cue_fn(rows, "xlsx"),
-                                    _xlsx_ragic,
-                                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                                )
-                                if _pdf_ragic:
-                                    files_payload[RAGIC_MAP['file_pdf']] = (
-                                        _cue_fn(rows, "pdf"),
-                                        _pdf_ragic, 
-                                        'application/pdf'
-                                    )
-                                if style_excel_file and RAGIC_MAP.get('file_style_xls'):
-                                    _name_raw = style_excel_file.name or f"Style_{safe_filename(client_name)}.xlsx"
-                                    _name = safe_filename(_name_raw)
-                                    _mime = mimetypes.guess_type(_name)[0] or "application/octet-stream"
-                                    files_payload[RAGIC_MAP['file_style_xls']] = (
-                                        _name,
-                                        style_excel_file.getvalue(),
-                                        _mime,
-                                    )
-
-                                success, msg, rid = upload_to_ragic(
-                                    st.session_state.ragic_url,
-                                    st.session_state.ragic_key,
-                                    data_payload,
-                                    files_payload
-                                )
-                                
-                                if success:
-                                    # 成功：將訊息存入 Session，然後重新整理頁面
-                                    st.session_state['upload_success_msg'] = msg
-                                    st.session_state.ragic_confirm_state = False
-                                    st.rerun()
-                                else:
-                                    # 失敗：直接顯示紅字錯誤
-                                    st.error(f"上傳失敗: {msg}")
-                            
-                            st.session_state.ragic_confirm_state = False
-                            time.sleep(1)
-                            st.rerun()
+            # Ragic 存檔（第 2 期：取代原「上傳至 Ragic」；同一份再存＝更新同一筆、版本 +1）
+            import cue_store as _cst
+            row_groups_upload = get_row_groups(rows, REGIONS_ORDER)
+            _norm = _cst.scale_net(_cst.norm_general_rows(rows), int(final_budget_val))
+            _waves = (_cst.split_waves(_norm, start_date, segments) if use_date_segments and segments and len(segments) > 1
+                      else [{"label": "", "start": start_date, "end": end_date, "rows": _norm}])
+            _snap = _cst.make_snapshot(
+                "一般CUE",
+                {"client": client_name, "tax_id": client_tax_id, "product": product_name, "format": format_type,
+                 "sales": SALES_MAP.get(sales_person, sales_person), "start": start_date, "end": end_date,
+                 "budget": total_budget_input, "final": final_budget_val, "prod_cost": prod_cost_input},
+                _waves, customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+            # 一般CUE 讀回沿用原本 [EXT] 還原，欄位與舊上傳一致
+            _extra = {
+                RAGIC_MAP['budget_raw']: total_budget_input,
+                RAGIC_MAP['budget_fin']: final_budget_val,
+                RAGIC_MAP['date_sign']: str(sign_deadline),
+                RAGIC_MAP['bill_month']: billing_month,
+                RAGIC_MAP['date_pay']: str(payment_date),
+                RAGIC_MAP['platform_detail']: build_platform_detail_text(rows, config),
+                RAGIC_MAP['total_spots']: int(sum((d if isinstance(d, (int, float)) else 0)
+                                                  for r in rows for d in (r.get("schedule") or []))),
+            }
+            ragic_ui.render_save_panel(
+                _snap,
+                files={"xlsx": (_cue_fn(rows, "xlsx"), _xlsx_ragic),
+                       "pdf": (_cue_fn(rows, "pdf"), _pdf_ragic) if _pdf_ragic else None},
+                legacy_details=build_ragic_details_full(config, _get_ragic_extra_state(row_groups_upload)),
+                extra_fields=_extra, key_prefix="gen_save")
 
     except Exception as e:
         st.error("程式執行發生錯誤，請聯絡開發者。")

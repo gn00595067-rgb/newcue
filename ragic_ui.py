@@ -69,7 +69,7 @@ def _search(query):
 
 def _cust_dict(c):
     return {"rid": c.rid, "編號": c.編號, "名稱": c.名稱, "統編": c.統編, "產品": c.產品,
-            "類別": c.類別, "業務": c.業務, "主管": c.主管, "付款條件": c.付款條件,
+            "類別": c.類別, "業務": c.業務, "主管": c.主管, "客服": list(c.客服), "付款條件": c.付款條件,
             "現折": c.現折pct, "退佣": c.退佣pct}
 
 
@@ -222,3 +222,242 @@ def _submit_customer(d, biz):
         return
     st.success(f"已新增客戶（Ragic 紀錄 {res.rid}）。客戶編號由 Ragic 自動產生，可用上方搜尋帶入。")
     st.cache_data.clear()
+
+
+# =============================================================================
+# 第 2 期：CUE 存檔（新建／更新版本）與「我的 CUE」讀回
+# =============================================================================
+SS_RECORD = "cue_record"   # 目前編輯中的 Ragic 存檔 {"rid","serial","mode","snap"}
+
+# 快照 mode → (製作模式 radio 值, 代理商子模式)
+MODE_NAV = {
+    "簡易模式": ("簡易模式", None),
+    "一般CUE": ("一般CUE", None),
+    "年約季約細CUE": ("年約季約細CUE", None),
+    "專案CUE": ("專案CUE", None),
+    "代理商一鍵": ("代理商CUE", "一鍵CUE（模板）"),
+    "代理商CUE": ("代理商CUE", "自訂代理商CUE"),
+}
+
+
+def capture(keys):
+    """從 session 取出 keys 中存在的值（供快照 restore）。"""
+    return {k: st.session_state[k] for k in keys if k in st.session_state}
+
+
+def _ragic_conn():
+    return st.session_state.get("ragic_url"), st.session_state.get("ragic_key")
+
+
+def json_copy(obj):
+    import json
+    return json.loads(json.dumps(obj, ensure_ascii=False))
+
+
+def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None, key_prefix="save",
+                      allow_style_excel=True):
+    """存檔到 Ragic（cue/2）。同一份 CUE 再存＝更新同一筆、版本 +1，異動寫進快照 history。
+    files：{"xlsx": (檔名, bytes), "pdf": (檔名, bytes)}。未開 RAGIC_WRITE_ENABLED 時只乾跑。"""
+    import cue_store as cs
+    from config import RAGIC_MAP
+    from ragic_booking import cue2
+
+    st.markdown("---")
+    st.markdown("#### ☁️ 存檔到 Ragic")
+    msg_key = f"{key_prefix}_saved_msg"
+    if st.session_state.get(msg_key):
+        st.success(st.session_state[msg_key])
+
+    u = current_user()
+    if not u:
+        st.caption("以 Ragic 帳號登入後可存檔；存檔後可在左側「📂 我的 CUE」找回、修改。")
+        return
+
+    rec = st.session_state.get(SS_RECORD)
+    linked = rec if rec and rec.get("mode") == snap.get("mode") else None
+    as_new = True
+    if linked:
+        pv = (linked.get("snap") or {}).get("version", 0)
+        choice = st.radio("存檔方式", [f"更新 #{linked.get('serial') or linked['rid']}（v{pv} → v{pv + 1}）",
+                                       "另存為新的一筆"], key=f"{key_prefix}_how", horizontal=True)
+        as_new = choice.startswith("另存")
+        if not as_new:
+            st.caption("本次異動：" + "；".join(cs.diff_summary(linked.get("snap"), snap)))
+        if st.button("開新的 CUE（不再關聯這筆存檔）", key=f"{key_prefix}_unlink"):
+            clear_loaded()
+            st.rerun()
+    s = cs.summarize(snap)
+    st.caption(f"{s['waves']} 波｜{s['platform_detail'] or s['platform']}｜{s['seconds']}秒｜"
+               f"總檔次 {s['total_spots']:,}｜實收合計 ${s['net_total']:,}")
+
+    style = None
+    if allow_style_excel:
+        style = st.file_uploader("自調外觀 Excel（選填）", type=["xlsx", "xlsm", "xls"], key=f"{key_prefix}_style",
+                                 help="僅能調整外觀及呈列方式，請勿調整每日檔次及金額（訂檔以程式資料為主）。")
+
+    prev = None if as_new else linked.get("snap")
+    final = cs.next_version(prev, json_copy(snap), u["name"])
+    fields = cs.ragic_fields(final, RAGIC_MAP, extra_fields)
+    fields[RAGIC_MAP["details"]] = cs.details_text(final, legacy_details)
+
+    live = write_enabled()
+    with st.popover("👀 預覽將寫入 Ragic 的內容"):
+        st.json({"動作": "新建" if as_new else f"更新紀錄 {linked['rid']}",
+                 "欄位": {k: (v if k != RAGIC_MAP["details"] else f"（{len(v):,} 字，含快照 v{final['version']}）")
+                        for k, v in fields.items()},
+                 "附件": [f[0] for f in (files or {}).values() if f] + ([style.name] if style else []),
+                 "異動紀錄": final["history"][-1]})
+    if not live:
+        st.info("目前為**乾跑模式**：只預覽、不會寫入 Ragic。")
+    render_order_preview(final, key_prefix)
+    if not st.button("💾 存檔到 Ragic", key=f"{key_prefix}_btn", type="primary", disabled=not live):
+        return
+    up = {}
+    xl, pdf = (files or {}).get("xlsx"), (files or {}).get("pdf")
+    if xl:
+        up[RAGIC_MAP["file_xls"]] = (xl[0], xl[1], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    if pdf and pdf[1]:
+        up[RAGIC_MAP["file_pdf"]] = (pdf[0], pdf[1], "application/pdf")
+    if style and RAGIC_MAP.get("file_style_xls"):
+        up[RAGIC_MAP["file_style_xls"]] = (style.name, style.getvalue(), "application/octet-stream")
+    url, key = _ragic_conn()
+    with st.spinner("存檔中…"):
+        res = cue2.save_record(url, key, fields, up, rid=None if as_new else linked["rid"])
+    if not res.ok:
+        st.error(f"存檔失敗：{res.error}")
+        return
+    st.session_state[SS_RECORD] = {"rid": res.rid, "serial": res.serial, "mode": snap.get("mode"), "snap": final}
+    st.session_state[msg_key] = f"✅ 已存檔 #{res.serial or res.rid}（v{final['version']}）"
+    st.cache_data.clear()
+    st.rerun()
+
+
+def clear_loaded():
+    """解除與 Ragic 存檔的關聯，並清掉讀回時設定的覆寫值。"""
+    for k in (SS_RECORD, "_simple_restore"):
+        st.session_state.pop(k, None)
+
+
+def _rec_label(rec, snap):
+    from config import RAGIC_FIELD_SERIAL, RAGIC_MAP
+    h = snap.get("header", {})
+    last = (snap.get("history") or [{}])[-1]
+    return (f"#{rec.get(RAGIC_FIELD_SERIAL) or rec['_ragicId']} {h.get('client') or rec.get(RAGIC_MAP['client'], '')}"
+            f" {h.get('product') or ''}｜{snap.get('mode')}｜v{snap.get('version')}｜{last.get('by', '')} {last.get('at', '')}")
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _list_saved(url, key, keyword):
+    import cue_store as cs
+    from ragic_booking import cue2
+    out = []
+    for rec in cue2.list_records(url, key, keyword=keyword, limit=200):
+        snap = cs.parse_snapshot(cue2.details_of(rec))
+        if snap:
+            out.append((rec, snap))
+    return out
+
+
+def render_my_cues_sidebar():
+    """側欄「📂 我的 CUE」：列出有快照的存檔，開啟後還原到對應模式繼續編輯。"""
+    st.subheader("📂 我的 CUE")
+    u = current_user()
+    if not u:
+        st.caption("以 Ragic 帳號登入後可查詢、開啟存檔。")
+        return
+    rec = st.session_state.get(SS_RECORD)
+    if rec:
+        st.caption(f"編輯中：#{rec.get('serial') or rec['rid']}（{rec.get('mode')} v{(rec.get('snap') or {}).get('version')}）")
+    kw = st.text_input("關鍵字（客戶、產品、Cue號，可留白）", key="mycue_kw")
+    mine = st.checkbox("只看我存過的", value=True, key="mycue_mine")
+    url, key = _ragic_conn()
+    if not (url and key):
+        st.caption("尚未設定 Ragic 連線。")
+        return
+    try:
+        items = _list_saved(url, key, kw.strip())
+    except Exception as e:  # noqa: BLE001
+        st.error(f"讀取 Ragic 失敗：{e}")
+        return
+    if mine:
+        items = [(r, s) for r, s in items if any(h.get("by") == u["name"] for h in s.get("history", []))]
+    if not items:
+        st.caption("沒有符合的存檔（只列出新版程式存的 CUE）。")
+        return
+    idx = st.selectbox("存檔", range(len(items)), format_func=lambda i: _rec_label(*items[i]), key="mycue_pick")
+    r, s = items[idx]
+    with st.expander("異動紀錄", expanded=False):
+        for h in reversed(s.get("history", [])):
+            st.caption(f"v{h['v']}｜{h['at']}｜{h['by']}：" + "；".join(h.get("changes", [])))
+    if st.button("📂 開啟這份 CUE", key="mycue_open", type="primary"):
+        open_record(r, s)
+
+
+def open_record(rec, snap):
+    """把存檔還原到對應製作模式。一般CUE／代理商自訂沿用原本的還原（[EXT]／[AGENCY_EXT]），
+    其他模式用快照 restore（設定 session 值，並清掉會由 restore 重算的動態欄位）。"""
+    import cue_store as cs
+    from config import RAGIC_FIELD_SERIAL
+    mode = snap.get("mode")
+    nav = MODE_NAV.get(mode)
+    if not nav:
+        st.error(f"無法開啟：未知的製作模式 {mode}")
+        return
+    clear_loaded()
+    restore = cs.from_jsonable(snap.get("restore") or {})
+    if mode == "一般CUE":
+        from ragic_api import restore_state_from_ragic
+        restore_state_from_ragic(rec)
+    elif mode == "代理商CUE":
+        from agency_ui import _restore_agency_state
+        _restore_agency_state(rec)
+    for prefix in restore.pop("_clear_prefixes", []):
+        for k in [k for k in list(st.session_state.keys()) if str(k).startswith(prefix)]:
+            del st.session_state[k]
+    for k, v in restore.items():
+        st.session_state[k] = v
+    if snap.get("customer"):
+        st.session_state[SS_CUSTOMER] = cs.from_jsonable(snap["customer"])
+    st.session_state["cue_mode"] = nav[0]
+    if nav[1]:
+        st.session_state["agency_sub_mode"] = nav[1]
+    st.session_state[SS_RECORD] = {"rid": rec["_ragicId"], "serial": str(rec.get(RAGIC_FIELD_SERIAL) or ""),
+                                   "mode": mode, "snap": snap}
+    st.rerun()
+
+
+# =============================================================================
+# 第 4 期（預覽）：訂檔／CUE號申請內容
+# =============================================================================
+COMPANY_OPTIONS = ["東吳", "聲活", "鉑霖", "錄音室", "聲活(采藝)"]   # 訂檔表實際使用值
+
+
+def render_order_preview(snap, key_prefix):
+    """依目前 CUE 組出「CUE號申請」與各波「訂檔」將寫入的內容，只預覽、不送出。"""
+    from ragic_booking import fields as rf
+    from ragic_booking import order_from_cue as oc
+    with st.expander("🧾 訂檔預覽（將來核准後會自動申請 CUE號、建訂檔；目前只預覽）", expanded=False):
+        u = current_user() or {}
+        h = snap.get("header", {})
+        c1, c2, c3, c4 = st.columns(4)
+        dflt = oc.COMPANY_FROM_FORMAT.get(h.get("format"), "")
+        company = c1.selectbox("公司", [""] + COMPANY_OPTIONS,
+                               index=([""] + COMPANY_OPTIONS).index(dflt) if dflt else 0, key=f"{key_prefix}_od_company")
+        category = c2.selectbox("收入類別", oc.INCOME_CATEGORIES, key=f"{key_prefix}_od_cat")
+        pay = c3.date_input("收款日期", value=None, key=f"{key_prefix}_od_pay")
+        inv = c4.date_input("發票開立日", value=None, key=f"{key_prefix}_od_inv")
+        orders = oc.build_orders(snap, applicant=u.get("name", ""), company=company, category=category,
+                                 收款日期=pay.strftime("%Y/%m/%d") if pay else "",
+                                 發票開立日=inv.strftime("%Y/%m/%d") if inv else "")
+        miss = oc.missing(snap, orders)
+        if miss["CUE號申請"] or miss["訂檔"]:
+            st.warning("送訂檔前還缺：" + "、".join(x.split("（")[0] for x in miss["CUE號申請"] + miss["訂檔"]))
+        else:
+            st.success("訂檔必填欄位齊全（另需附：訂檔CUE表＝本 CUE Excel、客戶回簽檔）。")
+        for i, d in enumerate(orders, 1):
+            st.caption(f"第 {i} 波｜{d.執行開始日期}～{d.執行結束日期}｜" + "；".join(
+                f"{r['平台細項']}{(' ' + str(r['秒數']) + '秒') if r['秒數'] else ''} "
+                f"{r['平台檔數']:,}檔 ${r['實收金額未稅']:,}" for r in d.收入明細))
+        with st.popover("檢視將寫入 Ragic 的欄位"):
+            st.json({"CUE號申請（forms13/4）": oc.cue_apply_payload(snap, u.get("name", "")),
+                     "訂檔（forms12/17）": [rf.order_payload_json(d) for d in orders]})

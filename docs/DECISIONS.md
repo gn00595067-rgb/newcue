@@ -69,3 +69,8 @@
 - 身分：A 自建帳密 / B Ragic AUTH API → B。公司已替同事設 Ragic 密碼；姓名與 Ragic 使用者一致，訂檔申請人可直接用。寫入仍用共用 API 金鑰。
 - Ragic 程式：A 重寫 / B 搬 cueupload 已驗證的 ragic_fields／ragic_write → B，檔頭註明兩邊修改要同步。
 - 寫入安全：新增客戶等寫入動作預設乾跑，Secrets RAGIC_WRITE_ENABLED=true 才送出。
+
+### 2026-10-13 CUE 存檔的資料放哪
+- 選項：A cue/2 新增欄位（狀態、版本、JSON、異動子表）/ B 快照 JSON 附在既有「投放參數詳情」尾端（[CUESNAP]），版本與異動紀錄放快照內
+- 決定：B。不用等 Ragic 加欄位就能上線，舊 [EXT] 還原不受影響；代價是在 Ragic 畫面上看不到版本欄、異動紀錄要在 app 看。之後若要在 Ragic 篩選版本／狀態再加欄位。
+- 一般CUE／代理商自訂的舊「上傳」改走同一存檔面板（同一筆再存＝更新，不再每次新增一筆）。

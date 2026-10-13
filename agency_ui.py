@@ -8,7 +8,6 @@ Streamlit 製作模式「代理商CUE」：輸入表單 → build_agency_model �
 """
 import os
 import base64
-import mimetypes
 from datetime import datetime, date, timedelta
 
 import streamlit as st
@@ -20,7 +19,7 @@ import agency_cue as ac
 from agency_excel import generate_agency_excel, LOGO_2008, LOGO_DDRIVE
 from data_loader import load_agency_pricing_from_cloud
 from pdf_converter import xlsx_bytes_to_pdf_bytes
-from ragic_api import upload_to_ragic, search_ragic_records, _ragic_number
+from ragic_api import search_ragic_records, _ragic_number
 from utils import safe_filename, html_escape
 
 SEC_OPTIONS = [5, 10, 15, 20, 30]
@@ -432,110 +431,22 @@ def render_agency_cue(sales_map=None):
         "remarks": remarks,
         "payment_note": payment_note,
     }
-    _render_agency_upload(model, xlsx_bytes, xlsx_name, form_inputs)
-
-
-# =============================================================================
-# Ragic 上傳
-# =============================================================================
-def _render_agency_upload(model, xlsx_bytes, xlsx_name, form_inputs):
-    """代理商 CUE 上傳至 Ragic（含二次確認、自動附 Excel+PDF、回查流水號）。"""
-    st.markdown("---")
-    st.markdown("#### ☁️ 上傳至 Ragic")
-    st.caption("上傳後會存進與一般 CUE 同一張 Ragic 表單，並自動附上 Excel 與 PDF；可於本頁上方「搜尋舊案」再載入。")
-
-    if not st.session_state.get("ragic_key"):
-        st.info("尚未設定 Ragic API Key（於一般 CUE 頁面的『Ragic 連線設定』設定）。")
-        return
-
-    # 上傳成功訊息（不會一閃即逝）
-    if "ag_upload_success_msg" in st.session_state:
-        st.success(st.session_state["ag_upload_success_msg"])
-        if st.button("👌 我知道了（清除訊息）", key="ag_upload_msg_clear"):
-            del st.session_state["ag_upload_success_msg"]
-            st.rerun()
-
-    client_name = model["client_name"]
-    product_name = model["product_name"]
-
-    # 自調外觀 Excel（選填）：使用者手動調整外觀後上傳，會一併附到 Ragic。
-    # 用 key 保存，跨 rerun（進入確認狀態）不遺失。
-    style_excel_file = st.file_uploader(
-        "自調外觀excel上傳（選填）",
-        type=["xlsx", "xlsm", "xls"],
-        key="ag_ragic_style_excel",
-        help="僅能調整外觀及呈列方式，請勿調整每日檔次及金額等重要資訊（訂檔資訊以程式設定為主）。",
-    )
-    st.caption("僅能調整外觀及呈列方式，請勿調整每日檔次及金額等重要資訊（訂檔資訊以程式設定為主）。")
-
-    if not st.session_state.get("ag_ragic_confirm"):
-        if st.button("🚀 上傳資料至 Ragic", type="primary", key="ag_ragic_upload_btn"):
-            st.session_state["ag_ragic_confirm"] = True
-            st.rerun()
-        return
-
-    st.warning(f"即將上傳【{model['agency']}｜{client_name} - {product_name}】至 Ragic，請確認？")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("❌ 取消", key="ag_ragic_cancel"):
-            st.session_state["ag_ragic_confirm"] = False
-            st.rerun()
-    with c2:
-        if st.button("✅ 確認上傳", key="ag_ragic_confirm_btn"):
-            with st.spinner("正在產生 PDF 並上傳資料與檔案..."):
-                pdf_bytes, _method, pdf_err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
-
-                details = ac.build_agency_ragic_details(model, form_inputs)
-                sign_deadline = form_inputs.get("sign_date") or ""
-                # 只寫語意相符的欄位；代理商名/campaign 等無對應欄位者一律留在備註(details)，
-                # 不硬塞進 sales（業務）或 format（報表格式）。
-                data_payload = {
-                    RAGIC_MAP["client"]:     client_name,
-                    RAGIC_MAP["product"]:    product_name,
-                    RAGIC_MAP["budget_raw"]: ac.agency_net_total(model),
-                    RAGIC_MAP["budget_fin"]: ac.agency_grand_total(model),
-                    RAGIC_MAP["date_start"]: model["start_date"].isoformat(),
-                    RAGIC_MAP["date_end"]:   model["end_date"].isoformat(),
-                    RAGIC_MAP["date_sign"]:  sign_deadline,
-                    RAGIC_MAP["details"]:    details,
-                }
-                if RAGIC_MAP.get("platform"):
-                    data_payload[RAGIC_MAP["platform"]] = ac.agency_platform_text(model)
-                if RAGIC_MAP.get("total_spots"):
-                    data_payload[RAGIC_MAP["total_spots"]] = ac.agency_total_spots(model)
-                if RAGIC_MAP.get("seconds_union"):
-                    data_payload[RAGIC_MAP["seconds_union"]] = ac.agency_seconds_union(model)
-
-                files_payload = {
-                    RAGIC_MAP["file_xls"]: (
-                        xlsx_name, xlsx_bytes,
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    )
-                }
-                if pdf_bytes:
-                    files_payload[RAGIC_MAP["file_pdf"]] = (
-                        xlsx_name.rsplit(".", 1)[0] + ".pdf", pdf_bytes, "application/pdf",
-                    )
-                # 自調外觀 Excel（選填）→ file_style_xls 欄位
-                if style_excel_file and RAGIC_MAP.get("file_style_xls"):
-                    _name = safe_filename(style_excel_file.name or f"Style_{safe_filename(client_name)}.xlsx")
-                    _mime = mimetypes.guess_type(_name)[0] or "application/octet-stream"
-                    files_payload[RAGIC_MAP["file_style_xls"]] = (
-                        _name, style_excel_file.getvalue(), _mime,
-                    )
-
-                success, msg, _rid = upload_to_ragic(
-                    st.session_state["ragic_url"], st.session_state["ragic_key"],
-                    data_payload, files_payload,
-                )
-            st.session_state["ag_ragic_confirm"] = False
-            if success:
-                if not pdf_bytes:
-                    msg += f"（⚠️ PDF 未附上：{pdf_err}）"
-                st.session_state["ag_upload_success_msg"] = msg
-            else:
-                st.error(f"上傳失敗: {msg}")
-            st.rerun()
+    # Ragic 存檔（第 2 期：取代原「上傳至 Ragic」；讀回沿用 [AGENCY_EXT] 還原）
+    import cue_store as cs
+    import ragic_ui
+    snap = cs.make_snapshot(
+        "代理商CUE",
+        {"client": client_name, "product": product_name, "format": agency, "start": start_date, "end": end_date,
+         "budget": ac.agency_net_total(model), "final": ac.agency_net_total(model), "campaign": campaign},
+        [{"label": "", "start": start_date, "end": end_date, "rows": cs.norm_agency_model(model)}],
+        customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+    _pdf = st.session_state.get("ag_pdf_bytes") if st.session_state.get("ag_pdf_name") == pdf_name else None
+    ragic_ui.render_save_panel(
+        snap, files={"xlsx": (xlsx_name, xlsx_bytes), "pdf": (pdf_name, _pdf) if _pdf else None},
+        legacy_details=ac.build_agency_ragic_details(model, form_inputs),
+        extra_fields={RAGIC_MAP["budget_fin"]: ac.agency_grand_total(model),
+                      RAGIC_MAP["date_sign"]: form_inputs.get("sign_date") or ""},
+        key_prefix="ag_save")
 
 
 # =============================================================================
@@ -663,8 +574,11 @@ def _restore_agency_state(record):
 # 年約季約細CUE → 代理商格式（docs/specs/格式選擇擴充.md 需求 2）
 # =============================================================================
 def render_annual_agency_waves(agency, combos, waves, client_name, product_name):
-    """年約季約選 2008／凱絡：共用代理商設定，每波一份代理商格式 CUE（預覽＋Excel／PDF）。"""
+    """年約季約選 2008／凱絡：共用代理商設定，每波一份代理商格式 CUE（預覽＋Excel／PDF）。
+    回傳各波結果 [{label,start,end,rows(正規化),xlsx,pdf}] 供 Ragic 存檔。"""
+    import cue_store
     from annual_quarter_cue import build_wave_agency_model
+    out = []
 
     can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
     can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
@@ -745,6 +659,9 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
                                 + (f"{_channel} " if _channel else "")
                                 + f"波段{i+1} {start_d:%m%d}-{end_d:%m%d}")
         xlsx_bytes = generate_agency_excel(model, made_date)
+        wave = {"label": f"波段{i+1}", "start": start_d, "end": end_d, "rows": cue_store.norm_agency_model(model),
+                "xlsx": (fn_base + ".xlsx", xlsx_bytes), "pdf": None}
+        out.append(wave)
         col_x, col_p = st.columns(2)
         with col_x:
             if can_download_excel:
@@ -758,7 +675,9 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
             else:
                 pdf_bytes, _m, _err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
                 if pdf_bytes:
+                    wave["pdf"] = (fn_base + ".pdf", pdf_bytes)
                     st.download_button(f"📥 波段{i+1} PDF", pdf_bytes, fn_base + ".pdf", key=f"aq_ag_pdf_{i}",
                                        mime="application/pdf")
                 else:
                     st.caption("PDF 需 LibreOffice")
+    return out
