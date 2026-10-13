@@ -89,6 +89,7 @@ def build_wave_rows(combos, wave_start, wave_end, wave_spots_list, wave_net_list
                     total_rate_display = int(unit_rate_display * spots)
                     program_num = store_counts_num.get(f"新鮮視_{r}" if media == "新鮮視" else r, 0)
                     rows.append({
+                        "combo_idx": idx,
                         "media": media,
                         "region": r,
                         "program_num": program_num,
@@ -116,6 +117,7 @@ def build_wave_rows(combos, wave_start, wave_end, wave_spots_list, wave_net_list
             program_num = store_counts_num.get(f"新鮮視_{region}" if media == "新鮮視" else region, 0)
             daypart = db.get("Day_Part", "")
             rows.append({
+                "combo_idx": idx,
                 "media": media,
                 "region": region,
                 "program_num": program_num,
@@ -141,6 +143,7 @@ def build_wave_rows(combos, wave_start, wave_end, wave_spots_list, wave_net_list
             pkg_display = net_val if net_val > 0 else int(unit_net * spots)
             sch = calculate_schedule(spots, days_count)
             rows.append({
+                "combo_idx": idx,
                 "media": media,
                 "region": "全省量販",
                 "program_num": store_counts_num.get("家樂福_量販", 0),
@@ -153,6 +156,42 @@ def build_wave_rows(combos, wave_start, wave_end, wave_spots_list, wave_net_list
                 "is_pkg_member": False,
             })
     return rows
+
+
+def _combo_nets(rows):
+    """{combo_idx: 該組合實收}：全省展開的六區列共用 nat_pkg_display（只算一次），其餘列用 pkg_display。"""
+    nets = {}
+    for r in rows:
+        k = r.get("combo_idx")
+        if r.get("is_pkg_member"):
+            nets[k] = r.get("nat_pkg_display") or 0
+        elif isinstance(r.get("pkg_display"), (int, float)):
+            nets[k] = nets.get(k, 0) + r["pkg_display"]
+    return nets
+
+
+def wave_net_total(rows):
+    """波段實收合計（CUE 的 Package-cost Total）。
+    2026-10-13 修正：原本直接加總 pkg_display，全省組合六區列的 pkg_display 是定價，總額會被灌大數倍。"""
+    return int(sum(_combo_nets(rows).values()))
+
+
+def apply_wave_price_override(rows, override):
+    """波段最終價格覆寫：各組合實收依比例縮放到 override（尾差給第一個組合），就地改 rows。回傳新合計。"""
+    nets = _combo_nets(rows)
+    total = sum(nets.values())
+    if not override or total <= 0:
+        return wave_net_total(rows)
+    keys = list(nets)
+    new = {k: int(round(nets[k] * override / total)) for k in keys}
+    new[keys[0]] += int(override) - sum(new.values())
+    for r in rows:
+        k = r.get("combo_idx")
+        if r.get("is_pkg_member"):
+            r["nat_pkg_display"] = new[k]
+        elif isinstance(r.get("pkg_display"), (int, float)) and nets[k]:
+            r["pkg_display"] = new[k]   # 非全省組合每組只有一列
+    return int(override)
 
 
 # =============================================================================

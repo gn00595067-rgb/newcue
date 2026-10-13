@@ -53,3 +53,28 @@ def test_wave_model(agency, comp):
 def test_zero_spots_skipped():
     m = build_wave_agency_model("凱絡", COMBOS, S, E, [0, 0, 300, 0, 0], [0, 0, 90000, 0, 0])
     assert len(m["sheets"]) == 1 and m["sheets"][0]["platform"] == ac.PLATFORM_WJF
+
+
+def _aq_rows():
+    """全家全省（六區展開、共用 nat_pkg）＋萬家福（單列）＋新鮮視北區（單列）。"""
+    rows = [{"combo_idx": 0, "media": "全家廣播", "region": r, "seconds": 15, "rate_display": 100000 + i,
+             "pkg_display": 100000 + i, "is_pkg_member": True, "nat_pkg_display": 100000}
+            for i, r in enumerate(["北區", "桃竹苗", "中區", "雲嘉南", "高屏", "東區"])]
+    rows.append({"combo_idx": 1, "media": "家樂福", "region": "全省量販", "seconds": 20, "rate_display": 214285,
+                 "pkg_display": 90000, "is_pkg_member": False})
+    rows.append({"combo_idx": 2, "media": "新鮮視", "region": "北區", "seconds": 15, "rate_display": 50000,
+                 "pkg_display": 10000, "is_pkg_member": False, "nat_pkg_display": 0})
+    return rows
+
+
+def test_wave_net_total_counts_national_once():
+    from annual_quarter_cue import wave_net_total
+    assert wave_net_total(_aq_rows()) == 200000       # 修正前會把六區定價加總（> 70 萬）
+
+
+def test_wave_price_override_scales_combos():
+    from annual_quarter_cue import apply_wave_price_override, wave_net_total
+    rows = _aq_rows()
+    assert apply_wave_price_override(rows, 150000) == 150000
+    assert wave_net_total(rows) == 150000
+    assert {r["nat_pkg_display"] for r in rows if r.get("is_pkg_member")} == {75000}

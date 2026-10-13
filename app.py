@@ -101,7 +101,7 @@ from rebate import compute_rebate_rows, merge_rebate_into_rows, get_rebate_summa
 from html_generator import generate_html_preview
 from excel_renderer import generate_excel_from_scratch
 from pdf_converter import xlsx_bytes_to_pdf_bytes
-from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even, AGENCY_MEDIA, agency_combo_ok, build_wave_agency_model
+from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even, wave_net_total, apply_wave_price_override, AGENCY_MEDIA, agency_combo_ok, build_wave_agency_model
 from agency_ui import render_agency_cue, render_annual_agency_waves
 from simple_cue import render_simple_cue
 from fixed_projects import FIXED_PROJECTS, build_project_rows, project_days, project_seconds_text, project_total_list
@@ -573,20 +573,11 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
             continue
         total_days_wave = (end_d - start_d).days + 1
         total_list_wave = sum(r.get("rate_display", 0) for r in rows if isinstance(r.get("rate_display"), (int, float)))
-        budget_wave = sum(r.get("pkg_display", 0) for r in rows if isinstance(r.get("pkg_display"), (int, float)))
-        # 波段最終價格覆寫：若有設定則以該金額為總實收，各列 pkg_display 依比例縮放
+        budget_wave = wave_net_total(rows)
+        # 波段最終價格覆寫：若有設定則以該金額為總實收，各組合實收依比例縮放
         price_override = w.get("price_override") if isinstance(w.get("price_override"), (int, float)) and w.get("price_override") > 0 else None
-        if price_override is not None and budget_wave and budget_wave > 0:
-            scale = price_override / budget_wave
-            pkg_list = [r.get("pkg_display", 0) for r in rows if isinstance(r.get("pkg_display"), (int, float))]
-            scaled = [int(round(p * scale)) for p in pkg_list]
-            delta = price_override - sum(scaled)
-            if scaled:
-                scaled[0] = scaled[0] + delta
-            for j, r in enumerate(rows):
-                if isinstance(r.get("pkg_display"), (int, float)) and j < len(scaled):
-                    r["pkg_display"] = scaled[j]
-            budget_wave = price_override
+        if price_override is not None and budget_wave > 0:
+            budget_wave = apply_wave_price_override(rows, price_override)
         # 年約/季約細 CUE：標題 Product 僅顯示「秒數種類」一次，例如「5秒」而不是重複多次
         unique_secs = sorted(list({r['seconds'] for r in rows}))
         p_str = f"{'、'.join([f'{s}秒' for s in unique_secs])} {product_name}"
