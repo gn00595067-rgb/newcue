@@ -140,3 +140,22 @@ def test_carry_over_keeps_number_owner_and_booked():
     assert v2["status"] == cs.BOOKED and "成交" in v2["history"][-1]["changes"][0]
     cs.mark_booked(v2, "主管", {}, {"cue_id": "1161001", "orders": []})
     assert "更新原訂檔" in v2["history"][-1]["changes"][0]
+
+
+def test_audit_every_booking_needs_review():
+    v1 = cs.carry_over(None, cs.next_version(None, _snap(), "業務"))
+    assert cs.audit_of(v1) == ""                                         # 未送訂檔不用審
+    cs.mark_booked(v1, "業務", {}, {"cue_id": "1161001", "orders": []})
+    assert cs.audit_of(v1) == cs.AUDIT_PENDING
+    cs.mark_audited(v1, "主管", True)
+    assert cs.audit_of(v1) == cs.AUDIT_OK and v1["status"] == cs.BOOKED and v1["history"][-1]["by"] == "主管"
+    v2 = cs.carry_over(v1, cs.next_version(v1, _snap(spots=150), "業務"))
+    assert cs.audit_of(v2) == cs.AUDIT_OK                                # 改了但還沒送出：維持上次結果
+    cs.mark_booked(v2, "業務", {}, {"cue_id": "1161001", "orders": []})
+    assert cs.audit_of(v2) == cs.AUDIT_PENDING                           # 送出更新原訂檔要重審
+    cs.mark_audited(v2, "主管", False, reason="金額不對")
+    assert v2["status"] == cs.REJECTED and v2["audit"]["reason"] == "金額不對"
+
+
+def test_audit_old_booked_snapshot_counts_as_pending():
+    assert cs.audit_of({"booking": {"cue_id": "1"}, "status": cs.BOOKED}) == cs.AUDIT_PENDING

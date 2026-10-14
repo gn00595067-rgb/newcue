@@ -3,7 +3,8 @@
 CUE 管理與統計（Ragic 串接第 5 期）。規格：docs/specs/Ragic串接_第5期_存檔編號與統計.md
 
 - 📁 CUE 管理：業務看自己的存檔；營運主管／管理員依業務分資料夾看全部。可開啟（編輯／營運加贈）、
-  選一份存檔直接送出訂檔（附回簽檔，CUE Excel 取存檔時附在 Ragic 的檔案）。
+  選一份存檔直接送出訂檔（附回簽檔，CUE Excel 取存檔時附在 Ragic 的檔案）；
+  主管預設看「待審」，選一份直接核准／退回（每份送出的訂檔都要審）。
 - 📊 統計：依存檔編號年月，每位業務出 CUE 張數、成交張數、成交率、成交實收。
 """
 from datetime import date
@@ -14,7 +15,7 @@ import cue_registry as reg
 import cue_store as cs
 import ragic_ui
 
-STATUS_FILTER = ["全部", "未成交", "成交", "退回"]
+STATUS_FILTER = ["全部", "待審", "未成交", "成交", "退回"]
 
 
 def _need_login():
@@ -61,6 +62,7 @@ def _row(rec, snap):
         "走期": f"{_date(h.get('start'))}～{_date(h.get('end'))}",
         "實收": reg.net_total(snap),
         "狀態": cs.status_of(snap),
+        "審核": cs.audit_of(snap),
         "CUE號": (snap.get("booking") or {}).get("cue_id", ""),
         "版本": snap.get("version"),
         "最後修改": f"{last.get('at', '')} {last.get('by', '')}",
@@ -69,6 +71,8 @@ def _row(rec, snap):
 
 
 def _status_ok(snap, flt):
+    if flt == "待審":
+        return cs.audit_of(snap) == cs.AUDIT_PENDING
     if flt == "成交":
         return reg.is_deal(snap)
     if flt == "退回":
@@ -100,7 +104,7 @@ def render_manage():
     else:
         st.caption("這裡列出你存過的 CUE；營運主管可看到所有業務的資料夾。")
     c1, c2 = st.columns([1, 2])
-    flt = c1.selectbox("狀態", STATUS_FILTER, key="adm_status")
+    flt = c1.selectbox("狀態", STATUS_FILTER, key="adm_status", index=1 if reviewer else 0)
     kw = c2.text_input("搜尋（編號、客戶、產品、CUE號）", key="adm_kw").strip()
     rows = []
     for r, s in items:
@@ -121,11 +125,54 @@ def render_manage():
     with st.expander("異動紀錄", expanded=False):
         for h in reversed(snap.get("history", [])):
             st.caption(f"v{h['v']}｜{h['at']}｜{h['by']}：" + "；".join(h.get("changes", [])))
+    if reviewer and cs.audit_of(snap) == cs.AUDIT_PENDING:
+        _audit_box(rec, snap)
     b1, _b2 = st.columns(2)
     if b1.button("📂 開啟（編輯／加贈）", key="adm_open", type="primary"):
         ragic_ui.open_record(rec, snap)
     if not reg.is_deal(snap) or cs.status_of(snap) == cs.BOOKED_CHANGED:
         _submit_box(rec, snap)
+
+
+def _audit_box(rec, snap):
+    """主管審核待審的訂檔：看 CUE Excel／回簽檔後核准或退回，不用開啟 CUE。"""
+    from config import RAGIC_MAP
+    from ragic_booking import cue2
+    st.markdown("#### 🗂 主管審核（待審）")
+    bk = snap.get("booking") or {}
+    rv = snap.get("review") or {}
+    st.caption(f"CUE號 {bk.get('cue_id', '')}｜送出 {bk.get('at', '')} {bk.get('by', '')}｜"
+               f"訂檔 {len(bk.get('orders') or [])} 筆｜回簽檔 {rv.get('signback') or '—'}")
+    url, key = ragic_ui._ragic_conn()
+    files = {"CUE Excel": RAGIC_MAP["file_xls"], "CUE PDF": RAGIC_MAP["file_pdf"], "客戶回簽檔": ragic_ui.SIGNBACK_FIELD}
+    cache = st.session_state.setdefault("adm_au_files", {})
+    ck = (rec["_ragicId"], snap.get("version"))
+    if ck not in cache:
+        if st.button("📎 載入附件（CUE、回簽檔）", key="adm_au_load"):
+            got = []
+            for label, fid in files.items():
+                val = rec.get(fid)
+                val = val[0] if isinstance(val, list) and val else val
+                data = cue2.download_file(url, key, val) if val else None
+                if data:
+                    got.append((label, val.split("@", 1)[-1], data))
+            cache[ck] = got
+            st.rerun()
+    else:
+        cols = st.columns(max(1, len(cache[ck])))
+        for i, (label, name, data) in enumerate(cache[ck]):
+            cols[i].download_button(f"⬇️ {label}", data, file_name=name, key=f"adm_au_dl_{i}")
+        if not cache[ck]:
+            st.caption("這筆沒有附件。")
+
+    def save(new):
+        legacy = cs.legacy_part(cue2.details_of(rec))
+        return cue2.save_record(url, key, {RAGIC_MAP["details"]: cs.details_text(new, legacy)}, rid=rec["_ragicId"])
+
+    if ragic_ui.render_audit_box(snap, save, "adm"):
+        ragic_ui.all_saved.clear()
+        st.session_state["adm_msg"] = f"✅ {reg.display_no(snap) or '#' + str(rec['_ragicId'])} 已完成審核"
+        st.rerun()
 
 
 def _submit_box(rec, snap):

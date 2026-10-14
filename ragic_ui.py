@@ -376,7 +376,7 @@ def _render_downloads(files, key_prefix, saved_ok):
 
 def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None, key_prefix="save",
                       allow_style_excel=True):
-    """存檔到 Ragic（cue/2）＋下載＋送出訂檔＋主管抽查退回。
+    """存檔到 Ragic（cue/2）＋下載＋送出訂檔＋主管審核（核准／退回）。
     - 第一次存檔給存檔編號（P2610-023）並記存檔人；同一份再存＝更新同一筆、版本 +1、編號不變。
     - 存檔後且內容未再改動才可下載。
     - 送出訂檔＝立即申請 CUE號＋建立各波訂檔＝成交；已訂檔後修改則更新原訂檔。
@@ -458,9 +458,9 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     do_book = b2.button("📨 存檔並" + ("送出更新訂檔" if booked_before else "送出訂檔（成交）"),
                         key=f"{key_prefix}_submit", disabled=bool(block),
                         help=("尚缺：" + "、".join(block)) if block else
-                        "送出即申請 CUE號並建立各波訂檔（已訂檔則更新原訂檔），算成交。")
-    if linked and is_reviewer() and reg.is_deal(lsnap) and not dirty:
-        _render_spot_check(linked, legacy_details, key_prefix)
+                        "送出即申請 CUE號並建立各波訂檔（已訂檔則更新原訂檔），算成交；之後由主管審核。")
+    if linked and is_reviewer() and cs.audit_of(lsnap) == cs.AUDIT_PENDING and not dirty:
+        _render_audit(linked, legacy_details, key_prefix)
     if not (do_save or do_book):
         return
 
@@ -492,7 +492,7 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     st.session_state[SS_RECORD] = {"rid": res.rid, "serial": res.serial, "mode": snap.get("mode"), "snap": final}
     st.session_state.pop(f"{key_prefix}_dl_files", None)
     st.session_state[msg_key] = (f"✅ 已存檔 {reg.display_no(final)}（v{final['version']}）"
-                                 + (f"，已送出訂檔：CUE號 {final['booking'].get('cue_id')}" if do_book else "，可下載"))
+                                 + (f"，已送出訂檔：CUE號 {final['booking'].get('cue_id')}，待主管審核" if do_book else "，可下載"))
     all_saved.clear()
     st.cache_data.clear()
     st.rerun()
@@ -560,14 +560,17 @@ def _status_line(snap):
         extra.append(f"CUE號 {bk['cue_id']}")
     if snap.get("ops"):
         extra.append(f"🎁 營運加贈（{snap['ops'].get('by', '')}）")
-    if stt == cs.REJECTED and rv.get("reason"):
-        extra.append(f"退回原因：{rv['reason']}（{rv.get('reviewed_by', '')}）")
+    au = snap.get("audit") or {}
+    if cs.audit_of(snap):
+        extra.append(f"主管審核：{cs.audit_of(snap)}" + (f"（{au['by']} {au.get('at', '')}）" if au.get("by") else ""))
+    if stt == cs.REJECTED and (au.get("reason") or rv.get("reason")):
+        extra.append(f"退回原因：{au.get('reason') or rv['reason']}（{au.get('by') or rv.get('reviewed_by', '')}）")
     msg = f"狀態：**{stt}**" + ("｜" + "｜".join(extra) if extra else "")
     (st.error if stt == cs.REJECTED else st.info)(msg)
 
 
 def _save_snapshot_only(linked, snap, legacy_details):
-    """只更新 cue/2 的快照（不動其他欄位與附件），抽查退回用。"""
+    """只更新 cue/2 的快照（不動其他欄位與附件），主管審核用。"""
     import cue_store as cs
     from config import RAGIC_MAP
     from ragic_booking import cue2
@@ -580,19 +583,29 @@ def _save_snapshot_only(linked, snap, legacy_details):
     return res
 
 
-def _render_spot_check(linked, legacy_details, key_prefix):
-    """營運主管抽查已成交的 CUE：有問題可退回（記原因；已建立的訂檔請在 Ragic 處理）。"""
+def render_audit_box(snap, save, key_prefix):
+    """主管審核按鈕（核准／填原因退回）。save(新快照) → 寫回 Ragic 的結果（有 ok／error）。成功回傳 True。"""
     import cue_store as cs
-    with st.expander("🗂 主管抽查", expanded=False):
-        reason = st.text_input("退回原因", key=f"{key_prefix}_rv_reason")
-        st.caption("退回後狀態改為「退回」、不計成交；已申請的 CUE號與已建立的訂檔不會自動刪除，請營運在 Ragic 處理。")
-        if st.button("↩️ 退回", key=f"{key_prefix}_rv_no", disabled=not write_enabled() or not reason.strip()):
-            u = current_user() or {}
-            res = _save_snapshot_only(linked, cs.mark_reviewed(json_copy(linked["snap"]), u.get("name", ""), False,
-                                                               reason=reason.strip()), legacy_details)
-            if not res.ok:
-                st.error(f"退回失敗：{res.error}")
-                return
+    st.caption("核准＝確認這份訂檔沒問題；退回＝狀態改為「退回」、不計成交，"
+               "已申請的 CUE號與已建立的訂檔不會自動刪除，請營運在 Ragic 處理。")
+    reason = st.text_input("退回原因（退回時必填）", key=f"{key_prefix}_au_reason")
+    c1, c2 = st.columns(2)
+    ok = c1.button("✅ 核准", key=f"{key_prefix}_au_ok", type="primary", disabled=not write_enabled())
+    no = c2.button("↩️ 退回", key=f"{key_prefix}_au_no", disabled=not write_enabled() or not reason.strip())
+    if not (ok or no):
+        return False
+    u = current_user() or {}
+    res = save(cs.mark_audited(json_copy(snap), u.get("name", ""), ok, reason="" if ok else reason.strip()))
+    if not res.ok:
+        st.error(f"審核寫入失敗：{res.error}")
+        return False
+    return True
+
+
+def _render_audit(linked, legacy_details, key_prefix):
+    """開啟的 CUE 已送訂檔、待主管審核：存檔區直接核准／退回。"""
+    with st.expander("🗂 主管審核（待審）", expanded=True):
+        if render_audit_box(linked["snap"], lambda new: _save_snapshot_only(linked, new, legacy_details), key_prefix):
             st.rerun()
 
 

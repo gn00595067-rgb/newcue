@@ -369,7 +369,7 @@ def carry_over(old, new):
     if not old:
         new["status"] = DRAFT
         return new
-    for k in ("booking", "review", "save_no", "owner", "ops"):   # 編號／存檔人沿用第一次存檔
+    for k in ("booking", "review", "audit", "save_no", "owner", "ops"):   # 編號／存檔人沿用第一次存檔
         if old.get(k):
             new[k] = old[k]
     st_old = status_of(old)
@@ -424,7 +424,40 @@ def mark_booked(snap, user_name, params, booking, now=None):
     rv = dict(snap.get("review") or {})
     rv.update({"submitted_by": user_name, "submitted_at": at, "params": to_jsonable(params)})
     snap["review"] = rv
+    snap["audit"] = {"result": AUDIT_PENDING, "booking_at": at}   # 每次送出（含更新原訂檔）都要主管重審
     msg = (f"更新原訂檔（CUE號 {booking.get('cue_id', '')}）" if updated
            else f"送出訂檔：CUE號 {booking.get('cue_id', '')}，成交")
+    snap.setdefault("history", []).append({"v": snap.get("version", 0), "at": at, "by": user_name, "changes": [msg]})
+    return snap
+
+
+# =============================================================================
+# 主管必審（2026-10-14：每份送出的訂檔都要主管審過，取代抽查）
+# =============================================================================
+AUDIT_PENDING = "待審"
+AUDIT_OK = "核准"
+AUDIT_REJECTED = "退回"
+
+
+def audit_of(snap):
+    """審核結果：未送訂檔＝""；已送訂檔但沒有審核紀錄（舊存檔）＝待審。"""
+    snap = snap or {}
+    if not snap.get("booking"):
+        return ""
+    return (snap.get("audit") or {}).get("result") or AUDIT_PENDING
+
+
+def mark_audited(snap, user_name, approved, *, reason="", now=None):
+    """主管審核送出的訂檔：核准＝維持已訂檔；退回＝狀態退回、不計成交（訂檔由營運在 Ragic 處理）。"""
+    now = now or datetime.now()
+    at = now.strftime("%Y-%m-%d %H:%M")
+    au = dict(snap.get("audit") or {})
+    au.update({"result": AUDIT_OK if approved else AUDIT_REJECTED, "by": user_name, "at": at, "reason": reason})
+    snap["audit"] = au
+    if approved:
+        msg = "主管審核：核准"
+    else:
+        snap["status"] = REJECTED
+        msg = f"主管審核：退回（{reason}）"
     snap.setdefault("history", []).append({"v": snap.get("version", 0), "at": at, "by": user_name, "changes": [msg]})
     return snap

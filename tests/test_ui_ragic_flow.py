@@ -238,7 +238,7 @@ def _book(at, prefix):
     btn = at.button(key=f"{prefix}_submit")
     assert not btn.disabled, btn.help
     btn.click().run()
-    _after_rerun(at, f"{prefix}_rv_reason")
+    _after_rerun(at, f"{prefix}_au_reason")
     _ok(at)
 
 
@@ -292,7 +292,7 @@ def test_book_blocked_without_customer_signback_or_flag():
     assert btn.disabled and "RAGIC_BOOKING_ENABLED" in btn.help
 
 
-def test_ops_bonus_mark_and_spot_check_reject():
+def test_ops_bonus_mark_and_audit_reject():
     at = _app("專案CUE", ragic_customer=CUSTOMER, fp_client="客戶甲", _fake_sign=True)
     _book(at, "fp_save")
     no = _rec(at)["snap"]["save_no"]
@@ -305,16 +305,18 @@ def test_ops_bonus_mark_and_spot_check_reject():
     _after_rerun(at)
     _enable_bonus(at, "fp_")
     at.button(key="fp_save_btn").click().run()
-    _after_rerun(at, "fp_save_rv_reason")
+    _after_rerun(at, "fp_save_au_reason")
     snap = _rec(at)["snap"]
     assert snap["ops"]["by"] == BOSS["name"] and snap["save_no"] == no and snap["owner"]["email"] == "a@x.com"
     assert snap["history"][-1]["changes"][0] == "【營運加贈】"
-    # 抽查退回
+    # 每次送出都要主管審核：送出更新後回到待審，主管退回
     _book(at, "fp_save")
-    at.text_input(key="fp_save_rv_reason").input("金額不對").run()
-    at.button(key="fp_save_rv_no").click().run()
-    _after_rerun(at, "fp_save_rv_reason")
-    assert _rec(at)["snap"]["status"] == "退回"
+    assert _rec(at)["snap"]["audit"]["result"] == "待審"
+    at.text_input(key="fp_save_au_reason").input("金額不對").run()
+    at.button(key="fp_save_au_no").click().run()
+    _after_rerun(at, "fp_save_au_reason")
+    snap = _rec(at)["snap"]
+    assert snap["status"] == "退回" and snap["audit"]["result"] == "退回" and snap["audit"]["reason"] == "金額不對"
 
 
 def test_manage_and_stats_views():
@@ -338,7 +340,22 @@ def test_manage_and_stats_views():
     _ok(at)
     m = {x.label: x.value for x in at.metric}
     assert m["出 CUE 張數"] == "2" and m["成交張數"] == "1" and m["成交率"] == "50%"
+    # 主管：CUE 管理預設看待審，選一份直接核准
+    import cue_store as cs
+    at.session_state["ragic_user"] = BOSS
+    at.session_state["is_supervisor"] = True
+    at.session_state["cue_mode"] = "CUE 管理"
+    at.run()
+    _ok(at)
+    assert at.selectbox(key="adm_status").value == "待審" and len(at.dataframe[0].value) == 1
+    at.button(key="adm_au_ok").click().run()
+    _after_rerun(at, "adm_au_reason")
+    _ok(at)
+    rid = next(r for r, rec in at.session_state["_fake_db"].items() if "1160101" in rec["1015319"])
+    assert cs.parse_snapshot(at.session_state["_fake_db"][rid]["1015319"])["audit"]["result"] == "核准"
+    assert not at.dataframe                                              # 待審清單清空
     # 其他業務看不到
+    at.session_state["is_supervisor"] = False
     at.session_state["ragic_user"] = {"email": "b@x.com", "name": "B 業務 Bob", "groups": []}
     at.session_state["cue_mode"] = "CUE 管理"
     at.run()
