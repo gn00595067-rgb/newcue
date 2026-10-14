@@ -33,3 +33,4 @@
 - 2026-10-13 ｜ [ragic-dev] Ragic 串接補強：年約 2008／凱絡每波設定隨存檔還原、年約各波附件合成一檔、改了沒存提醒、訂檔送出程式（按鈕暫停用）、存檔流程畫面測試 ｜ Jonathan：能做的先全做完 ｜ 等測試回饋與第 3、4 期決策
 - 2026-10-14 ｜ [ragic-dev] Ragic 串接第 3 期（各模式檔次調整＝加贈，Excel／PDF 重產）＋第 4 期（送審、主管審核頁、核准申請 CUE號建訂檔／已訂檔更新原訂檔、全省檔數計一次、代理商公司＝聲活） ｜ Jonathan 2026-10-14 決策 ｜ 開 RAGIC_WRITE_ENABLED／RAGIC_BOOKING_ENABLED 用測試資料實測後合併回 main
 - 2026-10-14 ｜ [ragic-dev] 第 5 期：存檔編號（P2610-023，成交加★）、先存檔才能下載、送出即申請 CUE號建訂檔＝成交、營運加贈標記、主管抽查退回、CUE 管理（業務資料夾）、統計面板 ｜ Jonathan＋老闆需求：出 CUE 量與成交量要能統計 ｜ 真實 Ragic 實測；確認代碼撞號；是否在 cue/2 加「存檔編號」欄
+- 2026-10-14 ｜ [ragic-dev] 測試 app 加「開發者登入」（Secrets DEV_LOGIN_PASSWORD／NAME／EMAIL，正式 app 不設即無入口） ｜ Jonathan 是外部人員，公司 Ragic 帳號要付費無法開，需能實測存檔／審核 ｜ 測試 app 設 Secrets、身分信箱加入 RAGIC_REVIEWERS、Reboot 後實測

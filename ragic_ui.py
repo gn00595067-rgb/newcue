@@ -27,6 +27,17 @@ def current_user():
     return st.session_state.get(SS_USER)
 
 
+def dev_login_user(pwd):
+    """開發者登入（給沒有公司 Ragic 帳號的開發者實測用）：只在 Secrets 設了 DEV_LOGIN_PASSWORD 的 app 啟用
+    （正式 app 不設＝入口不出現）。密碼對 → 以 DEV_LOGIN_NAME／DEV_LOGIN_EMAIL 身分登入；否則 None。
+    讀寫 Ragic 本來就用 Secrets 的 API Key，與登入身分無關。"""
+    expect = str(_secret("DEV_LOGIN_PASSWORD", "")).strip()
+    if not expect or pwd != expect:
+        return None
+    return {"email": str(_secret("DEV_LOGIN_EMAIL", "dev@newcue.local")).strip(),
+            "name": str(_secret("DEV_LOGIN_NAME", "開發者")).strip(), "groups": ["開發者"]}
+
+
 # =============================================================================
 # 登入（側欄）
 # =============================================================================
@@ -57,6 +68,17 @@ def render_login_sidebar():
         st.session_state[SS_USER] = {"email": user.email, "name": user.name, "groups": user.groups}
         st.session_state.pop("ragic_login_pwd", None)
         st.rerun()
+    if str(_secret("DEV_LOGIN_PASSWORD", "")).strip():
+        with st.expander("🛠 開發者登入", expanded=False):
+            dpwd = st.text_input("開發者密碼", type="password", key="dev_login_pwd")
+            if st.button("以開發者身分登入", key="dev_login_btn"):
+                du = dev_login_user(dpwd)
+                if not du:
+                    st.error("開發者密碼錯誤")
+                    return
+                st.session_state[SS_USER] = du
+                st.session_state.pop("dev_login_pwd", None)
+                st.rerun()
 
 
 # =============================================================================
