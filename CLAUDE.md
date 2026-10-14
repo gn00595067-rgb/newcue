@@ -34,4 +34,12 @@
 - 測試：`tests/`（含 fidelity／visual_check／各模式 smoke）
 
 ## 下次續做
-- （由 /wrap 維護）
+（2026-10-14 停在這裡；ragic-dev 最新 `b50790e`，完整測試 579 綠；main 最新 `44867dd`）
+- **Ragic 串接第 1～5 期程式全部完成，只在 ragic-dev**（spec：`docs/specs/Ragic串接_訂檔流程.md`、`docs/specs/Ragic串接_第5期_存檔編號與統計.md`）。正式版 main 未合併。
+- 下一步＝陪 Jonathan 在測試 app（https://newcue-gffrnqkzgd52wysftlnwyu.streamlit.app/ ，指向 ragic-dev）實測，推版後先 Reboot：
+  1. Ragic 帳號登入（含開兩步驟驗證的同事）、客戶帶入、存檔給編號、存檔後下載 → Secrets `RAGIC_WRITE_ENABLED="true"`
+  2. 送出訂檔：真的申請 CUE號＋建訂檔 → 加贈後送出更新原訂檔（`update_record` 子表 row id 就地更新尚未在真 Ragic 驗證）→ `RAGIC_BOOKING_ENABLED="true"`；試完刪測試 CUE號／訂檔
+  3. 主管：`RAGIC_REVIEWERS` 設信箱 → CUE 管理資料夾、統計、營運加贈、抽查退回
+- 實測通過後：通知同事「沒 Ragic 帳號不能下載」→ ragic-dev 一般 merge 回 main（不 force）→ Reboot 正式 app。
+- 待 Jonathan：是否在 cue/2 加「存檔編號」欄（給欄位 ID）；業務代碼撞號時在 `RAGIC_SALES_CODES` 指定。
+- 已知限制：退回不自動刪訂檔、不寄通知；統計只算新程式存檔；待審／我的 CUE 清單掃全部紀錄（量大再優化）；代理商一鍵模板不支援加贈。
