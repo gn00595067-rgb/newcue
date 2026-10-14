@@ -395,9 +395,10 @@ def _build_family_sheet(agency, sec, budget, days, comp_mode, rebate_pct,
 
 def _build_wjf_sheet(agency, sec, budget, days, rebate_pct, mag_override,
                      is_rebate_wave, material_due, ac_pct, agency_pricing, logs,
-                     comp_mag=0, comp_super=0):
+                     comp_mag=0, comp_super=0, exact_spots=False):
     """
     建立萬家福 sheet（量販 + 超市）。
+    exact_spots：量販檔次就是 mag_override，不再加 2008 固定 10% 回饋檔（年約季約：檔次以業務填的為準）。
     comp_mag / comp_super：方案二凌晨補償轉入的量販/超市檔次（另立補償列）。
     """
     unit_net = wjf_unit_net(sec)
@@ -409,7 +410,7 @@ def _build_wjf_sheet(agency, sec, budget, days, rebate_pct, mag_override,
         logs.append(f"【萬家福】量販單檔實作價({sec}秒)=250000/420/20×{sec}={unit_net:.2f}")
         logs.append(f"【萬家福】量販基礎檔次=round({budget}/{unit_net:.2f})={mag_base}")
         # 2008 專屬：固定 +10% 回饋檔直接折進每日排檔（不另立回饋列），實收不變
-        if agency == "2008傳媒":
+        if agency == "2008傳媒" and not exact_spots:
             bonus = rhu(WJF_2008_REBATE_PCT / 100.0 * mag_base)
             mag_spots = mag_base + bonus
             logs.append(f"【萬家福】2008專屬：+{int(WJF_2008_REBATE_PCT)}%回饋檔折進每日 "
@@ -544,7 +545,7 @@ def build_agency_model(agency, client_name, product_name, campaign,
     fam_cfg / wjf_cfg：平台設定 dict，可為 None（未啟用）。
       共通鍵：enabled(bool)、seconds(int)、share(佔比%)、rebate_pct(float)、spots_override(int, 0=自動)
       fam_cfg 另有：auto_rebate(bool, 預設True=自帶專案回饋/凌晨時數轉換)
-      wjf_cfg 另有：mag_override(int)、is_rebate_wave(bool)
+      wjf_cfg 另有：mag_override(int)、is_rebate_wave(bool)、exact_spots(bool，不加 2008 固定 10%)
     comp_mode：COMP_MOVE50 / COMP_PLAN1 / COMP_PLAN2 / COMP_NONE
     回傳 model：{agency, client_name, product_name, campaign, start_date, end_date,
                 budget_total, sheets:[...], logs:[...], material_due, payment_note, remarks}
@@ -598,7 +599,7 @@ def build_agency_model(agency, client_name, product_name, campaign,
             wjf_cfg.get("rebate_pct", 0), int(wjf_cfg.get("mag_override", 0) or 0),
             bool(wjf_cfg.get("is_rebate_wave", False)),
             material_due, ac_pct, agency_pricing, logs,
-            comp_mag=comp_mag, comp_super=comp_super,
+            comp_mag=comp_mag, comp_super=comp_super, exact_spots=bool(wjf_cfg.get("exact_spots", False)),
         ))
     elif need_wjf_for_comp:
         # 僅承載凌晨補償的萬家福表（本身無主預算）

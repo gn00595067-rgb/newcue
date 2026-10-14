@@ -671,20 +671,13 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
     st.markdown("---")
     st.subheader(f"⚙️ {agency} 設定（各波共用）")
     campaign = st.text_input("Campaign（僅 2008 顯示）", key="aq_ag_campaign") if agency == "2008傳媒" else ""
-    comp_mode = st.radio("凌晨補償方式（2026/03 起全家凌晨停播）", ac.COMP_OPTIONS,
-                         index=ac.COMP_OPTIONS.index(ac.COMP_PLAN1), key="aq_ag_comp")
-    c1, c2, c3 = st.columns(3)
-    fam_auto = c1.checkbox("全家 自帶專案回饋（凌晨時數轉換）", value=True, key="aq_ag_fam_auto",
-                           help="非主時段時數(24−主時段)×30檔×30/秒，自動另立一列「專案回饋」。")
-    fam_reb = c2.number_input("全家 專案回饋 %（手動另計）", 0, 100, 0, key="aq_ag_fam_reb")
-    wjf_reb = c3.number_input("萬家福 專案回饋 %", 0, 100, 0, key="aq_ag_wjf_reb",
-                              help="2008 萬家福固定 +10% 回饋檔已折進每日排檔，此欄不適用 2008。")
     if agency == "2008傳媒":
         ac_pct = st.number_input("AC %", 0.0, 100.0, float(config.AGENCY_AC_DEFAULT.get("2008傳媒") or 3.0),
                                  step=0.5, key="aq_ag_ac")
     else:
         ac_pct = None if st.checkbox("A.C 3% 免收（顯示「-」）", value=False, key="aq_ag_ac_free") else 3.0
-    st.caption("檔次與實收以上方表格為準；萬家福的檔次指量販檔次，超市檔次依 720/420 自動換算。")
+    st.caption("檔次與實收以上方表格為準（不另加凌晨補償、專案回饋列）；萬家福的檔次指量販檔次，"
+               "超市檔次依 720/420 自動換算。")
 
     st.markdown("---")
     st.subheader("📥 各波段下載（每波獨立 Excel / PDF）")
@@ -722,8 +715,7 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
         try:
             model = build_wave_agency_model(
                 agency, combos, start_d, end_d, spots, nets, client_name=client_name,
-                product_name=product_name, campaign=campaign, comp_mode=comp_mode,
-                fam_auto_rebate=fam_auto, fam_rebate_pct=fam_reb, wjf_rebate_pct=wjf_reb, ac_pct=ac_pct,
+                product_name=product_name, campaign=campaign, ac_pct=ac_pct,
                 material_due=material_due, agency_pricing=agency_pricing, remarks=remarks,
                 payment_note=pay_note)
         except Exception as e:  # noqa: BLE001

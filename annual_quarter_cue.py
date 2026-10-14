@@ -207,18 +207,19 @@ def agency_combo_ok(combo):
 
 def build_wave_agency_model(agency, combos, wave_start, wave_end, wave_spots_list, wave_net_list, *,
                             client_name="", product_name="", campaign="", comp_mode=None,
-                            fam_auto_rebate=True, fam_rebate_pct=0.0, wjf_rebate_pct=0.0,
+                            fam_auto_rebate=False, fam_rebate_pct=0.0, wjf_rebate_pct=0.0,
                             ac_pct=None, material_due=None, agency_pricing=None,
                             remarks=None, payment_note=""):
     """
     單一波段 → 代理商 CUE model（交給 agency_excel.generate_agency_excel／agency_ui.build_agency_html）。
-    每個組合各建一張表（同平台不同秒數各一張），檔次＝業務填的檔次、實收＝業務填的實收；
-    回饋列、凌晨補償、AC 沿用代理商CUE 規則。不支援的組合（新鮮視、分區）略過。
+    每個組合各建一張表（同平台不同秒數各一張），檔次＝業務填的檔次、實收＝業務填的實收。
+    年約檔次已含回饋（2026-10-14 宜歆回饋：不論內容都多一列 720 檔）→ 預設無凌晨補償、無自帶回饋、
+    2008 萬家福不加 10%；要加贈用檔次調整（加贈）。AC 沿用代理商CUE 規則。不支援的組合（新鮮視、分區）略過。
     """
     import agency_cue as ac
 
     if comp_mode is None:
-        comp_mode = ac.COMP_PLAN1
+        comp_mode = ac.COMP_NONE
     if material_due is None:
         material_due = ac.minus_business_days(wave_start, 5)
     sheets, logs = [], []
@@ -236,7 +237,8 @@ def build_wave_agency_model(agency, combos, wave_start, wave_end, wave_spots_lis
         else:
             fam_cfg = None
             wjf_cfg = {"enabled": True, "seconds": sec, "share": 100, "rebate_pct": float(wjf_rebate_pct),
-                       "mag_override": spots, "is_rebate_wave": False}
+                       "mag_override": spots, "is_rebate_wave": False,
+                       "exact_spots": True}
         m = ac.build_agency_model(agency, client_name, product_name, campaign, wave_start, wave_end,
                                   net, fam_cfg, wjf_cfg, comp_mode, material_due, ac_pct,
                                   agency_pricing=agency_pricing, payment_note="x", remarks=[])
