@@ -50,3 +50,11 @@ def test_customer_form_tuples_multi_values():
     assert (rf.CustomerWriteF.客服, "A") in t and (rf.CustomerWriteF.客服, "B") in t
     assert (rf.CustomerWriteF.付款方式, "匯款") in t
     assert not any("#" in k for k, _ in t)
+
+
+def test_error_shows_ragic_reply_for_diagnosis():
+    with pytest.raises(auth.RagicAuthError, match="Ragic 回應：.*two-factor"):
+        auth.parse_auth_response({"status": "ERROR", "msg": "two-factor required"})
+    with pytest.raises(auth.RagicAuthError) as e:
+        auth.parse_auth_response(-1)
+    assert str(e.value) == "帳號或密碼錯誤"

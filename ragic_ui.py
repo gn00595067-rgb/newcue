@@ -64,6 +64,10 @@ def render_login_sidebar():
             user = auth.ragic_login(email, pwd)
         except auth.RagicAuthError as e:
             st.error(str(e))
+            if str(e).startswith("帳號或密碼錯誤"):
+                st.caption("請先確認同一組信箱／密碼能直接登入 https://ap16.ragic.com 。"
+                           "用 Google 登入 Ragic 的帳號沒有 Ragic 密碼，需先在 Ragic「個人設定」設定密碼；"
+                           "有開兩步驟驗證的帳號若仍失敗，請截圖錯誤訊息給 Jonathan。")
             return
         st.session_state[SS_USER] = {"email": user.email, "name": user.name, "groups": user.groups}
         st.session_state.pop("ragic_login_pwd", None)

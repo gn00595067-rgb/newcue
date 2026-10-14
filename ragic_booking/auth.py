@@ -44,10 +44,18 @@ def _pick_account(accounts, account: str) -> dict | None:
     return None
 
 
+def _detail(raw) -> str:
+    """Ragic 原始回應摘要（不含密碼），附在錯誤訊息後方便判斷是帳密錯、兩步驟驗證或 Google 登入帳號。"""
+    if raw in (None, "", -1, "-1"):
+        return ""
+    text = " ".join(str(raw).split())
+    return f"（Ragic 回應：{text[:120]}）"
+
+
 def parse_auth_response(raw, account: str = ACCOUNT) -> RagicUser:
     """AUTH 回傳 → RagicUser；不是本公司帳戶或帳密錯 → RagicAuthError。"""
     if not isinstance(raw, dict) or not raw.get("sid"):
-        raise RagicAuthError("帳號或密碼錯誤")
+        raise RagicAuthError("帳號或密碼錯誤" + _detail(raw))
     acc = _pick_account(raw.get("accounts"), account)
     if acc is None:
         raise RagicAuthError("此帳號不屬於公司 Ragic，無法登入")
@@ -73,5 +81,5 @@ def ragic_login(email: str, password: str, server: str = SERVER, account: str = 
     try:
         raw = resp.json()
     except ValueError:
-        raw = None   # 帳密錯誤時 Ragic 回 -1／純文字
+        raw = resp.text.strip() or None   # 帳密錯誤時 Ragic 回 -1／純文字（保留原文供判斷）
     return parse_auth_response(raw, account)
