@@ -78,3 +78,16 @@ def test_wave_price_override_scales_combos():
     assert apply_wave_price_override(rows, 150000) == 150000
     assert wave_net_total(rows) == 150000
     assert {r["nat_pkg_display"] for r in rows if r.get("is_pkg_member")} == {75000}
+
+
+@pytest.mark.parametrize("agency", ["2008傳媒", "凱絡"])
+def test_annual_default_no_extra_rows(agency):
+    """宜歆 2026-10-14：年約季約不論內容都多一列 720 檔（自帶專案回饋）。年約檔次以業務填的為準：
+    不另加凌晨補償、自帶回饋列，2008 萬家福也不加 10%。"""
+    spots = [400, 0, 300, 0, 0]
+    m = build_wave_agency_model(agency, COMBOS, S, E, spots, [100000, 0, 90000, 0, 0], ac_pct=3.0)
+    for sh in m["sheets"]:
+        kinds = [r["kind"] for r in sh["rows"]]
+        assert ac.KIND_REBATE not in kinds and ac.KIND_SUPER_REBATE not in kinds and ac.KIND_COMP not in kinds
+        mrow = next(r for r in sh["rows"] if r["kind"] == ac.KIND_MAIN)
+        assert mrow["spots"] == (400 if sh["platform"] == ac.PLATFORM_FAMILY else 300)
