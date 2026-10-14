@@ -30,7 +30,7 @@
 - 代理商：`agency_cue.py`／`agency_excel.py`／`agency_ui.py`／`rebate.py`（牌價／折讓）
 - 產出渲染：`excel_renderer.py`／`html_generator.py`／`pdf_render.py`／`pdf_converter.py`／`xlsx_numfmt.py`
 - 資料／設定：`data_loader.py`／`config.py`／`simple_config.py`／`各平台人流計算方式.xlsx`／`AgencyPricing範本.csv`
-- 外部：Ragic（`ragic_api.py`）
+- 外部：Ragic（`ragic_api.py`；ragic-dev 另有 `ragic_booking/`（客戶、CUE號、訂檔，自 cueupload 搬入）、`ragic_ui.py`（登入、客戶帶入、存檔面板、送出訂檔）、`cue_store.py`（快照／版本／狀態）、`cue_registry.py`（存檔編號、統計）、`cue_admin.py`（CUE 管理、統計頁）、`bonus_adjust.py`（加贈）、`xlsx_merge.py`）
 - 測試：`tests/`（含 fidelity／visual_check／各模式 smoke）
 
 ## 下次續做

@@ -227,7 +227,8 @@ def _submit_customer(d, biz):
 # =============================================================================
 # 第 2 期：CUE 存檔（新建／更新版本）與「我的 CUE」讀回
 # =============================================================================
-SS_RECORD = "cue_record"   # 目前編輯中的 Ragic 存檔 {"rid","serial","mode","snap"}
+SS_RECORD = "cue_record"
+NAV_KEY = "_nav_cue_mode"   # 開啟存檔後要切換到的製作模式（app 在畫「製作模式」前套用）   # 目前編輯中的 Ragic 存檔 {"rid","serial","mode","snap"}
 
 # 快照 mode → (製作模式 radio 值, 代理商子模式)
 MODE_NAV = {
@@ -254,11 +255,11 @@ def json_copy(obj):
     return json.loads(json.dumps(obj, ensure_ascii=False))
 
 
-SIGNBACK_FIELD = "1015884"   # cue/2「客戶回簽/業務認簽」附件欄（送審時上傳客戶回簽檔）
+SIGNBACK_FIELD = "1015884"   # cue/2「客戶回簽/業務認簽」附件欄（送出訂檔時上傳客戶回簽檔）
 
 
 def reviewers():
-    """可審核的 Ragic 帳號信箱（Secrets RAGIC_REVIEWERS，逗號分隔）。"""
+    """營運主管／管理員的 Ragic 信箱（Secrets RAGIC_REVIEWERS，逗號分隔）。"""
     raw = str(_secret("RAGIC_REVIEWERS", "")).replace("，", ",")
     return {x.strip().lower() for x in raw.split(",") if x.strip()}
 
@@ -270,15 +271,42 @@ def is_reviewer():
 
 
 def booking_enabled():
-    """核准時是否真的寫入 CUE號申請／訂檔（正式表單，預設關閉）。"""
+    """送出時是否真的寫入 CUE號申請／訂檔（正式表單，預設關閉）。"""
     return str(_secret("RAGIC_BOOKING_ENABLED", "")).strip().lower() in ("1", "true", "yes")
+
+
+def my_code(u):
+    import cue_registry as reg
+    return reg.sales_code(u.get("name", ""), u.get("email", ""), reg.parse_overrides(_secret("RAGIC_SALES_CODES", "")))
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def all_saved(url, key):
+    """cue/2 全部有快照的存檔 [(紀錄, 快照)]（新到舊）。"""
+    import cue_store as cs
+    from ragic_booking import cue2
+    out = []
+    for rec in cue2.list_all(url, key):
+        snap = cs.parse_snapshot(cue2.details_of(rec))
+        if snap:
+            out.append((rec, snap))
+    return out
+
+
+def _new_save_no(u):
+    """第一次存檔的編號：同代碼同年最大流水 +1（直接讀 Ragic，不用快取）。"""
+    import cue_registry as reg
+    all_saved.clear()
+    url, key = _ragic_conn()
+    nos = [s.get("save_no") for _r, s in all_saved(url, key)]
+    return reg.next_no(my_code(u), nos)
 
 
 def _upload_dict(files, style=None):
     """files（dict 或產生 dict 的函式）→ (files dict, cue/2 附件 {欄位ID: (檔名, bytes, mime)})。"""
     from config import RAGIC_MAP
-    if callable(files):   # 合併多波附件較耗時，只在真的要存時才產生
-        with st.spinner("合併附件中…"):
+    if callable(files):   # 合併多波附件較耗時，只在真的要用時才產生
+        with st.spinner("產生檔案中…"):
             files = files()
     up = {}
     xl, pdf = (files or {}).get("xlsx"), (files or {}).get("pdf")
@@ -291,12 +319,47 @@ def _upload_dict(files, style=None):
     return files or {}, up
 
 
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _render_downloads(files, key_prefix, saved_ok):
+    """存檔後才能下載（第 5 期：每張出過的 CUE 都納入統計）。files["extra"]＝各波個別檔案。"""
+    if not saved_ok:
+        st.caption("⬇️ 存檔後即可下載 Excel／PDF（內容有修改需再存一次）。")
+        return
+    can_x = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
+    can_p = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
+    if callable(files):
+        cache = f"{key_prefix}_dl_files"
+        if cache not in st.session_state:
+            if not st.button("📦 產生下載檔", key=f"{key_prefix}_dl_make"):
+                return
+            st.session_state[cache], _ = _upload_dict(files)
+        files = st.session_state[cache]
+    items = []
+    if files.get("xlsx") and can_x:
+        items.append(("⬇️ 下載 Excel", files["xlsx"][0], files["xlsx"][1], _XLSX))
+    if files.get("pdf") and files["pdf"][1] and can_p:
+        items.append(("⬇️ 下載 PDF", files["pdf"][0], files["pdf"][1], "application/pdf"))
+    for label, name, data, mime in files.get("extra") or []:
+        if (mime == _XLSX and can_x) or (mime != _XLSX and can_p):
+            items.append((label, name, data, mime))
+    if not items:
+        st.caption("下載已由主管關閉")
+        return
+    cols = st.columns(min(len(items), 4))
+    for i, (label, name, data, mime) in enumerate(items):
+        cols[i % len(cols)].download_button(label, data, name, mime=mime, key=f"{key_prefix}_dl_{i}")
+
+
 def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None, key_prefix="save",
                       allow_style_excel=True):
-    """存檔到 Ragic（cue/2）＋送審＋主管審核。
-    同一份 CUE 再存＝更新同一筆、版本 +1，異動寫進快照 history；狀態依 cue_store.carry_over 規則轉換。
-    files：{"xlsx": (檔名, bytes), "pdf": (檔名, bytes)}，或回傳該 dict 的函式（存檔時才產生）。
-    未開 RAGIC_WRITE_ENABLED 時只乾跑。"""
+    """存檔到 Ragic（cue/2）＋下載＋送出訂檔＋主管抽查退回。
+    - 第一次存檔給存檔編號（P2610-023）並記存檔人；同一份再存＝更新同一筆、版本 +1、編號不變。
+    - 存檔後且內容未再改動才可下載。
+    - 送出訂檔＝立即申請 CUE號＋建立各波訂檔＝成交；已訂檔後修改則更新原訂檔。
+    files：{"xlsx": (檔名, bytes), "pdf": (檔名, bytes), "extra": [(按鈕, 檔名, bytes, mime)]}，或回傳該 dict 的函式。"""
+    import cue_registry as reg
     import cue_store as cs
     from config import RAGIC_MAP
     from ragic_booking import cue2
@@ -308,7 +371,6 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     linked = rec if rec and rec.get("mode") == snap.get("mode") else None
     lsnap = (linked or {}).get("snap") or {}
     pv = lsnap.get("version", 0)
-    # 「改了還沒存」：與已存版本比對（側欄「我的 CUE」也讀這個旗標）
     dirty = bool(linked) and cs.has_changes(lsnap, snap)
     st.session_state["_cue_dirty"] = dirty
     if dirty:
@@ -320,13 +382,13 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
 
     u = current_user()
     if not u:
-        st.caption("以 Ragic 帳號登入後可存檔；存檔後可在左側「📂 我的 CUE」找回、修改。")
+        st.caption("以 Ragic 帳號登入後才能存檔與下載（每張出過的 CUE 都會記錄編號、納入統計）。")
         return
 
     as_new = True
     if linked:
-        choice = st.radio("存檔方式", [f"更新 #{linked.get('serial') or linked['rid']}（v{pv} → v{pv + 1}）",
-                                       "另存為新的一筆"], key=f"{key_prefix}_how", horizontal=True)
+        choice = st.radio("存檔方式", [f"更新 {reg.display_no(lsnap) or '#' + str(linked['rid'])}（v{pv} → v{pv + 1}）",
+                                       "另存為新的一筆（新編號）"], key=f"{key_prefix}_how", horizontal=True)
         as_new = choice.startswith("另存")
         if not as_new:
             st.caption("本次異動：" + "；".join(cs.diff_summary(lsnap, snap)))
@@ -344,74 +406,146 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
 
     prev = None if as_new else lsnap
     final = cs.carry_over(prev, cs.next_version(prev, json_copy(snap), u["name"]))
+    owner = reg.owner_of(final)
+    ops_edit = bool(owner) and owner.get("email") and owner.get("email") != u.get("email") and is_reviewer()
+    if ops_edit:   # 營運主管替業務加贈／調整：特別標記
+        final["ops"] = {"by": u["name"], "at": final["history"][-1]["at"], "note": "營運加贈"}
+        final["history"][-1]["changes"] = ["【營運加贈】"] + final["history"][-1]["changes"]
+        st.info(f"🎁 你正在修改 {owner.get('name', '')} 的 CUE，存檔會標記「營運加贈」。")
     live = write_enabled()
-    od = render_order_preview(final, key_prefix, prev_review=(prev or {}).get("review"))
+    saved_ok = bool(linked) and not dirty
+    _render_downloads(files, key_prefix, saved_ok)
+
+    booked_before = bool(final.get("booking"))
+    od = render_order_preview(final, key_prefix, prev_review=(prev or {}).get("review"),
+                              update=booked_before)
     if not live:
         st.info("目前為**乾跑模式**：只預覽、不會寫入 Ragic。")
-
-    preview_fields = cs.ragic_fields(final, RAGIC_MAP, extra_fields)
     with st.popover("👀 預覽將寫入 Ragic 的內容"):
-        st.json({"動作": "新建" if as_new else f"更新紀錄 {linked['rid']}",
-                 "欄位": preview_fields,
-                 "附件": (["（存檔時合併各波 Excel／PDF）"] if callable(files) else
-                        [f[0] for f in (files or {}).values() if f]) + ([style.name] if style else []),
+        st.json({"動作": "新建（存檔時給編號）" if as_new else f"更新紀錄 {linked['rid']}",
+                 "欄位": cs.ragic_fields(final, RAGIC_MAP, extra_fields),
+                 "附件": (["（存檔時產生 Excel／PDF）"] if callable(files) else
+                        [f[0] for k, f in (files or {}).items() if f and k != "extra"]) + ([style.name] if style else []),
                  "異動紀錄": final["history"][-1], "狀態": cs.status_of(final)})
 
     has_sign = bool(od["signback"] or ((prev or {}).get("review") or {}).get("signback"))
-    submit_block = ([] if live else ["乾跑模式"]) + od["missing"] + ([] if has_sign else ["客戶回簽檔"])
+    block = ([] if live else ["乾跑模式"]) + ([] if booking_enabled() else ["訂檔寫入未開放（RAGIC_BOOKING_ENABLED）"]) \
+        + od["missing"] + ([] if has_sign else ["客戶回簽檔"])
     b1, b2 = st.columns(2)
     do_save = b1.button("💾 存檔到 Ragic", key=f"{key_prefix}_btn", type="primary", disabled=not live)
-    do_submit = b2.button("📨 存檔並送審", key=f"{key_prefix}_submit", disabled=bool(submit_block),
-                          help=("尚缺：" + "、".join(submit_block)) if submit_block else
-                          "存檔並送營運主管審核；核准後自動申請 CUE號並建立（或更新）訂檔。")
-
-    if linked and not dirty and is_reviewer() and cs.status_of(lsnap) in cs.REVIEWABLE:
-        _render_review_box(linked, files, legacy_details, key_prefix)
-
-    if not (do_save or do_submit):
+    do_book = b2.button("📨 存檔並" + ("送出更新訂檔" if booked_before else "送出訂檔（成交）"),
+                        key=f"{key_prefix}_submit", disabled=bool(block),
+                        help=("尚缺：" + "、".join(block)) if block else
+                        "送出即申請 CUE號並建立各波訂檔（已訂檔則更新原訂檔），算成交。")
+    if linked and is_reviewer() and reg.is_deal(lsnap) and not dirty:
+        _render_spot_check(linked, legacy_details, key_prefix)
+    if not (do_save or do_book):
         return
-    if do_submit:
-        cs.mark_submitted(final, u["name"], od["params"])
+
+    if as_new:
+        final["save_no"] = _new_save_no(u)
+        final["owner"] = {"name": u["name"], "email": u.get("email", ""), "code": my_code(u)}
+    url, key = _ragic_conn()
+    files_d, up = _upload_dict(files, style)
+    if do_book:
+        res = _book(final, od, files_d, rid=None if as_new else linked["rid"])
+        if not res.get("ok"):
+            st.error(f"送出訂檔失敗：{res.get('error')}")
+            return
+        cs.mark_booked(final, u["name"], od["params"], {"cue_id": res.get("cue_id", ""), "orders": res.get("orders", []),
+                                                        "at": datetime_now(), "by": u["name"]})
         if od["signback"]:
             final["review"]["signback"] = od["signback"].name
+            up[SIGNBACK_FIELD] = (od["signback"].name, od["signback"].getvalue(), "application/octet-stream")
         elif (prev or {}).get("review", {}).get("signback"):
             final["review"]["signback"] = prev["review"]["signback"]
     fields = cs.ragic_fields(final, RAGIC_MAP, extra_fields)
     fields[RAGIC_MAP["details"]] = cs.details_text(final, legacy_details)
-    _files, up = _upload_dict(files, style)
-    if do_submit and od["signback"]:
-        up[SIGNBACK_FIELD] = (od["signback"].name, od["signback"].getvalue(), "application/octet-stream")
-    url, key = _ragic_conn()
     with st.spinner("存檔中…"):
         res = cue2.save_record(url, key, fields, up, rid=None if as_new else linked["rid"])
     if not res.ok:
-        st.error(f"存檔失敗：{res.error}")
+        extra = f"（訂檔已建立：CUE號 {final['booking'].get('cue_id')}，請記下並通知 Jonathan）" if do_book else ""
+        st.error(f"存檔失敗：{res.error}{extra}")
         return
     st.session_state[SS_RECORD] = {"rid": res.rid, "serial": res.serial, "mode": snap.get("mode"), "snap": final}
-    st.session_state[msg_key] = (f"✅ 已存檔 #{res.serial or res.rid}（v{final['version']}）"
-                                 + ("，已送審" if do_submit else ""))
+    st.session_state.pop(f"{key_prefix}_dl_files", None)
+    st.session_state[msg_key] = (f"✅ 已存檔 {reg.display_no(final)}（v{final['version']}）"
+                                 + (f"，已送出訂檔：CUE號 {final['booking'].get('cue_id')}" if do_book else "，可下載"))
+    all_saved.clear()
     st.cache_data.clear()
     st.rerun()
 
 
+def datetime_now():
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def _book(snap, od, files_d, rid=None, signback_bytes=None):
+    """申請 CUE號＋建立各波訂檔（已訂檔過則更新原訂檔）。附件＝本 CUE Excel＋客戶回簽檔。"""
+    import os
+    import tempfile
+
+    from ragic_booking import cue2
+    from ragic_booking import fields as rf
+    from ragic_booking import order_from_cue as oc
+
+    p = od["params"]
+    fmt = lambda d: d.strftime("%Y/%m/%d") if d else ""   # noqa: E731
+    orders = oc.build_orders(snap, applicant=(reg_owner_name(snap) or (current_user() or {}).get("name", "")),
+                             company=p.get("公司", ""), category=p.get("類別", "商品"),
+                             收款日期=fmt(p.get("收款日期")), 發票開立日=fmt(p.get("發票開立日")))
+    url, key = _ragic_conn()
+    with st.spinner("申請 CUE號、建立／更新訂檔中…"), tempfile.TemporaryDirectory() as td:
+        att = {}
+        if files_d.get("xlsx"):
+            path = os.path.join(td, files_d["xlsx"][0])
+            with open(path, "wb") as f:
+                f.write(files_d["xlsx"][1])
+            att[rf.OrderF.訂檔CUE表] = path
+        sb_name, sb_data = None, None
+        if od.get("signback"):
+            sb_name, sb_data = od["signback"].name, od["signback"].getvalue()
+        elif rid:   # 沿用上次附在 cue/2 的回簽檔
+            val = (cue2.get_record(url, key, rid) or {}).get(SIGNBACK_FIELD)
+            val = val[0] if isinstance(val, list) and val else val
+            if val:
+                sb_name, sb_data = val.split("@", 1)[-1], cue2.download_file(url, key, val)
+        if sb_data:
+            path = os.path.join(td, sb_name)
+            with open(path, "wb") as f:
+                f.write(sb_data)
+            att[rf.OrderF.客戶回簽檔] = path
+        applicant = reg_owner_name(snap) or (current_user() or {}).get("name", "")
+        if snap.get("booking"):
+            return oc.update_booking(snap, orders, booking=snap["booking"], attachments={"all": att}, applicant=applicant)
+        return oc.submit_booking(snap, orders, applicant=applicant, attachments={"all": att})
+
+
+def reg_owner_name(snap):
+    return ((snap or {}).get("owner") or {}).get("name", "")
+
+
 def _status_line(snap):
+    import cue_registry as reg
     import cue_store as cs
     stt = cs.status_of(snap)
     rv = snap.get("review") or {}
     bk = snap.get("booking") or {}
-    extra = []
+    o = reg.owner_of(snap)
+    extra = [x for x in (reg.display_no(snap), o.get("name") and f"存檔人 {o['name']}") if x]
     if bk.get("cue_id"):
         extra.append(f"CUE號 {bk['cue_id']}")
+    if snap.get("ops"):
+        extra.append(f"🎁 營運加贈（{snap['ops'].get('by', '')}）")
     if stt == cs.REJECTED and rv.get("reason"):
         extra.append(f"退回原因：{rv['reason']}（{rv.get('reviewed_by', '')}）")
-    if stt in cs.REVIEWABLE:
-        extra.append(f"{rv.get('submitted_by', '')} {rv.get('submitted_at', '')} 送審")
     msg = f"狀態：**{stt}**" + ("｜" + "｜".join(extra) if extra else "")
     (st.error if stt == cs.REJECTED else st.info)(msg)
 
 
 def _save_snapshot_only(linked, snap, legacy_details):
-    """審核結果只更新 cue/2 的快照（不動其他欄位與附件）。"""
+    """只更新 cue/2 的快照（不動其他欄位與附件），抽查退回用。"""
     import cue_store as cs
     from config import RAGIC_MAP
     from ragic_booking import cue2
@@ -419,96 +553,25 @@ def _save_snapshot_only(linked, snap, legacy_details):
     res = cue2.save_record(url, key, {RAGIC_MAP["details"]: cs.details_text(snap, legacy_details)}, rid=linked["rid"])
     if res.ok:
         st.session_state[SS_RECORD] = dict(linked, snap=snap)
+        all_saved.clear()
         st.cache_data.clear()
     return res
 
 
-def _order_params(review):
+def _render_spot_check(linked, legacy_details, key_prefix):
+    """營運主管抽查已成交的 CUE：有問題可退回（記原因；已建立的訂檔請在 Ragic 處理）。"""
     import cue_store as cs
-    p = cs.from_jsonable((review or {}).get("params") or {})
-    fmt = lambda d: d.strftime("%Y/%m/%d") if d else ""   # noqa: E731
-    return {"company": p.get("公司", ""), "category": p.get("類別", "商品"),
-            "收款日期": fmt(p.get("收款日期")), "發票開立日": fmt(p.get("發票開立日"))}
-
-
-def _render_review_box(linked, files, legacy_details, key_prefix):
-    """營運主管審核：核准＝申請 CUE號並建立訂檔（已訂檔過則更新原訂檔）；退回＝記原因、狀態退回。"""
-    import os
-    import tempfile
-    from datetime import datetime
-
-    import cue_store as cs
-    from ragic_booking import cue2
-    from ragic_booking import fields as rf
-    from ragic_booking import order_from_cue as oc
-
-    snap = linked["snap"]
-    rv = snap.get("review") or {}
-    u = current_user() or {}
-    st.markdown("#### 🗂 主管審核")
-    params = _order_params(rv)
-    orders = oc.build_orders(snap, applicant=rv.get("submitted_by", ""), company=params["company"],
-                             category=params["category"], 收款日期=params["收款日期"], 發票開立日=params["發票開立日"])
-    bk = snap.get("booking") or {}
-    st.caption(("更新原訂檔（CUE號 " + bk.get("cue_id", "") + "）" if bk else "新訂檔：申請 CUE號＋各波建立訂檔")
-               + f"｜公司 {params['company']}｜類別 {params['category']}｜收款日 {params['收款日期'] or '—'}"
-               f"｜發票日 {params['發票開立日'] or '—'}｜客戶回簽檔 {rv.get('signback') or '—'}")
-    _order_lines(orders)
-    miss = oc.missing(snap, orders)
-    if miss["CUE號申請"] or miss["訂檔"]:
-        st.warning("訂檔資料不齊，請退回補件：" + "、".join(x.split("（")[0] for x in miss["CUE號申請"] + miss["訂檔"]))
-    reason = st.text_input("退回原因（退回時必填）", key=f"{key_prefix}_rv_reason")
-    live, book = write_enabled(), booking_enabled()
-    c1, c2 = st.columns(2)
-    approve = c1.button("✅ 核准並訂檔", key=f"{key_prefix}_rv_ok", type="primary",
-                        disabled=not (live and book) or bool(miss["CUE號申請"] or miss["訂檔"]))
-    reject = c2.button("↩️ 退回", key=f"{key_prefix}_rv_no", disabled=not live or not reason.strip())
-    if not book:
-        st.info("訂檔寫入尚未開放：Secrets 設 RAGIC_BOOKING_ENABLED = \"true\" 後，核准才會申請 CUE號並建立／更新訂檔。")
-    if reject:
-        res = _save_snapshot_only(linked, cs.mark_reviewed(json_copy(snap), u.get("name", ""), False,
-                                                           reason=reason.strip()), legacy_details)
-        if not res.ok:
-            st.error(f"退回失敗：{res.error}")
-            return
-        st.rerun()
-    if not approve:
-        return
-    url, key = _ragic_conn()
-    with st.spinner("申請 CUE號、建立／更新訂檔中…"), tempfile.TemporaryDirectory() as td:
-        files_d, _up = _upload_dict(files)
-        att = {}
-        if files_d.get("xlsx"):
-            p = os.path.join(td, files_d["xlsx"][0])
-            with open(p, "wb") as f:
-                f.write(files_d["xlsx"][1])
-            att[rf.OrderF.訂檔CUE表] = p
-        sign_val = (cue2.get_record(url, key, linked["rid"]) or {}).get(SIGNBACK_FIELD)
-        sign_val = sign_val[0] if isinstance(sign_val, list) and sign_val else sign_val
-        if sign_val:
-            data = cue2.download_file(url, key, sign_val)
-            if data:
-                p = os.path.join(td, sign_val.split("@", 1)[-1])
-                with open(p, "wb") as f:
-                    f.write(data)
-                att[rf.OrderF.客戶回簽檔] = p
-        if bk:
-            res = oc.update_booking(snap, orders, booking=bk, attachments={"all": att},
-                                    applicant=rv.get("submitted_by", ""))
-        else:
-            res = oc.submit_booking(snap, orders, applicant=rv.get("submitted_by", ""), attachments={"all": att})
-    if not res.get("ok"):
-        st.error(f"訂檔失敗：{res.get('error')}")
-        return
-    booking = {"cue_id": res.get("cue_id", ""), "orders": res.get("orders", []),
-               "at": datetime.now().strftime("%Y-%m-%d %H:%M"), "by": u.get("name", "")}
-    sres = _save_snapshot_only(linked, cs.mark_reviewed(json_copy(snap), u.get("name", ""), True, booking=booking),
-                               legacy_details)
-    if not sres.ok:
-        st.error(f"訂檔已完成（CUE號 {booking['cue_id']}），但回寫 CUE 存檔失敗：{sres.error}")
-        return
-    st.session_state[f"{key_prefix}_saved_msg"] = f"✅ 已核准並訂檔：CUE號 {booking['cue_id']}"
-    st.rerun()
+    with st.expander("🗂 主管抽查", expanded=False):
+        reason = st.text_input("退回原因", key=f"{key_prefix}_rv_reason")
+        st.caption("退回後狀態改為「退回」、不計成交；已申請的 CUE號與已建立的訂檔不會自動刪除，請營運在 Ragic 處理。")
+        if st.button("↩️ 退回", key=f"{key_prefix}_rv_no", disabled=not write_enabled() or not reason.strip()):
+            u = current_user() or {}
+            res = _save_snapshot_only(linked, cs.mark_reviewed(json_copy(linked["snap"]), u.get("name", ""), False,
+                                                               reason=reason.strip()), legacy_details)
+            if not res.ok:
+                st.error(f"退回失敗：{res.error}")
+                return
+            st.rerun()
 
 
 def _order_lines(orders):
@@ -557,8 +620,6 @@ def render_my_cues_sidebar():
         st.caption(f"編輯中：#{rec.get('serial') or rec['rid']}（{rec.get('mode')} v{(rec.get('snap') or {}).get('version')}）")
         if st.session_state.get("_cue_dirty"):
             st.warning("⚠️ 有尚未存檔的修改")
-    if is_reviewer():
-        _render_review_queue()
     kw = st.text_input("關鍵字（客戶、產品、Cue號，可留白）", key="mycue_kw")
     mine = st.checkbox("只看我存過的", value=True, key="mycue_mine")
     url, key = _ragic_conn()
@@ -582,27 +643,6 @@ def render_my_cues_sidebar():
             st.caption(f"v{h['v']}｜{h['at']}｜{h['by']}：" + "；".join(h.get("changes", [])))
     if st.button("📂 開啟這份 CUE", key="mycue_open", type="primary"):
         open_record(r, s)
-
-
-def _render_review_queue():
-    """主管：待審核清單（待審／異動待審），開啟後在該 CUE 的存檔區下方審核。"""
-    import cue_store as cs
-    url, key = _ragic_conn()
-    if not (url and key):
-        return
-    try:
-        items = [(r, s) for r, s in _list_saved(url, key, "") if cs.status_of(s) in cs.REVIEWABLE]
-    except Exception as e:  # noqa: BLE001
-        st.error(f"讀取待審清單失敗：{e}")
-        return
-    st.markdown(f"**🗂 待審核（{len(items)}）**")
-    if not items:
-        st.caption("目前沒有待審的 CUE。")
-        return
-    idx = st.selectbox("待審", range(len(items)), format_func=lambda i: _rec_label(*items[i]), key="review_pick",
-                       label_visibility="collapsed")
-    if st.button("🗂 開啟審核", key="review_open"):
-        open_record(*items[idx])
 
 
 def open_record(rec, snap):
@@ -630,7 +670,8 @@ def open_record(rec, snap):
         st.session_state[k] = v
     if snap.get("customer"):
         st.session_state[SS_CUSTOMER] = cs.from_jsonable(snap["customer"])
-    st.session_state["cue_mode"] = nav[0]
+    # 「製作模式」選單可能已在本次執行畫出（例如從 CUE 管理頁開啟），改由下一次執行在畫選單前套用
+    st.session_state[NAV_KEY] = nav[0]
     if nav[1]:
         st.session_state["agency_sub_mode"] = nav[1]
     st.session_state[SS_RECORD] = {"rid": rec["_ragicId"], "serial": str(rec.get(RAGIC_FIELD_SERIAL) or ""),
@@ -644,15 +685,16 @@ def open_record(rec, snap):
 COMPANY_OPTIONS = ["東吳", "聲活", "鉑霖", "錄音室", "聲活(采藝)"]   # 訂檔表實際使用值
 
 
-def render_order_preview(snap, key_prefix, prev_review=None):
+def render_order_preview(snap, key_prefix, prev_review=None, update=False):
     """訂檔補充資料（公司、收入類別、收款日、發票日、客戶回簽檔）＋各波訂檔預覽。
-    回傳 {"params", "missing", "signback"} 供「存檔並送審」使用；欄位預設帶上次送審的值。"""
+    回傳 {"params", "missing", "signback"} 供「送出訂檔」使用；欄位預設帶上次送出的值。"""
     import cue_store as cs
     from ragic_booking import fields as rf
     from ragic_booking import order_from_cue as oc
     last = cs.from_jsonable((prev_review or {}).get("params") or {})
     out = {"params": {}, "missing": [], "signback": None}
-    with st.expander("🧾 訂檔資料與送審（核准後自動申請 CUE號、建立訂檔）", expanded=False):
+    title = "🧾 訂檔資料（送出即更新原訂檔）" if update else "🧾 訂檔資料（送出即申請 CUE號、建立訂檔＝成交）"
+    with st.expander(title, expanded=False):
         u = current_user() or {}
         c1, c2, c3, c4 = st.columns(4)
         opts = [""] + COMPANY_OPTIONS
@@ -663,8 +705,8 @@ def render_order_preview(snap, key_prefix, prev_review=None):
                                 key=f"{key_prefix}_od_cat")
         pay = c3.date_input("收款日期", value=last.get("收款日期"), key=f"{key_prefix}_od_pay")
         inv = c4.date_input("發票開立日", value=last.get("發票開立日"), key=f"{key_prefix}_od_inv")
-        sign = st.file_uploader("客戶回簽檔（送審必附）", type=["pdf", "jpg", "jpeg", "png"], key=f"{key_prefix}_od_sign",
-                                help="客戶回簽後的 CUE（PDF 或照片）；已送審過可不重傳，沿用上次的檔案。")
+        sign = st.file_uploader("客戶回簽檔（送出必附）", type=["pdf", "jpg", "jpeg", "png"], key=f"{key_prefix}_od_sign",
+                                help="客戶回簽後的 CUE（PDF 或照片）；已送出過可不重傳，沿用上次的檔案。")
         if (prev_review or {}).get("signback") and not sign:
             st.caption(f"已附客戶回簽檔：{prev_review['signback']}")
         orders = oc.build_orders(snap, applicant=u.get("name", ""), company=company, category=category,
@@ -673,7 +715,7 @@ def render_order_preview(snap, key_prefix, prev_review=None):
         miss = oc.missing(snap, orders)
         missing = [x.split("（")[0] for x in miss["CUE號申請"] + miss["訂檔"]]
         if missing:
-            st.warning("送審前還缺：" + "、".join(dict.fromkeys(missing)))
+            st.warning("送出前還缺：" + "、".join(dict.fromkeys(missing)))
         else:
             st.success("訂檔必填欄位齊全。")
         _order_lines(orders)

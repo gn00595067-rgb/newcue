@@ -48,6 +48,7 @@ def _fake_list(url, key, keyword="", limit=200):
 
 cue2.save_record = _fake_save
 cue2.list_records = _fake_list
+cue2.list_all = lambda url, key, **k: _fake_list(url, key)
 cue2.get_record = lambda url, key, rid: st.session_state.get("_fake_db", {}).get(str(rid))
 cue2.download_file = lambda url, key, v: b"%PDF-signback"
 

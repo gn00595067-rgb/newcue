@@ -212,94 +212,153 @@ def test_bonus_agency_custom():
     assert s2 == s1 + 5 * 28 and n2 == n1          # 預設走期 8/5～9/1 共 28 天，每日 +5
 
 
-# ---------------------------------------------------------------- 第 4 期：送審 → 主管審核 → 訂檔
+# ---------------------------------------------------------------- 第 5 期：編號、先存再下載、送出即成交、營運加贈、管理、統計
+import re  # noqa: E402
+
 CUSTOMER = {"rid": "9", "編號": "C01399", "名稱": "客戶甲股份有限公司", "統編": "12345678", "產品": "產品乙",
             "類別": "直客", "業務": "王小明", "主管": "李主管", "客服": ["陳客服"], "付款條件": "月結30天",
             "現折": "5", "退佣": "0"}
+BOSS = {"email": "boss@x.com", "name": "營運主管 Boss", "groups": []}
 
 
-def _settle(at, prefix):
-    """AppTest：審核按鈕觸發 st.rerun 後，舊畫面的「退回原因」欄已不存在，先補值再重跑（瀏覽器無此問題）。"""
-    key = f"{prefix}_rv_reason"
-    at.session_state[key] = at.session_state[key] if key in at.session_state else ""
+def _after_rerun(at, *keys, **values):
+    """AppTest：按鈕觸發 st.rerun 後，舊畫面元件可能已不存在，先補值再重跑（瀏覽器無此問題）。"""
+    for k in keys:
+        if k not in at.session_state:
+            at.session_state[k] = ""
+    for k, v in values.items():
+        if k not in at.session_state:
+            at.session_state[k] = v
     at.run()
 
 
-def _submit(at, prefix):
+def _book(at, prefix):
     at.run()
     at.date_input(key=f"{prefix}_od_pay").set_value(date(2027, 2, 28)).run()
     btn = at.button(key=f"{prefix}_submit")
     assert not btn.disabled, btn.help
     btn.click().run()
-    at.run()   # AppTest：st.rerun 後補跑一次，避免沿用舊元件
+    _after_rerun(at, f"{prefix}_rv_reason")
     _ok(at)
 
 
-def test_submit_review_approve_then_adjust_updates_booking():
-    at = _app("簡易模式", ragic_customer=CUSTOMER, simple_client="客戶甲", _fake_sign=True)
-    _submit(at, "simple_save")
-    snap = _rec(at)["snap"]
-    assert snap["status"] == "待審" and snap["review"]["signback"] == "回簽.pdf"
-    assert at.session_state["_fake_files"][_rec(at)["rid"]]["1015884"][0] == "回簽.pdf"   # 回簽檔附到 cue/2
-    # 一般業務看不到審核區
-    assert not any(b.key == "simple_save_rv_ok" for b in at.button)
-    # 主管：從待審清單開啟 → 核准
-    at.session_state["is_supervisor"] = True
-    at.session_state["cue_mode"] = "一般CUE"
+def test_save_number_and_download_after_save():
+    at = _app("簡易模式", simple_client="客戶甲")
+    assert not at.get("download_button")                            # 未存檔不能下載
+    at.button(key="simple_save_btn").click().run()
     at.run()
-    at.button(key="review_open").click().run()
     _ok(at)
-    at.button(key="simple_save_rv_ok").click().run()
-    _settle(at, "simple_save")
-    _ok(at)
+    snap = _rec(at)["snap"]
+    assert re.fullmatch(r"A\d{4}-001", snap["save_no"])            # 王小明無英文名 → 信箱 a@x.com 的 A
+    assert snap["owner"]["email"] == "a@x.com"
+    assert at.get("download_button")                                # 存檔後可下載（AppTest 讀不到下載鈕 key，只看有無）
+    at.session_state["simple_budget2"] = 300000
+    at.run()
+    assert not at.get("download_button")                            # 改了沒存又不能下載
+    at.button(key="simple_save_btn").click().run()
+    at.run()
+    assert _rec(at)["snap"]["save_no"] == snap["save_no"]           # 改版本沿用編號
+    at.radio(key="simple_save_how").set_value(at.radio(key="simple_save_how").options[1]).run()
+    at.button(key="simple_save_btn").click().run()
+    at.run()
+    assert _rec(at)["snap"]["save_no"].endswith("-002")             # 另存新的一筆給新號
+
+
+def test_book_is_deal_then_adjust_updates_booking():
+    at = _app("簡易模式", ragic_customer=CUSTOMER, simple_client="客戶甲", _fake_sign=True)
+    _book(at, "simple_save")
     snap = _rec(at)["snap"]
     assert snap["status"] == "已訂檔" and snap["booking"]["cue_id"] == "1160101"
-    call = at.session_state["_fake_booking_calls"][-1]
-    assert call[0] == "submit" and len(call[2]) == 2                      # 訂檔CUE表＋客戶回簽檔
-    # 業務調整（加贈）→ 已訂檔－有異動未送審 → 送審 → 核准＝更新原訂檔
-    at.session_state["is_supervisor"] = False
+    assert at.session_state["_fake_booking_calls"][-1][0] == "submit"
+    assert len(at.session_state["_fake_booking_calls"][-1][2]) == 2          # 訂檔CUE表＋客戶回簽檔
+    assert at.session_state["_fake_files"][_rec(at)["rid"]]["1015884"][0] == "回簽.pdf"
     _enable_bonus(at, "simple_")
     at.button(key="simple_save_btn").click().run()
     at.run()
     assert _rec(at)["snap"]["status"] == "已訂檔－有異動未送審"
-    at.session_state["_fake_sign"] = False                                # 沿用上次回簽檔
-    _submit(at, "simple_save")
-    assert _rec(at)["snap"]["status"] == "異動待審"
-    at.session_state["is_supervisor"] = True
-    at.run()
-    at.button(key="simple_save_rv_ok").click().run()
-    _settle(at, "simple_save")
-    _ok(at)
+    at.session_state["_fake_sign"] = False                                   # 沿用上次回簽檔
+    _book(at, "simple_save")
     assert at.session_state["_fake_booking_calls"][-1] == ("update", "1160101", ["500"])
     assert _rec(at)["snap"]["status"] == "已訂檔"
 
 
-def test_reject_with_reason():
-    at = _app("專案CUE", ragic_customer=CUSTOMER, fp_client="客戶甲", _fake_sign=True)
-    _submit(at, "fp_save")
-    at.session_state["is_supervisor"] = True
-    at.run()
-    assert at.button(key="fp_save_rv_no").disabled                       # 沒填原因不能退回
-    at.text_input(key="fp_save_rv_reason").input("收款日期不對").run()
-    at.button(key="fp_save_rv_no").click().run()
-    _settle(at, "fp_save")
-    assert not at.exception
-    snap = _rec(at)["snap"]
-    assert snap["status"] == "退回" and snap["review"]["reason"] == "收款日期不對"
-    assert any("退回原因" in e.value for e in at.error)                  # 業務看得到退回原因
-
-
-def test_submit_blocked_without_customer_or_signback():
+def test_book_blocked_without_customer_signback_or_flag():
     at = _app("簡易模式", simple_client="客戶甲")
-    at.run()
     btn = at.button(key="simple_save_submit")
     assert btn.disabled and "客戶回簽檔" in btn.help and "客戶編號" in btn.help
-
-
-def test_approve_disabled_when_booking_off():
     at = _app("簡易模式", ragic_customer=CUSTOMER, simple_client="客戶甲", _fake_sign=True, _fake_booking_on=False)
-    _submit(at, "simple_save")
+    at.date_input(key="simple_save_od_pay").set_value(date(2027, 2, 28)).run()
+    btn = at.button(key="simple_save_submit")
+    assert btn.disabled and "RAGIC_BOOKING_ENABLED" in btn.help
+
+
+def test_ops_bonus_mark_and_spot_check_reject():
+    at = _app("專案CUE", ragic_customer=CUSTOMER, fp_client="客戶甲", _fake_sign=True)
+    _book(at, "fp_save")
+    no = _rec(at)["snap"]["save_no"]
+    # 營運主管開啟業務的存檔 → 加贈 → 存檔：標記營運加贈，編號、存檔人不變
+    at.session_state["ragic_user"] = BOSS
     at.session_state["is_supervisor"] = True
+    at.session_state["cue_mode"] = "CUE 管理"
     at.run()
-    assert at.button(key="simple_save_rv_ok").disabled
-    assert any("RAGIC_BOOKING_ENABLED" in i.value for i in at.info)
+    at.button(key="adm_open").click().run()
+    _after_rerun(at)
+    _enable_bonus(at, "fp_")
+    at.button(key="fp_save_btn").click().run()
+    _after_rerun(at, "fp_save_rv_reason")
+    snap = _rec(at)["snap"]
+    assert snap["ops"]["by"] == BOSS["name"] and snap["save_no"] == no and snap["owner"]["email"] == "a@x.com"
+    assert snap["history"][-1]["changes"][0] == "【營運加贈】"
+    # 抽查退回
+    _book(at, "fp_save")
+    at.text_input(key="fp_save_rv_reason").input("金額不對").run()
+    at.button(key="fp_save_rv_no").click().run()
+    _after_rerun(at, "fp_save_rv_reason")
+    assert _rec(at)["snap"]["status"] == "退回"
+
+
+def test_manage_and_stats_views():
+    at = _app("簡易模式", simple_client="客戶甲", ragic_customer=CUSTOMER, _fake_sign=True)
+    at.button(key="simple_save_btn").click().run()
+    at.run()
+    _book(at, "simple_save")
+    at.session_state["cue_mode"] = "專案CUE"
+    at.run()
+    at.button(key="fp_save_btn").click().run()
+    at.run()
+    # 業務：CUE 管理只看自己的；送出訂檔可直接從清單送
+    at.session_state["cue_mode"] = "CUE 管理"
+    at.run()
+    _ok(at)
+    df = at.dataframe[0].value
+    assert len(df) == 2 and any(str(x).startswith("★") for x in df["編號"])
+    # 統計
+    at.session_state["cue_mode"] = "統計"
+    at.run()
+    _ok(at)
+    m = {x.label: x.value for x in at.metric}
+    assert m["出 CUE 張數"] == "2" and m["成交張數"] == "1" and m["成交率"] == "50%"
+    # 其他業務看不到
+    at.session_state["ragic_user"] = {"email": "b@x.com", "name": "B 業務 Bob", "groups": []}
+    at.session_state["cue_mode"] = "CUE 管理"
+    at.run()
+    assert not at.dataframe
+
+
+def test_manage_submit_saved_record():
+    at = _app("專案CUE", ragic_customer=CUSTOMER, fp_client="客戶甲")
+    at.button(key="fp_save_btn").click().run()
+    at.run()
+    at.session_state["cue_mode"] = "CUE 管理"
+    at.session_state["_fake_sign"] = True
+    at.run()
+    at.date_input(key="adm_od_pay").set_value(date(2027, 2, 28)).run()
+    btn = at.button(key="adm_submit")
+    assert not btn.disabled, btn.help
+    btn.click().run()
+    _after_rerun(at, adm_od_company="", adm_od_cat="商品", adm_od_pay=None, adm_od_inv=None)
+    _ok(at)
+    rid = next(iter(at.session_state["_fake_db"]))
+    import cue_store as cs
+    snap = cs.parse_snapshot(at.session_state["_fake_db"][rid]["1015319"])
+    assert snap["status"] == "已訂檔" and snap["booking"]["cue_id"] == "1160101"

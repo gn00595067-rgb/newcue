@@ -369,7 +369,7 @@ def carry_over(old, new):
     if not old:
         new["status"] = DRAFT
         return new
-    for k in ("booking", "review"):
+    for k in ("booking", "review", "save_no", "owner", "ops"):   # 編號／存檔人沿用第一次存檔
         if old.get(k):
             new[k] = old[k]
     st_old = status_of(old)
@@ -410,5 +410,21 @@ def mark_reviewed(snap, user_name, approved, *, reason="", booking=None, now=Non
     else:
         snap["status"] = REJECTED
         msg = f"主管退回：{reason}"
+    snap.setdefault("history", []).append({"v": snap.get("version", 0), "at": at, "by": user_name, "changes": [msg]})
+    return snap
+
+
+def mark_booked(snap, user_name, params, booking, now=None):
+    """送出訂檔（第 5 期：送出即申請 CUE號＋建訂檔＝成交）。已訂檔過的為更新原訂檔。"""
+    now = now or datetime.now()
+    at = now.strftime("%Y-%m-%d %H:%M")
+    updated = bool(snap.get("booking"))
+    snap["status"] = BOOKED
+    snap["booking"] = booking
+    rv = dict(snap.get("review") or {})
+    rv.update({"submitted_by": user_name, "submitted_at": at, "params": to_jsonable(params)})
+    snap["review"] = rv
+    msg = (f"更新原訂檔（CUE號 {booking.get('cue_id', '')}）" if updated
+           else f"送出訂檔：CUE號 {booking.get('cue_id', '')}，成交")
     snap.setdefault("history", []).append({"v": snap.get("version", 0), "at": at, "by": user_name, "changes": [msg]})
     return snap

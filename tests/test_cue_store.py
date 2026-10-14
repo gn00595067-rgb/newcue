@@ -129,3 +129,14 @@ def test_status_flow():
     assert adj["status"] == cs.BOOKED_CHANGED and adj["booking"]["cue_id"] == "1160101"
     cs.mark_submitted(adj, "業務", {})
     assert adj["status"] == cs.PENDING_CHANGE
+
+
+def test_carry_over_keeps_number_owner_and_booked():
+    v1 = cs.carry_over(None, cs.next_version(None, _snap(), "業務"))
+    v1["save_no"], v1["owner"] = "P2610-001", {"name": "業務", "code": "P"}
+    v2 = cs.carry_over(v1, cs.next_version(v1, _snap(spots=150), "主管"))
+    assert v2["save_no"] == "P2610-001" and v2["owner"]["name"] == "業務"
+    cs.mark_booked(v2, "業務", {"公司": "聲活"}, {"cue_id": "1161001", "orders": [{"wave": 1, "rid": "5"}]})
+    assert v2["status"] == cs.BOOKED and "成交" in v2["history"][-1]["changes"][0]
+    cs.mark_booked(v2, "主管", {}, {"cue_id": "1161001", "orders": []})
+    assert "更新原訂檔" in v2["history"][-1]["changes"][0]

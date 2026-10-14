@@ -386,20 +386,14 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     #   次要：公式版 —— 業務可改每日檔次讓 rate/Total 自動更新
     fname = safe_filename(model.filename)
     # edit_fname = safe_filename(fname.replace(".xlsx", "-可編輯.xlsx"))  # 可編輯版隱藏中
-    dc = st.columns(4)
-    dc[0].download_button("⬇ 下載 Excel（開啟即見數字）", data=xlsx_val, file_name=fname,
-                          mime=_XLSX_MIME, type="primary")
-    # 「可編輯版（改檔次自動加總）」先隱藏（保留產出與程式碼，恢復即取消註解）
-    # dc[1].download_button("⬇ 可編輯版（改檔次自動加總）", data=xlsx, file_name=edit_fname,
-    #                       mime=_XLSX_MIME)
+    # 下載移到下方「☁️ 存檔到 Ragic」：存檔後才能下載（第 5 期，每張出過的 CUE 納入統計）
+    pdf = None
     if spv.has_soffice():
         pdf, _tag, _msg = xlsx_bytes_to_pdf_bytes(xlsx_val, fname)
-        if pdf:
-            dc[2].download_button("⬇ 下載 PDF", data=pdf,
-                                  file_name=safe_filename(fname.replace(".xlsx", ".pdf")),
-                                  mime="application/pdf")
-        else:
-            dc[2].caption(f"（PDF 產生失敗：{_msg}）")
+        if not pdf:
+            st.caption(f"（PDF 產生失敗：{_msg}）")
+    dc = st.columns(4)
+    st.caption("⬇️ 下載 Excel／PDF 請到頁面下方「☁️ 存檔到 Ragic」，存檔後即可下載。")
     if dc[3].button("🔁 重新整理設定檔"):
         st.cache_data.clear()
         st.rerun()
@@ -437,7 +431,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                     fill = sheet.hidden_net_total / sheet.budget * 100 if sheet.budget else 0
                     st.caption(f"隱藏實收 ${int(sheet.hidden_net_total):,}／填滿率 {fill:.1f}%")
 
-    _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, locals().get("pdf"),
+    _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf,
                    combo_key="agency_simple_combo" if is_agency else "simple_combo",
                    ov={"start": start, "weeks": weeks, "end": end, "party_b": party_b, "party_b_tax": party_b_tax,
                        "payment": payment_date, "sales_name": sales_name, "prod_cost": int(prod_cost),
@@ -479,5 +473,6 @@ def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov
     snap = cs.make_snapshot(mode, header, [{"label": "", "start": model.start, "end": model.end, "rows": rows}],
                             restore=restore, customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
     ragic_ui.render_save_panel(
-        snap, files={"xlsx": (fname, xlsx_val), "pdf": (fname.replace(".xlsx", ".pdf"), pdf) if pdf else None},
+        snap, files={"xlsx": (fname, xlsx_val),
+                     "pdf": (safe_filename(fname.replace(".xlsx", ".pdf")), pdf) if pdf else None},
         extra_fields={}, key_prefix="agsimple_save" if is_agency else "simple_save")

@@ -104,6 +104,7 @@ from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_t
 from agency_ui import render_agency_cue, render_annual_agency_waves
 from simple_cue import render_simple_cue
 import ragic_ui
+import cue_admin
 from bonus_adjust import render_bonus_ui, apply_bonus, bonus_keys, agency_groups, render_agency_bonus_ui, apply_agency_bonus
 from fixed_projects import FIXED_PROJECTS, build_project_rows, project_days, project_seconds_text, project_total_list
 from ragic_api import (
@@ -271,8 +272,6 @@ AQ_AGENCY_FORMATS = ["2008傳媒", "凱絡"]
 def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, regions_order, fmt_options, fmt_idx, sales_map):
     """年約／季約細 CUE：以已知檔次與實收分配至各波段，每波段獨立 Excel/PDF。每個廣告組合可個別設定每波檔次與實收；若不知道各波分配則填該組合總檔次／總實收後按「依天數均分」。"""
     st.caption("以已知**執行區域、平台、秒數**設定各波段檔次與實收；若不知各波分配，可填該**廣告組合**的總檔次／總實收後按「依波段天數均分」。")
-    can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
-    can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
     if "aq_combos" not in st.session_state:
         st.session_state.aq_combos = []
     if "aq_waves" not in st.session_state:
@@ -646,19 +645,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
                         "rows": _cst.scale_net(_cst.norm_general_rows(rows), budget_wave),
                         "xlsx": (f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.xlsx", xlsx_bytes),
                         "pdf": (f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.pdf", pdf_bytes)})
-        col_x, col_p = st.columns(2)
-        with col_x:
-            if can_download_excel:
-                st.download_button(f"📥 波段{i+1} Excel", xlsx_bytes, f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.xlsx", key=f"aq_xlsx_{i}", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            else:
-                st.caption("Excel 下載已由主管關閉")
-        with col_p:
-            if pdf_bytes and can_download_pdf:
-                st.download_button(f"📥 波段{i+1} PDF", pdf_bytes, f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.pdf", key=f"aq_pdf_{i}", mime="application/pdf")
-            elif not can_download_pdf:
-                st.caption("PDF 下載已由主管關閉")
-            else:
-                st.caption("PDF 需 LibreOffice")
+        st.caption(f"波段 {i+1}：{start_d} ~ {end_d}｜下載請到下方「☁️ 存檔到 Ragic」")
     _aq_save_panel(format_type, _aq_out, client_name, client_tax_id, product_name, sales_person, sales_map)
 
 
@@ -690,7 +677,17 @@ def _aq_save_panel(format_type, waves_out, client_name, client_tax_id, product_n
                 f"{snap['header']['start']['__date__']}_{snap['header']['end']['__date__']}")
         return {"xlsx": (name + ".xlsx", merged), "pdf": (name + ".pdf", pdf) if pdf else None}
 
-    ragic_ui.render_save_panel(snap, files=_files, key_prefix="aq_save")
+    def _files_all():
+        d = _files()
+        xl = [(f"⬇️ {w['label']} Excel", w["xlsx"][0], w["xlsx"][1],
+               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+              for w in waves_out if w.get("xlsx")]
+        pdf = [(f"⬇️ {w['label']} PDF", w["pdf"][0], w["pdf"][1], "application/pdf")
+               for w in waves_out if w.get("pdf") and w["pdf"][1]]
+        d["extra"] = xl + pdf
+        return d
+
+    ragic_ui.render_save_panel(snap, files=_files_all, key_prefix="aq_save")
 
 
 def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales_map, pricing_db=None, sec_factors=None, regions_order=None):
@@ -748,23 +745,10 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
                                              rem, budget, prod_cost, sales_person, total_list, medium_label=p["medium"])
     _nick = sales_map.get(sales_person, sales_person) if sales_person else ""
     fn = lambda ext: build_cue_filename(client_name, rows, budget, _nick, ext=ext, seg_label=p["short"])
-    can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
-    can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
-    d1, d2 = st.columns(2)
-    with d1:
-        if can_download_excel:
-            st.download_button("📥 下載 Excel", xlsx_bytes, fn("xlsx"), key="fp_xlsx_dl",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        else:
-            st.caption("Excel 下載已由主管關閉")
-    with d2:
-        pdf_bytes, _, err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
-        if pdf_bytes and can_download_pdf:
-            st.download_button("📥 下載 PDF", pdf_bytes, fn("pdf"), key="fp_pdf_dl", mime="application/pdf")
-        elif not can_download_pdf:
-            st.caption("PDF 下載已由主管關閉")
-        else:
-            st.warning(f"PDF 生成失敗: {err}")
+    # 下載移到下方「☁️ 存檔到 Ragic」：存檔後才能下載（第 5 期）
+    pdf_bytes, _, err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
+    if not pdf_bytes:
+        st.warning(f"PDF 生成失敗: {err}")
     # Ragic 存檔（第 2 期）
     import cue_store as cs
     _rows_n = cs.scale_net(cs.norm_general_rows(rows), budget)
@@ -962,15 +946,23 @@ def main():
             fmt_idx = 0
         
         # 製作模式（先分流：簡易模式／代理商CUE 與「選擇格式／交換合約」無關，須在其之前分流）
-        mode_options = ["簡易模式", "一般CUE", "年約季約細CUE", "代理商CUE", "專案CUE"]
+        mode_options = ["簡易模式", "一般CUE", "年約季約細CUE", "代理商CUE", "專案CUE", "CUE 管理", "統計"]
+        if ragic_ui.NAV_KEY in st.session_state:   # 從「我的 CUE」／CUE 管理開啟存檔
+            st.session_state["cue_mode"] = st.session_state.pop(ragic_ui.NAV_KEY)
         cur_mode = st.session_state.get("cue_mode", "簡易模式")
         try:
             mode_idx = mode_options.index(cur_mode)
         except ValueError:
             mode_idx = 0
         cue_mode = st.radio("製作模式", mode_options, index=mode_idx, key="cue_mode", horizontal=True,
-                            help="簡易模式：只選平台組合＋輸入預算，自動產各秒數版 CUE。年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式（需密碼）。專案CUE：走期／檔次／金額固定的專案（如萬家福／樂家康過年、中元限定專案）。")
+                            help="簡易模式：只選平台組合＋輸入預算，自動產各秒數版 CUE。年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式（需密碼）。專案CUE：走期／檔次／金額固定的專案（如萬家福／樂家康過年、中元限定專案）。CUE 管理：查看／開啟／送出存過的 CUE。統計：每位業務出 CUE 與成交張數。")
 
+        if cue_mode == "CUE 管理":
+            cue_admin.render_manage()
+            return
+        if cue_mode == "統計":
+            cue_admin.render_stats()
+            return
         if cue_mode != "代理商CUE":
             _customer_bar(cue_mode)
 
@@ -1791,8 +1783,6 @@ def main():
 
             # 顯示運算邏輯（含回饋檔次計算、主管額外回饋計算）
             render_logic_panel(logs, use_list_price_for_spots=is_barter_contract, rebate_logs=rebate_logs if not is_barter_contract else [], bonus_rebate_logs=bonus_rebate_logs)
-            can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
-            can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
             
             st.markdown("---")
             st.subheader("📥 檔案下載區")
@@ -1806,6 +1796,7 @@ def main():
             if isinstance(_cue_def_s, datetime):
                 _cue_def_s = _cue_def_s.date() if hasattr(_cue_def_s, "date") else _cue_def_s
 
+            _gen_extra = []   # 分波段各波下載（第 5 期：存檔後在存檔區下載）
             if use_date_segments and segments and len(segments) > 1:
                 for i, (seg_start, seg_end) in enumerate(segments):
                     seg_rem = _get_cue_segment_rem(i, seg_end, _cue_def_s)
@@ -1821,19 +1812,9 @@ def main():
                             st.components.v1.html(html_seg, height=500, scrolling=True)
                         xlsx_seg = generate_excel_from_scratch(format_type, seg_start, seg_end, client_name, client_tax_id, product_name, segment_rows, seg_rem, final_budget_val, prod_cost, sales_person, total_list_accum)
                         pdf_seg, _, _ = xlsx_bytes_to_pdf_bytes(xlsx_seg)
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            if can_download_excel:
-                                st.download_button(f"📥 波段{i+1} Excel", xlsx_seg, _cue_fn(segment_rows, "xlsx", f"波段{i+1}"), key=f"cue_seg_xlsx_{i}", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                            else:
-                                st.caption("Excel 下載已由主管關閉")
-                        with c2:
-                            if pdf_seg and can_download_pdf:
-                                st.download_button(f"📥 波段{i+1} PDF", pdf_seg, _cue_fn(segment_rows, "pdf", f"波段{i+1}"), key=f"cue_seg_pdf_{i}", mime="application/pdf")
-                            elif not can_download_pdf:
-                                st.caption("PDF 下載已由主管關閉")
-                            else:
-                                st.caption("PDF 需 LibreOffice")
+                        _gen_extra.append((f"⬇️ 波段{i+1} Excel", _cue_fn(segment_rows, "xlsx", f"波段{i+1}"), xlsx_seg, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                        if pdf_seg:
+                            _gen_extra.append((f"⬇️ 波段{i+1} PDF", _cue_fn(segment_rows, "pdf", f"波段{i+1}"), pdf_seg, "application/pdf"))
                 seg0_start, seg0_end = segments[0][0], segments[0][1]
                 _seg0_rem = _get_cue_segment_rem(0, seg0_end, _cue_def_s)
                 _seg0_rows = _slice_rows_to_segment(rows, start_date, seg0_start, seg0_end)
@@ -1849,20 +1830,10 @@ def main():
                 else:
                     st.components.v1.html(html_preview, height=700, scrolling=True)
                 xlsx_temp = generate_excel_from_scratch(format_type, start_date, end_date, client_name, client_tax_id, product_name, rows, rem, final_budget_val, prod_cost, sales_person, total_list_accum)
-                col_dl1, col_dl2, _ = st.columns([1, 1, 2])
-                with col_dl2:
-                    pdf_bytes, method, err = xlsx_bytes_to_pdf_bytes(xlsx_temp)
-                    if pdf_bytes and can_download_pdf:
-                        st.download_button(f"📥 下載 PDF", pdf_bytes, _cue_fn(rows, "pdf"), key="pdf_dl_btn", mime="application/pdf")
-                    elif not can_download_pdf:
-                        st.caption("PDF 下載已由主管關閉")
-                    else:
-                        st.warning(f"PDF 生成失敗: {err}")
-                with col_dl1:
-                    if can_download_excel:
-                        st.download_button("📥 下載 Excel", xlsx_temp, _cue_fn(rows, "xlsx"), key="xlsx_dl_btn", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    else:
-                        st.caption("Excel 下載已由主管關閉")
+                pdf_bytes, method, err = xlsx_bytes_to_pdf_bytes(xlsx_temp)
+                if not pdf_bytes:
+                    st.warning(f"PDF 生成失敗: {err}")
+                st.caption("⬇️ 下載 Excel／PDF 請到下方「☁️ 存檔到 Ragic」，存檔後即可下載。")
                 _xlsx_ragic, _pdf_ragic = xlsx_temp, pdf_bytes
 
             # Ragic 存檔（第 2 期：取代原「上傳至 Ragic」；同一份再存＝更新同一筆、版本 +1）
@@ -1891,7 +1862,8 @@ def main():
             ragic_ui.render_save_panel(
                 _snap,
                 files={"xlsx": (_cue_fn(rows, "xlsx"), _xlsx_ragic),
-                       "pdf": (_cue_fn(rows, "pdf"), _pdf_ragic) if _pdf_ragic else None},
+                       "pdf": (_cue_fn(rows, "pdf"), _pdf_ragic) if _pdf_ragic else None,
+                       "extra": _gen_extra},
                 legacy_details=build_ragic_details_full(config, _get_ragic_extra_state(row_groups_upload)),
                 extra_fields=_extra, key_prefix="gen_save")
 

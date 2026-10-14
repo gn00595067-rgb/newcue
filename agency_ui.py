@@ -207,8 +207,6 @@ def render_agency_cue(sales_map=None):
     # --- 搜尋 / 載入已上傳的代理商案子（與一般 CUE 共用同一張 Ragic 表單）---
     _render_agency_search()
 
-    can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
-    can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
 
     # 牌價來源
     agency_pricing = load_agency_pricing_from_cloud(config.GSHEET_SHARE_URL)
@@ -390,33 +388,9 @@ def render_agency_cue(sales_map=None):
     xlsx_name = safe_filename(fn_base) + ".xlsx"
     pdf_name = safe_filename(fn_base) + ".pdf"
 
-    # Excel 下載
+    # Excel（下載移到「☁️ 存檔到 Ragic」：存檔後才能下載；PDF 較慢，存檔或按「產生下載檔」時才轉）
     xlsx_bytes = generate_agency_excel(model, made_date)
-    st.markdown("---")
-    d1, d2 = st.columns(2)
-    with d1:
-        if can_download_excel:
-            st.download_button("⬇️ 下載 Excel", data=xlsx_bytes, file_name=xlsx_name,
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               use_container_width=True)
-        else:
-            st.button("⬇️ 下載 Excel（需權限）", disabled=True, use_container_width=True)
-    with d2:
-        if can_download_pdf:
-            if st.button("🧾 產生 PDF", use_container_width=True):
-                pdf_bytes, method, err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
-                if pdf_bytes:
-                    st.session_state["ag_pdf_bytes"] = pdf_bytes
-                    st.session_state["ag_pdf_name"] = pdf_name
-                    st.success(f"PDF 已生成（{method}）")
-                else:
-                    st.error(f"PDF 生成失敗：{err}")
-            if st.session_state.get("ag_pdf_bytes"):
-                st.download_button("⬇️ 下載 PDF", data=st.session_state["ag_pdf_bytes"],
-                                   file_name=st.session_state.get("ag_pdf_name", pdf_name),
-                                   mime="application/pdf", use_container_width=True)
-        else:
-            st.button("🧾 產生 PDF（需權限）", disabled=True, use_container_width=True)
+    st.caption("⬇️ 下載 Excel／PDF 請到下方「☁️ 存檔到 Ragic」，存檔後即可下載。")
 
     # --- 上傳至 Ragic（與一般 CUE 共用同一張表單）---
     form_inputs = {
@@ -447,9 +421,12 @@ def render_agency_cue(sales_map=None):
         [{"label": "", "start": start_date, "end": end_date, "rows": cs.norm_agency_model(model)}],
         restore=ragic_ui.capture(bonus_keys("ag_")),   # 其餘輸入由 [AGENCY_EXT] 還原
         customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
-    _pdf = st.session_state.get("ag_pdf_bytes") if st.session_state.get("ag_pdf_name") == pdf_name else None
+    def _files():
+        pdf_bytes, _m, _e = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
+        return {"xlsx": (xlsx_name, xlsx_bytes), "pdf": (pdf_name, pdf_bytes) if pdf_bytes else None}
+
     ragic_ui.render_save_panel(
-        snap, files={"xlsx": (xlsx_name, xlsx_bytes), "pdf": (pdf_name, _pdf) if _pdf else None},
+        snap, files=_files,
         legacy_details=ac.build_agency_ragic_details(model, form_inputs),
         extra_fields={RAGIC_MAP["budget_fin"]: ac.agency_grand_total(model),
                       RAGIC_MAP["date_sign"]: form_inputs.get("sign_date") or ""},
@@ -587,8 +564,6 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
     from annual_quarter_cue import build_wave_agency_model
     out = []
 
-    can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
-    can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
     agency_pricing = load_agency_pricing_from_cloud(config.GSHEET_SHARE_URL)
 
     st.markdown("---")
@@ -683,22 +658,8 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
         wave = {"label": f"波段{i+1}", "start": start_d, "end": end_d, "rows": cue_store.norm_agency_model(model),
                 "xlsx": (fn_base + ".xlsx", xlsx_bytes), "pdf": None}
         out.append(wave)
-        col_x, col_p = st.columns(2)
-        with col_x:
-            if can_download_excel:
-                st.download_button(f"📥 波段{i+1} Excel", xlsx_bytes, fn_base + ".xlsx", key=f"aq_ag_xlsx_{i}",
-                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            else:
-                st.caption("Excel 下載已由主管關閉")
-        with col_p:
-            if not can_download_pdf:
-                st.caption("PDF 下載已由主管關閉")
-            else:
-                pdf_bytes, _m, _err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
-                if pdf_bytes:
-                    wave["pdf"] = (fn_base + ".pdf", pdf_bytes)
-                    st.download_button(f"📥 波段{i+1} PDF", pdf_bytes, fn_base + ".pdf", key=f"aq_ag_pdf_{i}",
-                                       mime="application/pdf")
-                else:
-                    st.caption("PDF 需 LibreOffice")
+        pdf_bytes, _m, _err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
+        if pdf_bytes:
+            wave["pdf"] = (fn_base + ".pdf", pdf_bytes)
+        st.caption(f"波段 {i+1}：{start_d} ~ {end_d}｜下載請到下方「☁️ 存檔到 Ragic」")
     return out

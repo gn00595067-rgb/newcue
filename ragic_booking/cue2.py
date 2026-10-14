@@ -123,3 +123,19 @@ def download_file(url, key, file_value):
     except requests.RequestException:
         return None
     return resp.content if resp.status_code == 200 and resp.content else None
+
+
+def list_all(url, key, page=1000, max_pages=20):
+    """全部紀錄（分頁讀取，新到舊）；統計、CUE 管理、編號流水用。"""
+    out = []
+    for i in range(max_pages):
+        params = {"api": "", "v": "3", "naming": "EID", "limit": page, "offset": i * page}
+        resp = requests.get(_base(url), params=params, headers=_hdr(key), timeout=90)
+        resp.raise_for_status()
+        data = resp.json() or {}
+        batch = [dict(row, _ragicId=str(rid)) for rid, row in data.items() if isinstance(row, dict)]
+        out.extend(batch)
+        if len(batch) < page:
+            break
+    out.sort(key=lambda r: int(r["_ragicId"]) if r["_ragicId"].isdigit() else 0, reverse=True)
+    return out
