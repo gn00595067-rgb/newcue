@@ -6,8 +6,8 @@ GET {SERVER}/AUTH?u=<email>&p=<password>&login_type=sessionId&json=1&api
 
 本模組只驗證身分、取姓名與群組；不保存密碼、寫入 Ragic 仍用共用 API 金鑰。
 
-app 專用密碼（2026-10-14）：Ragic 擋 Streamlit Cloud 發出的 AUTH 登入（同帳密本機成功、Cloud 回 -1），
-改由 Secrets RAGIC_APP_PASSWORDS（信箱=密碼）驗證，再用 API 金鑰讀 Ragic 使用者清單（ragic-setup/1）
+2026-10-14：Ragic 擋 Streamlit Cloud 發出的 AUTH 登入（同帳密本機成功、Cloud 回 -1）→ 同事改用
+app 密碼（app_passwords.py，存 Google Sheet），身分用 API 金鑰讀 Ragic 使用者清單（ragic-setup/1）
 取姓名、群組；Ragic 上停用（SUSPENDED）的帳號不能登入。
 不 import streamlit，可獨立測試。
 """
@@ -103,21 +103,9 @@ def ragic_login(email: str, password: str, server: str = SERVER, account: str = 
 
 
 # =============================================================================
-# app 專用密碼登入
+# Ragic 使用者清單（app 密碼登入用）
 # =============================================================================
 USER_FORM = "ragic-setup/1"   # Ragic 使用者清單（API 金鑰可讀）
-
-
-def parse_app_passwords(raw) -> dict[str, str]:
-    """Secrets 文字 "a@x.com=pw1, b@x.com=pw2"（逗號或換行分隔）→ {小寫信箱: 密碼}。密碼本身不可含逗號。"""
-    out = {}
-    for part in str(raw or "").replace("，", ",").replace(chr(10), ",").split(","):
-        if "=" not in part:
-            continue
-        email, pw = part.split("=", 1)
-        if email.strip() and pw.strip():
-            out[email.strip().lower()] = pw.strip()
-    return out
 
 
 def fetch_ragic_users(api_key: str, server: str = SERVER, account: str = ACCOUNT) -> list[dict]:
@@ -129,29 +117,17 @@ def fetch_ragic_users(api_key: str, server: str = SERVER, account: str = ACCOUNT
     return list(data.values()) if isinstance(data, dict) else []
 
 
-def user_from_list(email: str, users: list[dict]) -> RagicUser:
-    """在使用者清單找信箱 → RagicUser；找不到或已停用 → RagicAuthError。"""
-    rec = next((u for u in users if str(u.get("電子郵件信箱", "")).strip().lower() == email.lower()), None)
+def user_from_list(account_id: str, users: list[dict]) -> RagicUser:
+    """在使用者清單找公司信箱或員工工號 → RagicUser；找不到或已停用 → RagicAuthError。"""
+    key = (account_id or "").strip().lower()
+    rec = next((u for u in users if key and key in (str(u.get("電子郵件信箱", "")).strip().lower(),
+                                                    str(u.get("員工工號", "")).strip().lower())), None)
     if rec is None:
-        raise RagicAuthError("此信箱不在公司 Ragic 使用者名單，無法登入")
+        raise RagicAuthError("找不到這個信箱／員工工號（需為公司 Ragic 使用者）")
     if str(rec.get("狀態", "")).upper() == "SUSPENDED":
         raise RagicAuthError("此 Ragic 帳號已停用，無法登入")
     groups = rec.get("群組") or []
     groups = [groups] if isinstance(groups, str) else groups
+    email = str(rec.get("電子郵件信箱", "")).strip().lower()
     name = str(rec.get("使用者姓名") or "").strip() or email
     return RagicUser(email=email, name=name, groups=[str(g).strip() for g in groups if str(g).strip()])
-
-
-def app_login(email: str, password: str, passwords: dict[str, str], users_loader) -> RagicUser:
-    """app 專用密碼登入：密碼比對 Secrets，身分（姓名、群組、是否停用）取 Ragic 使用者清單。
-    users_loader()：回傳使用者清單（由呼叫端快取）。"""
-    import hmac
-    email = (email or "").strip()
-    expect = passwords.get(email.lower())
-    if not expect or not hmac.compare_digest(expect, password or ""):
-        raise RagicAuthError("帳號或密碼錯誤")
-    try:
-        users = users_loader()
-    except Exception as e:  # noqa: BLE001
-        raise RagicAuthError(f"讀取 Ragic 使用者清單失敗：{e}") from e
-    return user_from_list(email, users)

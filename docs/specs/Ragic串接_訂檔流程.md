@@ -159,5 +159,6 @@ Jonathan 決定：審核在 CUE 程式內做審核頁；全省組合平台檔數
 
 
 ## 登入方式變更（2026-10-14）
-- Ragic 擋 Streamlit Cloud 發出的帳密登入（AUTH 回 -1）。同事改用 app 專用密碼：Secrets `RAGIC_APP_PASSWORDS`（信箱=密碼），驗證後以 API 金鑰讀 Ragic 使用者清單 `ragic-setup/1` 取姓名、群組，停用（SUSPENDED）帳號不能登入。
-- 沒設 app 密碼的信箱仍試 Ragic 帳密（本機可用）。開發者登入不變。
+- Ragic 擋 Streamlit Cloud 發出的帳密登入（AUTH 回 -1）。同事改用 app 密碼：帳號＝公司信箱或員工工號，身分以 API 金鑰讀 Ragic 使用者清單 `ragic-setup/1` 取姓名、群組，停用（SUSPENDED）帳號不能登入。
+- 密碼存 newcue 設定檔 Google Sheet 的「登入密碼」分頁（自動建立、不動其他分頁；Secrets `[gcp_service_account]`，Sheet 共用給服務帳號；只存 PBKDF2 雜湊）。沒列＝預設 123456，第一次登入必須先改密碼才算登入；側欄「🔑 修改密碼」可再改；忘記密碼＝刪 Sheet 該列。
+- 未設密碼表（本機）改用 Ragic 帳密 AUTH。開發者登入不變。

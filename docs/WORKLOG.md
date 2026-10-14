@@ -39,3 +39,5 @@
 - 2026-10-14 ｜ [ragic-dev] Ragic 登入失敗時顯示 Ragic 原始回應摘要＋排查提示（直接登 ap16.ragic.com、Google 登入帳號需設密碼、兩步驟驗證） ｜ 同事 cristy 登入顯示帳號或密碼錯誤，原本看不出原因 ｜ 請同事先直接登入 Ragic 確認帳密，再試一次並截圖新訊息
 - 2026-10-14 ｜ [ragic-dev] Ragic 登入請求改成與瀏覽器網址列相同（api 不帶 =、瀏覽器 UA），GET 失敗再試 POST ｜ Cristy 同一組帳密在公司瀏覽器打 AUTH 成功（無兩步驟驗證），app 卻回 -1 ｜ Reboot 後請 Cristy 再試；仍失敗則疑似 Ragic 限制登入 IP，需問公司 Ragic 管理員
 - 2026-10-14 ｜ [ragic-dev] 同事登入改用 app 專用密碼（Secrets RAGIC_APP_PASSWORDS），姓名／群組／停用取 Ragic 使用者清單 ｜ 實測證實 Ragic 擋 Streamlit Cloud 的帳密登入（本機成功、Cloud -1），Jonathan 不考慮請公司放寬 ｜ Jonathan 在測試 app Secrets 設同事 app 密碼並發給同事、Reboot 後請 Cristy 再登入
+- 2026-10-14 ｜ [ragic-dev] 同事登入改為信箱或員工工號＋密碼（預設 123456、首次強制改、側欄可自改），密碼雜湊存 Google Sheet；取代同日 Secrets 版；requirements 加 google-auth ｜ Jonathan：Secrets 逐一設密碼太麻煩 ｜ Jonathan 建密碼 Sheet、共用給服務帳號、測試 app Secrets 設 APP_PASSWORD_SHEET_URL＋[gcp_service_account]、Reboot 後請 Cristy 用 123456 登入
+- 2026-10-14 ｜ [ragic-dev] 密碼表改放既有設定檔 Sheet 的「登入密碼」分頁（自動建立） ｜ Jonathan 不要新 Sheet ｜ 設定檔 Sheet 共用給服務帳號（編輯者）、測試 app Secrets 貼 [gcp_service_account]、Reboot

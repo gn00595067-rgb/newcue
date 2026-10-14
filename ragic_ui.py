@@ -32,18 +32,69 @@ def _ragic_users():
     return auth.fetch_ragic_users(str(_secret("RAGIC_API_KEY", "")))
 
 
-def login(email, pwd):
-    """登入：信箱有設 app 專用密碼（Secrets RAGIC_APP_PASSWORDS）就用它，身分取 Ragic 使用者清單；
-    沒設的才試 Ragic 帳密 AUTH（Streamlit Cloud 會被 Ragic 擋，本機可用）。"""
-    pw_map = auth.parse_app_passwords(_secret("RAGIC_APP_PASSWORDS", ""))
-    if (email or "").strip().lower() in pw_map:
-        return auth.app_login(email, pwd, pw_map, _ragic_users)
+SS_PENDING = "ragic_pending_user"   # 預設密碼登入、尚未改密碼的使用者（改完才算登入）
+
+
+def _pw_store():
+    """密碼表＝newcue 設定檔 Google Sheet 的「登入密碼」分頁（可用 APP_PASSWORD_SHEET_URL 改）；
+    需 Secrets [gcp_service_account]，未設定回 None。"""
+    import app_passwords as ap
+    import config
+    url = str(_secret("APP_PASSWORD_SHEET_URL", "")).strip() or config.GSHEET_SHARE_URL
     try:
-        return auth.ragic_login(email, pwd)
-    except auth.RagicAuthError as e:
-        if str(e).startswith("帳號或密碼錯誤"):
-            raise auth.RagicAuthError("帳號或密碼錯誤（此信箱尚未設定 app 密碼，請找 Jonathan）") from e
-        raise
+        sa = st.secrets.get("gcp_service_account")
+    except Exception:  # noqa: BLE001
+        sa = None
+    if not (url and sa):
+        return None
+    return ap.PasswordStore.from_service_account(url, sa)
+
+
+def login(account_id, pwd):
+    """登入 → (使用者, 是否還在用預設密碼需先改)。
+    有設密碼表：帳號＝公司信箱或員工工號，身分取 Ragic 使用者清單，密碼比對 Google Sheet（沒列＝預設 123456）。
+    沒設密碼表（本機開發）：用 Ragic 帳密 AUTH（Streamlit Cloud 會被 Ragic 擋）。"""
+    import app_passwords as ap
+    store = _pw_store()
+    if store is None:
+        return auth.ragic_login(account_id, pwd), False
+    try:
+        users = _ragic_users()
+    except Exception as e:  # noqa: BLE001
+        raise auth.RagicAuthError(f"讀取 Ragic 使用者清單失敗：{e}") from e
+    user = auth.user_from_list(account_id, users)
+    try:
+        ok, must_change = store.check(user.email, pwd)
+    except ap.PasswordError as e:
+        raise auth.RagicAuthError(str(e)) from e
+    if not ok:
+        raise auth.RagicAuthError("帳號或密碼錯誤（忘記密碼請找 Jonathan 重設為 123456）")
+    return user, must_change
+
+
+def _change_password_form(email, key, need_old):
+    """改密碼表單；成功回傳 True。need_old：已登入時要先輸入舊密碼。"""
+    import app_passwords as ap
+    store = _pw_store()
+    if store is None:
+        st.caption("尚未設定密碼表，無法改密碼。")
+        return False
+    with st.form(key, clear_on_submit=True):
+        old = st.text_input("目前密碼", type="password") if need_old else None
+        new = st.text_input(f"新密碼（至少 {ap.MIN_LEN} 個字）", type="password")
+        again = st.text_input("再輸入一次新密碼", type="password")
+        go = st.form_submit_button("更新密碼", type="primary")
+    if not go:
+        return False
+    try:
+        if need_old and not store.check(email, old)[0]:
+            raise ap.PasswordError("目前密碼不正確")
+        ap.check_new_password(new, again)
+        store.set_password(email, new)
+    except ap.PasswordError as e:
+        st.error(str(e))
+        return False
+    return True
 
 
 def dev_login_user(pwd):
@@ -62,30 +113,45 @@ def dev_login_user(pwd):
 # =============================================================================
 def render_login_sidebar():
     st.header("👤 Ragic 帳號")
+    pending = st.session_state.get(SS_PENDING)
+    if pending:   # 預設密碼登入：改完密碼才算登入
+        st.warning(f"{pending['name']}，第一次登入請先設定自己的密碼（預設密碼 123456 不能繼續使用）。")
+        if _change_password_form(pending["email"], "pw_first_form", need_old=False):
+            st.session_state[SS_USER] = st.session_state.pop(SS_PENDING)
+            st.rerun()
+        if st.button("取消", key="pw_first_cancel"):
+            st.session_state.pop(SS_PENDING, None)
+            st.rerun()
+        return
     u = current_user()
     if u:
         st.success(f"✅ {u['name']}")
         with st.expander("帳號資訊", expanded=False):
             st.caption(u["email"])
             st.caption("群組：" + ("、".join(u["groups"]) or "（無）"))
-        if st.button("登出 Ragic", key="ragic_logout"):
+        if "開發者" not in (u.get("groups") or []):
+            with st.expander("🔑 修改密碼", expanded=False):
+                if _change_password_form(u["email"], "pw_change_form", need_old=True):
+                    st.success("密碼已更新")
+        if st.button("登出", key="ragic_logout"):
             st.session_state.pop(SS_USER, None)
             st.session_state.pop(SS_CUSTOMER, None)
             st.rerun()
         return
     with st.form("ragic_login_form", clear_on_submit=False):
-        email = st.text_input("公司信箱", key="ragic_login_email")
+        email = st.text_input("公司信箱或員工工號", key="ragic_login_email")
         pwd = st.text_input("密碼", type="password", key="ragic_login_pwd",
-                            help="Jonathan 發給你的 app 密碼（不是 Ragic 密碼）。")
+                            help="第一次登入請用預設密碼 123456，登入後會要求設定自己的密碼。")
         ok = st.form_submit_button("登入")
-    st.caption("用公司信箱＋app 密碼登入，才能存檔、下載與從 Ragic 帶入客戶。沒有 app 密碼請找 Jonathan。")
+    st.caption("登入後才能存檔、下載與從 Ragic 帶入客戶。第一次登入密碼 123456；忘記密碼請找 Jonathan。")
     if ok:
         try:
-            user = login(email, pwd)
+            user, must_change = login(email, pwd)
         except auth.RagicAuthError as e:
             st.error(str(e))
             return
-        st.session_state[SS_USER] = {"email": user.email, "name": user.name, "groups": user.groups}
+        info = {"email": user.email, "name": user.name, "groups": user.groups}
+        st.session_state[SS_PENDING if must_change else SS_USER] = info
         st.session_state.pop("ragic_login_pwd", None)
         st.rerun()
     if str(_secret("DEV_LOGIN_PASSWORD", "")).strip():
