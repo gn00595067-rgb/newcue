@@ -70,16 +70,29 @@ def ragic_login(email: str, password: str, server: str = SERVER, account: str = 
     email = (email or "").strip()
     if not email or not password:
         raise RagicAuthError("請輸入 Email 與密碼")
-    try:
-        resp = requests.get(f"{server}/AUTH", params={
-            "u": email, "p": password, "login_type": "sessionId", "json": "1", "api": "",
-        }, timeout=_TIMEOUT)
-    except requests.RequestException as e:
-        raise RagicAuthError(f"連線 Ragic 失敗：{e}") from e
-    if resp.status_code != 200:
-        raise RagicAuthError(f"Ragic 回應異常（HTTP {resp.status_code}）")
-    try:
-        raw = resp.json()
-    except ValueError:
-        raw = resp.text.strip() or None   # 帳密錯誤時 Ragic 回 -1／純文字（保留原文供判斷）
+    # 與瀏覽器網址列完全相同的寫法（api 不帶 =、瀏覽器 UA）；GET 失敗再試 POST。
+    # 2026-10-14：同事同一組帳密在公司瀏覽器打 AUTH 成功，app（Streamlit Cloud）卻回 -1。
+    from urllib.parse import quote
+    url = (f"{server}/AUTH?login_type=sessionId&json=1&api"
+           f"&u={quote(email, safe='')}&p={quote(password, safe='')}")
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                             "(KHTML, like Gecko) Chrome/129.0 Safari/537.36"}
+    raw = None
+    for attempt in ("get", "post"):
+        try:
+            if attempt == "get":
+                resp = requests.get(url, headers=headers, timeout=_TIMEOUT)
+            else:
+                resp = requests.post(f"{server}/AUTH?api", headers=headers, timeout=_TIMEOUT, data={
+                    "u": email, "p": password, "login_type": "sessionId", "json": "1"})
+        except requests.RequestException as e:
+            raise RagicAuthError(f"連線 Ragic 失敗：{e}") from e
+        if resp.status_code != 200:
+            raise RagicAuthError(f"Ragic 回應異常（HTTP {resp.status_code}）")
+        try:
+            raw = resp.json()
+        except ValueError:
+            raw = resp.text.strip() or None   # 帳密錯誤時 Ragic 回 -1／純文字（保留原文供判斷）
+        if isinstance(raw, dict) and raw.get("sid"):
+            break
     return parse_auth_response(raw, account)
