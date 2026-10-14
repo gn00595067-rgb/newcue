@@ -33,7 +33,10 @@ ragic_ui.write_enabled = lambda: True
 def _fake_save(url, key, fields, files=None, rid=None):
     db = st.session_state.setdefault("_fake_db", {})
     rid = rid or str(100 + len(db))
-    db[rid] = dict(fields, _ragicId=rid, **{"1015306": "S" + rid})
+    old = db.get(rid, {})
+    db[rid] = dict(old, **fields, _ragicId=rid, **{"1015306": "S" + rid})
+    for fid, f in (files or {}).items():   # 真 Ragic 附件欄存「hash@檔名」
+        db[rid][fid] = f"h@{f[0]}"
     st.session_state.setdefault("_fake_files", {})[rid] = {k: (v[0], len(v[1] or b"")) for k, v in (files or {}).items()}
     st.session_state["_fake_last_files"] = files or {}
     return cue2.SaveResult(True, rid=rid, serial="S" + rid)
@@ -45,6 +48,49 @@ def _fake_list(url, key, keyword="", limit=200):
 
 cue2.save_record = _fake_save
 cue2.list_records = _fake_list
+cue2.get_record = lambda url, key, rid: st.session_state.get("_fake_db", {}).get(str(rid))
+cue2.download_file = lambda url, key, v: b"%PDF-signback"
+
+
+# AppTest 無法操作 file_uploader：session 有 _fake_sign 時，「客戶回簽檔」回傳假檔
+class _FakeUpload:
+    name = "回簽.pdf"
+
+    def getvalue(self):
+        return b"%PDF-signback"
+
+
+_orig_uploader = st.file_uploader
+
+
+def _uploader(label, *a, key=None, **k):
+    if key and str(key).endswith("_od_sign") and st.session_state.get("_fake_sign"):
+        return _FakeUpload()
+    return _orig_uploader(label, *a, key=key, **k)
+
+
+st.file_uploader = _uploader
+
+# 訂檔寫入改假的：記錄呼叫，回傳 CUE號／訂檔 rid
+from ragic_booking import order_from_cue as oc  # noqa: E402
+
+ragic_ui.booking_enabled = lambda: bool(st.session_state.get("_fake_booking_on", True))
+
+
+def _fake_submit_booking(snap, orders, *, applicant="", attachments=None, submit=None):
+    st.session_state.setdefault("_fake_booking_calls", []).append(("submit", len(orders), sorted((attachments or {}).get("all", {}))))
+    return {"ok": True, "cue_id": "1160101", "results": [], "error": "",
+            "orders": [{"wave": i + 1, "rid": str(500 + i), "action": "新增"} for i in range(len(orders))]}
+
+
+def _fake_update_booking(snap, orders, *, booking, attachments=None, applicant="", **k):
+    st.session_state.setdefault("_fake_booking_calls", []).append(("update", booking["cue_id"], [o["rid"] for o in booking["orders"]]))
+    return {"ok": True, "cue_id": booking["cue_id"], "error": "",
+            "orders": [{"wave": o["wave"], "rid": o["rid"], "action": "更新"} for o in booking["orders"]]}
+
+
+oc.submit_booking = _fake_submit_booking
+oc.update_booking = _fake_update_booking
 ragic_ui._list_saved = lambda url, key, kw: [(r, cue_store.parse_snapshot(cue2.details_of(r))) for r in _fake_list(url, key)]
 st.session_state.setdefault("ragic_url", "https://example.invalid/cue/2")
 st.session_state.setdefault("ragic_key", "fake")

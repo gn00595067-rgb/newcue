@@ -110,3 +110,16 @@ def list_records(url, key, keyword="", limit=200):
 
 def details_of(rec):
     return (rec or {}).get(RAGIC_MAP["details"], "") or ""
+
+
+def download_file(url, key, file_value):
+    """下載附件欄的檔案（值為 Ragic 回傳的「hash@檔名」）；失敗回 None。"""
+    from urllib.parse import urlparse
+    u = urlparse(_base(url))
+    account = u.path.strip("/").split("/")[0]
+    try:
+        resp = requests.get(f"{u.scheme}://{u.netloc}/sims/file.jsp", params={"a": account, "f": file_value},
+                            headers=_hdr(key), timeout=_TIMEOUT)
+    except requests.RequestException:
+        return None
+    return resp.content if resp.status_code == 200 and resp.content else None

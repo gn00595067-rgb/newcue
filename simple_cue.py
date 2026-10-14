@@ -96,12 +96,25 @@ FORMAT_OPTIONS = ["東吳", "聲活", "鉑霖"]
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _render_general(fmt, sales_full, combo_key, budget, start_iso, end_iso, client, tax_id, product,
-                    sales, campaign, prod_cost, made_iso, _data, regions=None, payment_date=""):
-    """聲活／鉑霖：同一份簡易模式 model，改用一般 CUE renderer 產 Excel／HTML。"""
+                    sales, campaign, prod_cost, made_iso, _data, regions=None, payment_date="",
+                    bonus=None, _bonus_data=None):
+    """聲活／鉑霖（或有加贈的東吳）：同一份簡易模式 model，改用一般 CUE renderer 產 Excel／HTML。
+    bonus：檔次調整（加贈）設定；_bonus_data＝(pricing_db, sec_factors, store_counts_num, regions_order)。"""
     model, _x, _xv, _h = _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
                                    sales, campaign, prod_cost, made_iso, _data, regions,
                                    payment_date=payment_date)
-    return sg.render_xlsx(model, fmt, sales_person=sales_full), sg.render_htmls(model, fmt)
+    tf = _bonus_transform(model, bonus, _bonus_data)
+    return (sg.render_xlsx(model, fmt, sales_person=sales_full, transform=tf),
+            sg.render_htmls(model, fmt, transform=tf))
+
+
+def _bonus_transform(model, bonus, bonus_data):
+    """加贈設定 → 一般 CUE rows 轉換函式（無設定回 None）。"""
+    if not bonus or not bonus_data:
+        return None
+    from bonus_adjust import apply_bonus
+    pdb, fac, stores, regs = bonus_data
+    return lambda rows: apply_bonus(rows, bonus, model.start, model.end, pdb, fac, stores, regs)
 
 
 def _next_monday_after(days_ahead=10):
@@ -328,13 +341,26 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                 client, tax_id, product, sales, campaign, int(prod_cost),
                 date.today().isoformat(), data, regions,
                 party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date)
-        if fmt != "東吳":
+        # 檔次調整（加贈，不收費）：簡易範本沒有加贈列，有加贈時東吳改用一般CUE 東吳版面
+        bonus = {}
+        _bonus_data = (pricing_db or {}, sec_factors or {}, store_counts_num or {}, list(regions_order or sc.REGIONS_ORDER))
+        if is_agency:
+            with st.expander("📌 檔次調整（加贈，不收費）", expanded=False):
+                st.caption("代理商一鍵模板不支援加贈列；需要加贈請改用「自訂代理商CUE」。")
+        else:
+            from bonus_adjust import render_bonus_ui
+            all_rows = [r for s_ in model.sheets for r in sg.sheet_to_rows(s_)]
+            bonus = render_bonus_ui(all_rows, start, end, _bonus_data[3], key_prefix="simple_")
+            if bonus and fmt == "東吳":
+                st.caption("有加贈檔次時，東吳格式改用一般CUE 的東吳版面（簡易範本沒有加贈列）。")
+        if fmt != "東吳" or bonus:
             with st.spinner("產生中…"):
                 xlsx_val, htmls = _render_general(
                     fmt, sales_name if sales_name != "—" else "",
                     combo_key, int(budget), start.isoformat(), end.isoformat(),
                     client, tax_id, product, sales, campaign, int(prod_cost),
-                    date.today().isoformat(), data, regions, payment_date=payment_date)
+                    date.today().isoformat(), data, regions, payment_date=payment_date,
+                    bonus=bonus or None, _bonus_data=_bonus_data)
     except Exception as e:  # noqa: BLE001
         st.error(f"產生失敗：{e}")
         st.exception(e)
@@ -398,7 +424,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
             if pngs is not None:
                 st.image(pngs[idx], use_container_width=True)
             else:
-                components.html(html, height=shtml.estimate_height(sheet) if fmt == "東吳" else 700,
+                components.html(html, height=shtml.estimate_height(sheet) if fmt == "東吳" and not bonus else 700,
                                 scrolling=True)
             with st.expander("檔次明細（僅供業務/主管，不進客戶檔案）"):
                 for blk in sheet.blocks:
@@ -416,7 +442,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                    ov={"start": start, "weeks": weeks, "end": end, "party_b": party_b, "party_b_tax": party_b_tax,
                        "payment": payment_date, "sales_name": sales_name, "prod_cost": int(prod_cost),
                        "campaign": campaign},
-                   sales=sales, budget=int(budget))
+                   sales=sales, budget=int(budget), transform=_bonus_transform(model, bonus, _bonus_data))
 
 
 def cue_store_from(d):
@@ -424,10 +450,11 @@ def cue_store_from(d):
     return cs.from_jsonable(d)
 
 
-def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov, sales, budget):
+def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov, sales, budget, transform=None):
     """Ragic 存檔（第 2 期）。簡易模式各秒數版是給客戶挑的選項，存檔時選定採用的秒數版。"""
     import cue_store as cs
     import ragic_ui
+    from bonus_adjust import bonus_keys
     secs = [s.seconds for s in model.sheets]
     pick_key = "agency_simple_pick_sec" if is_agency else "simple_pick_sec"
     if st.session_state.get(pick_key) not in secs:
@@ -435,7 +462,10 @@ def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov
     sec = st.selectbox("這份 CUE 採用的秒數版（存檔／訂檔以此為準）", secs, key=pick_key,
                        format_func=lambda x: f"{x}秒版")
     sheet = model.sheets[secs.index(sec)]
-    rows = cs.norm_simple_sheet(model, sheet)
+    if transform:   # 有加贈：與輸出同一份 rows（加贈列實收 0）
+        rows = cs.norm_general_rows(transform(sg.sheet_to_rows(sheet)))
+    else:
+        rows = cs.norm_simple_sheet(model, sheet)
     if model.family == "subsidiary":
         rows = cs.scale_net(rows, budget)
     header = {"client": model.client, "tax_id": model.tax_id, "product": model.product,
@@ -443,7 +473,7 @@ def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov
               "sales": sales, "start": model.start, "end": model.end, "budget": budget, "final": budget,
               "prod_cost": model.sheets[0].prod_cost, "seconds_pick": sec}
     restore = ragic_ui.capture([combo_key, combo_key + "_r", "simple_format", "simple_budget2", "simple_client",
-                                "simple_tax", "simple_product", "simple_regions", pick_key])
+                                "simple_tax", "simple_product", "simple_regions", pick_key] + bonus_keys("simple_"))
     restore["_simple_restore"] = ov
     mode = "代理商一鍵" if is_agency else "簡易模式"
     snap = cs.make_snapshot(mode, header, [{"label": "", "start": model.start, "end": model.end, "rows": rows}],

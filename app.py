@@ -104,6 +104,7 @@ from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_t
 from agency_ui import render_agency_cue, render_annual_agency_waves
 from simple_cue import render_simple_cue
 import ragic_ui
+from bonus_adjust import render_bonus_ui, apply_bonus, bonus_keys, agency_groups, render_agency_bonus_ui, apply_agency_bonus
 from fixed_projects import FIXED_PROJECTS, build_project_rows, project_days, project_seconds_text, project_total_list
 from ragic_api import (
     search_ragic_records,
@@ -580,6 +581,13 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
                 st.session_state.aq_waves[i]["remarks_text"] = st.session_state.get(f"aq_wave_remarks_{i}", _ta_val) or ""
 
     st.markdown("---")
+    # 檔次調整（加贈，不收費）：一份設定套用到各波（加贈日期自動限縮在各波走期內）
+    _tmpl = next((r for r in (build_wave_rows(combos, w["start"], w["end"], [max(x, 2) for x in (w.get("combo_spots") or [2] * len(combos))],
+                                              [0] * len(combos), pricing_db, sec_factors, store_counts_num, regions_order)
+                              for w in waves) if r), [])
+    _aq_bonus = render_bonus_ui(_tmpl, min(w["start"] for w in waves), max(w["end"] for w in waves),
+                                regions_order, key_prefix="aq_")
+
     st.subheader("📥 各波段下載（每波獨立 Excel / PDF）")
     _aq_out = []   # 各波結果，供 Ragic 存檔
     for i, w in enumerate(waves):
@@ -606,6 +614,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
         price_override = w.get("price_override") if isinstance(w.get("price_override"), (int, float)) and w.get("price_override") > 0 else None
         if price_override is not None and budget_wave > 0:
             budget_wave = apply_wave_price_override(rows, price_override)
+        rows = apply_bonus(rows, _aq_bonus, start_d, end_d, pricing_db, sec_factors, store_counts_num, regions_order)
         # 年約/季約細 CUE：標題 Product 僅顯示「秒數種類」一次，例如「5秒」而不是重複多次
         unique_secs = sorted(list({r['seconds'] for r in rows}))
         p_str = f"{'、'.join([f'{s}秒' for s in unique_secs])} {product_name}"
@@ -667,7 +676,7 @@ def _aq_save_panel(format_type, waves_out, client_name, client_tax_id, product_n
         [{k: w[k] for k in ("label", "start", "end", "rows")} for w in waves_out],
         restore={**ragic_ui.capture(["aq_combos", "aq_waves", "aq_format", "aq_client", "aq_tax", "aq_product",
                                      "aq_sales", "aq_ag_campaign", "aq_ag_comp", "aq_ag_fam_auto", "aq_ag_fam_reb",
-                                     "aq_ag_wjf_reb", "aq_ag_ac", "aq_ag_ac_free"]),
+                                     "aq_ag_wjf_reb", "aq_ag_ac", "aq_ag_ac_free"] + bonus_keys("aq_") + bonus_keys("aqag_")),
                  # 由 aq_waves 重算的表格／備註欄位，開啟時先清掉讓預設值從 aq_waves 帶入
                  "_clear_prefixes": ["aq_tbl_", "aq_w_", "aq_wave_", "aq_ct_", "aq_ag_mat_", "aq_ag_sign_",
                                      "aq_ag_rem_", "aq_ag_pay_"]},
@@ -684,7 +693,7 @@ def _aq_save_panel(format_type, waves_out, client_name, client_tax_id, product_n
     ragic_ui.render_save_panel(snap, files=_files, key_prefix="aq_save")
 
 
-def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales_map):
+def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales_map, pricing_db=None, sec_factors=None, regions_order=None):
     """一般 CUE 的固定專案：走期／秒數／檔次／實收鎖死，只填客戶資料與備註日期（spec：固定專案_中元限定.md）。"""
     p = FIXED_PROJECTS[project_name]
     ndays = project_days(p)
@@ -721,6 +730,10 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
 
     rows = build_project_rows(p, store_counts_num)
     total_list = project_total_list(rows)
+    # 檔次調整（加贈，不收費）：加在定價合計之後，不影響專案價
+    _bonus = render_bonus_ui(rows, p["start"], p["end"], regions_order or [], key_prefix="fp_")
+    rows = apply_bonus(rows, _bonus, p["start"], p["end"], pricing_db or {}, sec_factors or {},
+                       store_counts_num or {}, regions_order or [])
     grand_total = budget + _round_half_up(budget * 0.05)
     p_str = f"{project_seconds_text(p)} {product_name}"
 
@@ -762,7 +775,8 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
          "prod_cost": prod_cost, "project": project_name},
         [{"label": p["short"], "start": p["start"], "end": p["end"], "rows": _rows_n}],
         restore={**ragic_ui.capture(["cue_fixed_project", "fp_client", "fp_tax", "fp_product", "fp_prod_cost",
-                                     "fp_sales", "fp_sign_deadline", "fp_billing_month", "fp_payment_date"]),
+                                     "fp_sales", "fp_sign_deadline", "fp_billing_month", "fp_payment_date"]
+                                    + bonus_keys("fp_")),
                  "temp_format_type": format_type},
         customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
     ragic_ui.render_save_panel(
@@ -987,7 +1001,7 @@ def main():
         if cue_mode == "專案CUE":
             project_name = st.selectbox("專案", list(FIXED_PROJECTS), key="cue_fixed_project",
                                         help="走期、秒數、檔次與金額皆固定，只需填客戶資料。")
-            _render_fixed_project_cue(project_name, format_type, STORE_COUNTS_NUM, SALES_MAP)
+            _render_fixed_project_cue(project_name, format_type, STORE_COUNTS_NUM, SALES_MAP, PRICING_DB, SEC_FACTORS, REGIONS_ORDER)
             return
         is_barter_contract = st.checkbox("是否為交換合約", value=st.session_state.get("is_barter_contract", False), key="is_barter_contract", help="交換合約：檔次依定價計算，不提供優惠回饋檔次。")
 
@@ -1726,31 +1740,8 @@ def main():
                                     b_sec_shares_cf[s] = st.session_state.get(f"bonus_cs_{s}", 0)
                                 bonus_config["家樂福"] = {"regions": ["全省"], "sec_shares": b_sec_shares_cf, "share": st.session_state.get("bonus_cf_share", 0)}
 
-            # 業務加贈檔次：每個「同平台、同秒數、同區域」可選加贈、每日檔次、加贈日期區間
-            row_groups = get_row_groups(rows, REGIONS_ORDER)
-            custom_bonus_config = {}
-            if st.session_state.get("is_supervisor", False):
-                with st.expander("📌 業務加贈檔次", expanded=False):
-                    st.caption("在相同平台、相同秒數、相同區域的廣告下方可加一列「加贈檔次」，設定每日加贈幾檔及加贈日期區間（須在走期內）。")
-                    for g in row_groups:
-                        media, sec, region_key = g["key"]
-                        skey = f"cb_{media}_{sec}_{region_key}".replace(" ", "_")
-                        label = f"【{media}】 {sec}秒 - {region_key}"
-                        st.markdown(f"**{label}**")
-                        c1, c2, c3, c4 = st.columns([1, 2, 2, 2])
-                        with c1:
-                            enabled = st.checkbox("加贈", value=st.session_state.get(f"cb_en_{skey}", False), key=f"cb_en_{skey}", label_visibility="collapsed")
-                        with c2:
-                            spots_per_day = st.number_input("每日加贈檔次", min_value=0, max_value=999, value=st.session_state.get(f"cb_spots_{skey}", 0) or 0, step=1, key=f"cb_spots_{skey}")
-                        with c3:
-                            b_start = st.date_input("加贈開始日", value=start_date, min_value=start_date, max_value=end_date, key=f"cb_start_{skey}")
-                        with c4:
-                            b_end = st.date_input("加贈結束日", value=end_date, min_value=start_date, max_value=end_date, key=f"cb_end_{skey}")
-                        if enabled and spots_per_day and b_start and b_end:
-                            custom_bonus_config[g["key"]] = {"enabled": True, "spots_per_day": spots_per_day, "date_start": b_start, "date_end": b_end}
-            else:
-                with st.expander("📌 業務加贈檔次", expanded=False):
-                    st.caption("僅主管可設定業務加贈檔次。")
+            # 業務加贈檔次（＝第 3 期檔次調整，共用 bonus_adjust）：同平台、同秒數、同區域可加「加贈」列，預算不變
+            custom_bonus_config = render_bonus_ui(rows, start_date, end_date, REGIONS_ORDER, key_prefix="")
 
             # 合併回饋與加贈：兩者皆依「原始 rows」的 index；同一 index 先插門檻回饋再插業務加贈、主管加贈
             all_inserts = []

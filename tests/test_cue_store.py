@@ -107,3 +107,25 @@ def test_split_waves():
     w = cs.split_waves(rows, date(2027, 1, 1), [(date(2027, 1, 1), date(2027, 1, 2)), (date(2027, 1, 4), date(2027, 1, 5))])
     assert [x["rows"][0]["spots"] for x in w] == [20, 20]
     assert sum(x["rows"][0]["net"] for x in w) == 1001
+
+
+def test_status_flow():
+    v1 = cs.carry_over(None, cs.next_version(None, _snap(), "業務"))
+    assert cs.status_of(v1) == cs.DRAFT
+    cs.mark_submitted(v1, "業務", {"公司": "聲活", "收款日期": date(2027, 2, 28)})
+    assert v1["status"] == cs.PENDING and v1["review"]["params"]["收款日期"] == {"__date__": "2027-02-28"}
+    # 送審後沒改內容重存：維持待審；改了：回草稿
+    same = cs.carry_over(v1, cs.next_version(v1, _snap(), "業務"))
+    assert same["status"] == cs.PENDING
+    changed = cs.carry_over(v1, cs.next_version(v1, _snap(spots=120), "業務"))
+    assert changed["status"] == cs.DRAFT
+    # 退回
+    cs.mark_reviewed(v1, "主管", False, reason="金額不對")
+    assert v1["status"] == cs.REJECTED and v1["history"][-1]["changes"] == ["主管退回：金額不對"]
+    # 核准 → 已訂檔；之後調整 → 有異動未送審 → 送審為異動待審
+    cs.mark_reviewed(v1, "主管", True, booking={"cue_id": "1160101", "orders": [{"wave": 1, "rid": "55"}]})
+    assert v1["status"] == cs.BOOKED and v1["booking"]["cue_id"] == "1160101"
+    adj = cs.carry_over(v1, cs.next_version(v1, _snap(spots=150), "業務"))
+    assert adj["status"] == cs.BOOKED_CHANGED and adj["booking"]["cue_id"] == "1160101"
+    cs.mark_submitted(adj, "業務", {})
+    assert adj["status"] == cs.PENDING_CHANGE

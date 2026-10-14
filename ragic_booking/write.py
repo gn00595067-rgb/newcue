@@ -384,3 +384,23 @@ def submit_full_order(order: OrderDraft, *, apply_cue: bool,
                 + (f"（⚠️ 偵測到可能殘留 rid={leaked}，請用『清除殘留』刪掉）" if leaked else "")}
     return {"ok": True, "steps": steps, "cue_id": cue_id,
             "order_rid": order_res.rid, "leaked_rid": "", "error": ""}
+
+
+def update_record(form: str, rid: str, payload_json: dict[str, Any],
+                  flags: dict[str, str] | None = None) -> WriteResult:
+    """更新既有紀錄（JSON body；子表既有列用 row id 為鍵、新列用負數）。newcue 新增，供已訂檔 CUE 調整後更新原訂檔。"""
+    if not str(rid).strip().isdigit():
+        return WriteResult(ok=False, form=form, error=f"更新缺有效 rid：{rid!r}")
+    url = f"{form_url(form, str(rid))}?{_flags_qs(flags)}"
+    try:
+        resp = requests.post(url, json=payload_json, headers=_headers(), timeout=_TIMEOUT)
+    except requests.RequestException as e:
+        return WriteResult(ok=False, form=form, rid=str(rid), error=f"連線 Ragic 失敗：{e}")
+    if resp.status_code != 200:
+        return WriteResult(ok=False, form=form, rid=str(rid), error=f"HTTP {resp.status_code}：{resp.text[:300]}")
+    try:
+        raw = resp.json()
+    except ValueError:
+        return WriteResult(ok=False, form=form, rid=str(rid), error=f"回傳非 JSON：{resp.text[:300]}")
+    ok, _rid, err = _parse_create_response(raw)
+    return WriteResult(ok=ok, form=form, rid=str(rid), raw=raw if isinstance(raw, dict) else {}, error=err)

@@ -364,6 +364,12 @@ def render_agency_cue(sales_map=None):
         st.error(f"計算失敗：{e}")
         return
 
+    # 檔次調整（加贈，不收費）
+    from bonus_adjust import apply_agency_bonus, bonus_keys, render_agency_bonus_ui
+    _bonus = render_agency_bonus_ui([(sh["platform"], int(sh["seconds"])) for sh in model["sheets"]],
+                                    start_date, end_date, key_prefix="ag_")
+    apply_agency_bonus(model, _bonus)
+
     # 運算邏輯面板
     with st.expander("🧮 運算邏輯（透明化）"):
         for line in model["logs"]:
@@ -439,6 +445,7 @@ def render_agency_cue(sales_map=None):
         {"client": client_name, "product": product_name, "format": agency, "start": start_date, "end": end_date,
          "budget": ac.agency_net_total(model), "final": ac.agency_net_total(model), "campaign": campaign},
         [{"label": "", "start": start_date, "end": end_date, "rows": cs.norm_agency_model(model)}],
+        restore=ragic_ui.capture(bonus_keys("ag_")),   # 其餘輸入由 [AGENCY_EXT] 還原
         customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
     _pdf = st.session_state.get("ag_pdf_bytes") if st.session_state.get("ag_pdf_name") == pdf_name else None
     ragic_ui.render_save_panel(
@@ -601,6 +608,9 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
     else:
         ac_pct = None if st.checkbox("A.C 3% 免收（顯示「-」）", value=False, key="aq_ag_ac_free") else 3.0
     st.caption("檔次與實收以上方表格為準；萬家福的檔次指量販檔次，超市檔次依 720/420 自動換算。")
+    from bonus_adjust import agency_groups, apply_agency_bonus, render_agency_bonus_ui
+    _bonus = render_agency_bonus_ui(agency_groups(combos), min(w["start"] for w in waves),
+                                    max(w["end"] for w in waves), key_prefix="aqag_")
 
     st.markdown("---")
     st.subheader("📥 各波段下載（每波獨立 Excel / PDF）")
@@ -655,6 +665,7 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
         except Exception as e:  # noqa: BLE001
             st.error(f"波段 {i+1} 計算失敗：{e}")
             continue
+        apply_agency_bonus(model, _bonus)
         if not model["sheets"]:
             st.caption(f"波段 {i+1}：沒有可出代理商格式的組合")
             continue

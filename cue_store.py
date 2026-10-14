@@ -345,3 +345,70 @@ def ragic_fields(snap, ragic_map, extra=None):
     put(CUE2_CUSTOMER_ID, cust.get("編號"))
     f.update(extra or {})
     return f
+
+
+# =============================================================================
+# 送審／審核狀態（第 4 期）
+# =============================================================================
+DRAFT = "草稿"
+PENDING = "待審"
+REJECTED = "退回"
+BOOKED = "已訂檔"
+BOOKED_CHANGED = "已訂檔－有異動未送審"
+PENDING_CHANGE = "異動待審"
+REVIEWABLE = (PENDING, PENDING_CHANGE)
+
+
+def status_of(snap):
+    return (snap or {}).get("status") or DRAFT
+
+
+def carry_over(old, new):
+    """存檔時沿用前一版的送審／訂檔資訊並決定新狀態（就地修改 new，回傳 new）。
+    改了內容：待審／退回 → 草稿（需重新送審）；已訂檔 → 已訂檔－有異動未送審。內容沒變則維持原狀態。"""
+    if not old:
+        new["status"] = DRAFT
+        return new
+    for k in ("booking", "review"):
+        if old.get(k):
+            new[k] = old[k]
+    st_old = status_of(old)
+    changed = has_changes(old, new)
+    if not changed:
+        new["status"] = st_old
+    elif old.get("booking"):
+        new["status"] = BOOKED_CHANGED
+    else:
+        new["status"] = DRAFT
+    return new
+
+
+def mark_submitted(snap, user_name, params, now=None):
+    """業務送審：已訂檔過的為「異動待審」，否則「待審」。params＝公司、類別、收款日、發票日等訂檔補充資料。"""
+    now = now or datetime.now()
+    snap["status"] = PENDING_CHANGE if snap.get("booking") else PENDING
+    snap["review"] = {"submitted_by": user_name, "submitted_at": now.strftime("%Y-%m-%d %H:%M"),
+                      "params": to_jsonable(params)}
+    snap.setdefault("history", []).append({"v": snap.get("version", 0), "at": now.strftime("%Y-%m-%d %H:%M"),
+                                           "by": user_name, "changes": [f"送審（{snap['status']}）"]})
+    return snap
+
+
+def mark_reviewed(snap, user_name, approved, *, reason="", booking=None, now=None):
+    """主管審核結果：核准＝已訂檔（記 CUE號／各波訂檔 rid）；退回＝退回（記原因）。"""
+    now = now or datetime.now()
+    at = now.strftime("%Y-%m-%d %H:%M")
+    rv = dict(snap.get("review") or {})
+    rv.update({"reviewed_by": user_name, "reviewed_at": at, "result": "核准" if approved else "退回",
+               "reason": reason})
+    snap["review"] = rv
+    if approved:
+        snap["status"] = BOOKED
+        if booking:
+            snap["booking"] = booking
+        msg = f"主管核准並訂檔（CUE號 {(booking or {}).get('cue_id', '')}）"
+    else:
+        snap["status"] = REJECTED
+        msg = f"主管退回：{reason}"
+    snap.setdefault("history", []).append({"v": snap.get("version", 0), "at": at, "by": user_name, "changes": [msg]})
+    return snap

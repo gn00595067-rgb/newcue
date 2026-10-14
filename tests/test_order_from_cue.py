@@ -75,3 +75,61 @@ def test_submit_booking_stops_on_failure():
     orders = oc.build_orders(snap)
     res = oc.submit_booking(snap, orders, submit=lambda d, **kw: {"ok": False, "cue_id": "", "error": "INVALID"})
     assert not res["ok"] and len(res["results"]) == 1 and "第 1 波" in res["error"]
+
+
+def test_national_spots_counted_once():
+    regs = ["北區", "桃竹苗", "中區", "雲嘉南", "高屏", "東區"]
+    rows = [cs._row("全家廣播", r, 15, 800, [400, 400], net=10) for r in regs]
+    rows.append(cs._row("新鮮視", "北區", 15, 100, [50, 50], net=5))
+    rows.append(cs._row("新鮮視", "中區", 15, 100, [50, 50], net=5))       # 非全省兩區：加總
+    assert oc.count_spots(rows) == 800 + 200
+    w = {"start": date(2027, 1, 4), "rows": rows}
+    inc = {r["平台細項"]: r["平台檔數"] for r in oc.income_rows(w)}
+    assert inc == {"全家企頻": 800, "新鮮視": 200}
+
+
+def test_agency_company_is_shenghuo():
+    for mode, fmt in (("代理商CUE", "凱絡"), ("代理商一鍵", "2008 全家單組"), ("年約季約細CUE", "2008傳媒")):
+        snap = cs.make_snapshot(mode, {"format": fmt}, [])
+        assert oc.default_company(snap) == "聲活"
+    assert oc.default_company(cs.make_snapshot("一般CUE", {"format": "鉑霖"}, [])) == "鉑霖"
+
+
+def test_update_booking_updates_existing_rows():
+    snap = _snap(prod_cost=0)
+    orders = oc.build_orders(snap, applicant="王小明")
+    rec = {"_subtable_1015394": {"901": {"平台細項": "全家企頻", "秒數": "15", "平台檔數": "100"},
+                                 "902": {"平台細項": "家樂福企頻", "秒數": "20", "平台檔數": "50"}}}
+    sent, uploads, created = [], [], []
+
+    class R:
+        def __init__(self, ok=True): self.ok, self.error = ok, ""
+
+    res = oc.update_booking(
+        snap, orders, booking={"cue_id": "1160101", "orders": [{"wave": 1, "rid": "55"}]},
+        attachments={"all": {rf.OrderF.訂檔CUE表: "cue.xlsx"}},
+        reader=lambda form, rid: rec,
+        updater=lambda form, rid, p: (sent.append((rid, p)), R())[1],
+        uploader=lambda form, rid, fid, path: (uploads.append((rid, fid, path)), R())[1],
+        submit=lambda d, **kw: (created.append((d.波段, d.CUE號, kw["apply_cue"])), {"ok": True, "order_rid": "77"})[1])
+    assert res["ok"] and res["orders"] == [{"wave": 1, "rid": "55", "action": "更新"},
+                                           {"wave": 2, "rid": "77", "action": "新增"}]
+    rid, p = sent[0]
+    sub = p["_subtable_1015394"]
+    assert set(sub) == {"901", "902"}                                   # 既有列就地更新，不新增重複列
+    assert sub["901"][rf.OrderF.收入_平台檔數] == "1600"
+    assert rf.OrderF.回簽 not in p and rf.OrderF.申請人 not in p          # 營運端欄位不覆蓋
+    assert uploads == [("55", rf.OrderF.訂檔CUE表, "cue.xlsx")]
+    assert created == [("2", "1160101", False)]                         # 新增波段沿用原 CUE號
+
+
+def test_update_booking_stops_on_error():
+    snap = _snap()
+    orders = oc.build_orders(snap)
+
+    class R:
+        ok, error = False, "INVALID"
+
+    res = oc.update_booking(snap, orders, booking={"cue_id": "X", "orders": [{"wave": 1, "rid": "55"}]},
+                            reader=lambda f, r: {}, updater=lambda f, r, p: R())
+    assert not res["ok"] and "第 1 波更新失敗" in res["error"]
