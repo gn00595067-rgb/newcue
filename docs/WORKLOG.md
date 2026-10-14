@@ -38,3 +38,4 @@
 - 2026-10-14 ｜ 年約季約細CUE 2008／凱絡：拿掉凌晨補償／全家自帶專案回饋／回饋% 設定，不再多出 720 檔回饋列與方案一補償列，2008 萬家福不再自動加 10%（檔次以業務填的為準） ｜ 宜歆回饋（不論內容都出現 720 檔、年約不應有此設定） ｜ 請宜歆用 2008／凱絡各出一波核對；等她提供統一贈檔比例
 - 2026-10-14 ｜ [ragic-dev] Ragic 登入失敗時顯示 Ragic 原始回應摘要＋排查提示（直接登 ap16.ragic.com、Google 登入帳號需設密碼、兩步驟驗證） ｜ 同事 cristy 登入顯示帳號或密碼錯誤，原本看不出原因 ｜ 請同事先直接登入 Ragic 確認帳密，再試一次並截圖新訊息
 - 2026-10-14 ｜ [ragic-dev] Ragic 登入請求改成與瀏覽器網址列相同（api 不帶 =、瀏覽器 UA），GET 失敗再試 POST ｜ Cristy 同一組帳密在公司瀏覽器打 AUTH 成功（無兩步驟驗證），app 卻回 -1 ｜ Reboot 後請 Cristy 再試；仍失敗則疑似 Ragic 限制登入 IP，需問公司 Ragic 管理員
+- 2026-10-14 ｜ [ragic-dev] 同事登入改用 app 專用密碼（Secrets RAGIC_APP_PASSWORDS），姓名／群組／停用取 Ragic 使用者清單 ｜ 實測證實 Ragic 擋 Streamlit Cloud 的帳密登入（本機成功、Cloud -1），Jonathan 不考慮請公司放寬 ｜ Jonathan 在測試 app Secrets 設同事 app 密碼並發給同事、Reboot 後請 Cristy 再登入

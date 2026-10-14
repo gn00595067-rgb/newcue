@@ -27,6 +27,25 @@ def current_user():
     return st.session_state.get(SS_USER)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _ragic_users():
+    return auth.fetch_ragic_users(str(_secret("RAGIC_API_KEY", "")))
+
+
+def login(email, pwd):
+    """登入：信箱有設 app 專用密碼（Secrets RAGIC_APP_PASSWORDS）就用它，身分取 Ragic 使用者清單；
+    沒設的才試 Ragic 帳密 AUTH（Streamlit Cloud 會被 Ragic 擋，本機可用）。"""
+    pw_map = auth.parse_app_passwords(_secret("RAGIC_APP_PASSWORDS", ""))
+    if (email or "").strip().lower() in pw_map:
+        return auth.app_login(email, pwd, pw_map, _ragic_users)
+    try:
+        return auth.ragic_login(email, pwd)
+    except auth.RagicAuthError as e:
+        if str(e).startswith("帳號或密碼錯誤"):
+            raise auth.RagicAuthError("帳號或密碼錯誤（此信箱尚未設定 app 密碼，請找 Jonathan）") from e
+        raise
+
+
 def dev_login_user(pwd):
     """開發者登入（給沒有公司 Ragic 帳號的開發者實測用）：只在 Secrets 設了 DEV_LOGIN_PASSWORD 的 app 啟用
     （正式 app 不設＝入口不出現）。密碼對 → 以 DEV_LOGIN_NAME／DEV_LOGIN_EMAIL 身分登入；否則 None。
@@ -56,18 +75,15 @@ def render_login_sidebar():
         return
     with st.form("ragic_login_form", clear_on_submit=False):
         email = st.text_input("公司信箱", key="ragic_login_email")
-        pwd = st.text_input("Ragic 密碼", type="password", key="ragic_login_pwd")
+        pwd = st.text_input("密碼", type="password", key="ragic_login_pwd",
+                            help="Jonathan 發給你的 app 密碼（不是 Ragic 密碼）。")
         ok = st.form_submit_button("登入")
-    st.caption("用 Ragic 的帳號密碼登入，才能從 Ragic 帶入客戶資料。")
+    st.caption("用公司信箱＋app 密碼登入，才能存檔、下載與從 Ragic 帶入客戶。沒有 app 密碼請找 Jonathan。")
     if ok:
         try:
-            user = auth.ragic_login(email, pwd)
+            user = login(email, pwd)
         except auth.RagicAuthError as e:
             st.error(str(e))
-            if str(e).startswith("帳號或密碼錯誤"):
-                st.caption("請先確認同一組信箱／密碼能直接登入 https://ap16.ragic.com 。"
-                           "用 Google 登入 Ragic 的帳號沒有 Ragic 密碼，需先在 Ragic「個人設定」設定密碼；"
-                           "有開兩步驟驗證的帳號若仍失敗，請截圖錯誤訊息給 Jonathan。")
             return
         st.session_state[SS_USER] = {"email": user.email, "name": user.name, "groups": user.groups}
         st.session_state.pop("ragic_login_pwd", None)
