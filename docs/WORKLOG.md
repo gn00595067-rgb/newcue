@@ -42,3 +42,4 @@
 - 2026-10-14 ｜ [ragic-dev] 同事登入改為信箱或員工工號＋密碼（預設 123456、首次強制改、側欄可自改），密碼雜湊存 Google Sheet；取代同日 Secrets 版；requirements 加 google-auth ｜ Jonathan：Secrets 逐一設密碼太麻煩 ｜ Jonathan 建密碼 Sheet、共用給服務帳號、測試 app Secrets 設 APP_PASSWORD_SHEET_URL＋[gcp_service_account]、Reboot 後請 Cristy 用 123456 登入
 - 2026-10-14 ｜ [ragic-dev] 密碼表改放既有設定檔 Sheet 的「登入密碼」分頁（自動建立） ｜ Jonathan 不要新 Sheet ｜ 設定檔 Sheet 共用給服務帳號（編輯者）、測試 app Secrets 貼 [gcp_service_account]、Reboot
 - 2026-10-15 ｜ [ragic-dev] 一鍵CUE 存檔後下載的 Excel／PDF 只留「採用的秒數版」那一張（預覽仍列出全部秒數給業務比較） ｜ 宜歆實測回饋：選 15 秒，下載卻一次出現四張 ｜ 測試 app 推版後請宜歆再試一鍵CUE 東吳／聲活多秒數存檔下載
+- 2026-10-15 ｜ [ragic-dev] 登入失敗後「🛠 開發者登入」入口不再消失，入口內加說明（只輸入 DEV_LOGIN_PASSWORD） ｜ Jonathan 在一般登入框填 jonathan@dev 被擋，且失敗後找不到開發者入口 ｜ Reboot 測試 app 後從開發者入口登入

@@ -148,14 +148,15 @@ def render_login_sidebar():
         try:
             user, must_change = login(email, pwd)
         except auth.RagicAuthError as e:
-            st.error(str(e))
-            return
-        info = {"email": user.email, "name": user.name, "groups": user.groups}
-        st.session_state[SS_PENDING if must_change else SS_USER] = info
-        st.session_state.pop("ragic_login_pwd", None)
-        st.rerun()
+            st.error(str(e))   # 不 return：登入失敗時下方「開發者登入」入口仍要顯示
+        else:
+            info = {"email": user.email, "name": user.name, "groups": user.groups}
+            st.session_state[SS_PENDING if must_change else SS_USER] = info
+            st.session_state.pop("ragic_login_pwd", None)
+            st.rerun()
     if str(_secret("DEV_LOGIN_PASSWORD", "")).strip():
         with st.expander("🛠 開發者登入", expanded=False):
+            st.caption("開發者不用填上方信箱，只輸入 Secrets 的 DEV_LOGIN_PASSWORD。")
             dpwd = st.text_input("開發者密碼", type="password", key="dev_login_pwd")
             if st.button("以開發者身分登入", key="dev_login_btn"):
                 du = dev_login_user(dpwd)
