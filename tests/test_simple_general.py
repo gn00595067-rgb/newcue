@@ -70,3 +70,20 @@ def test_existing_renderer_unchanged_without_wb():
                                     m.sheets[0].budget, 0, "", None)
     wb = load_workbook(io.BytesIO(b))
     assert wb.sheetnames == ["Schedule"]
+
+
+@pytest.mark.parametrize("fmt", ["東吳", "聲活"])
+def test_picked_files_only_selected_seconds(fmt, monkeypatch):
+    """存檔／下載只輸出採用的秒數版（宜歆回饋：選 15 秒卻一次出現四張）。"""
+    import simple_cue
+    monkeypatch.setattr(simple_cue.spv, "has_soffice", lambda: False)
+    m = _model(sc.SUBSIDIARY_COMBOS[0])
+    assert len(m.sheets) > 1
+    pick = m.sheets[1]
+    files = simple_cue._picked_files(m, pick, fmt, "x.xlsx")
+    wb = load_workbook(io.BytesIO(files["xlsx"][1]))
+    full = load_workbook(io.BytesIO(
+        sg.render_xlsx(m, fmt) if fmt != "東吳" else __import__("simple_excel").render(m, formulas=False)))
+    assert len(wb.sheetnames) < len(full.sheetnames)
+    if fmt != "東吳":
+        assert all(n.startswith(f"{pick.seconds}秒") for n in wb.sheetnames)

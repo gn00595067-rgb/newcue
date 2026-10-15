@@ -41,3 +41,4 @@
 - 2026-10-14 ｜ [ragic-dev] 同事登入改用 app 專用密碼（Secrets RAGIC_APP_PASSWORDS），姓名／群組／停用取 Ragic 使用者清單 ｜ 實測證實 Ragic 擋 Streamlit Cloud 的帳密登入（本機成功、Cloud -1），Jonathan 不考慮請公司放寬 ｜ Jonathan 在測試 app Secrets 設同事 app 密碼並發給同事、Reboot 後請 Cristy 再登入
 - 2026-10-14 ｜ [ragic-dev] 同事登入改為信箱或員工工號＋密碼（預設 123456、首次強制改、側欄可自改），密碼雜湊存 Google Sheet；取代同日 Secrets 版；requirements 加 google-auth ｜ Jonathan：Secrets 逐一設密碼太麻煩 ｜ Jonathan 建密碼 Sheet、共用給服務帳號、測試 app Secrets 設 APP_PASSWORD_SHEET_URL＋[gcp_service_account]、Reboot 後請 Cristy 用 123456 登入
 - 2026-10-14 ｜ [ragic-dev] 密碼表改放既有設定檔 Sheet 的「登入密碼」分頁（自動建立） ｜ Jonathan 不要新 Sheet ｜ 設定檔 Sheet 共用給服務帳號（編輯者）、測試 app Secrets 貼 [gcp_service_account]、Reboot
+- 2026-10-15 ｜ [ragic-dev] 一鍵CUE 存檔後下載的 Excel／PDF 只留「採用的秒數版」那一張（預覽仍列出全部秒數給業務比較） ｜ 宜歆實測回饋：選 15 秒，下載卻一次出現四張 ｜ 測試 app 推版後請宜歆再試一鍵CUE 東吳／聲活多秒數存檔下載

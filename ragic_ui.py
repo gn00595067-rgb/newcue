@@ -576,7 +576,7 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
         st.error(f"存檔失敗：{res.error}{extra}")
         return
     st.session_state[SS_RECORD] = {"rid": res.rid, "serial": res.serial, "mode": snap.get("mode"), "snap": final}
-    st.session_state.pop(f"{key_prefix}_dl_files", None)
+    st.session_state[f"{key_prefix}_dl_files"] = files_d   # 存檔時產生的檔案直接給下載用，免再按「產生下載檔」
     st.session_state[msg_key] = (f"✅ 已存檔 {reg.display_no(final)}（v{final['version']}）"
                                  + (f"，已送出訂檔：CUE號 {final['booking'].get('cue_id')}，待主管審核" if do_book else "，可下載"))
     all_saved.clear()

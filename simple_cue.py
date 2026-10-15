@@ -5,6 +5,7 @@
 計算走 simple_model.build_model；Excel 走 simple_excel.render；預覽走 simple_html。
 內部成本不出現在客戶檔案；Google Sheet 斷線用內建備援並警示，不 crash。
 """
+import dataclasses
 from datetime import date, timedelta
 
 import streamlit as st
@@ -436,7 +437,8 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                    ov={"start": start, "weeks": weeks, "end": end, "party_b": party_b, "party_b_tax": party_b_tax,
                        "payment": payment_date, "sales_name": sales_name, "prod_cost": int(prod_cost),
                        "campaign": campaign},
-                   sales=sales, budget=int(budget), transform=_bonus_transform(model, bonus, _bonus_data))
+                   sales=sales, budget=int(budget), transform=_bonus_transform(model, bonus, _bonus_data),
+                   sales_full=sales_name if sales_name != "—" else "")
 
 
 def cue_store_from(d):
@@ -444,7 +446,23 @@ def cue_store_from(d):
     return cs.from_jsonable(d)
 
 
-def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov, sales, budget, transform=None):
+def _picked_files(model, sheet, fmt, fname, transform=None, sales_full=""):
+    """只含採用秒數版那一張的 Excel／PDF（存檔附件與下載用）。
+    預覽仍列出所有秒數版給業務比較，但給客戶的檔案只留選定的那一張（宜歆回饋）。"""
+    sub = dataclasses.replace(model, sheets=[sheet])
+    if fmt != "東吳" or transform:
+        xlsx = sg.render_xlsx(sub, fmt, sales_person=sales_full, transform=transform)
+    else:
+        xlsx = se.render(sub, formulas=False)
+    pdf = None
+    if spv.has_soffice():
+        pdf, _tag, _msg = xlsx_bytes_to_pdf_bytes(xlsx, fname)
+    return {"xlsx": (fname, xlsx),
+            "pdf": (safe_filename(fname.replace(".xlsx", ".pdf")), pdf) if pdf else None}
+
+
+def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov, sales, budget, transform=None,
+                   sales_full=""):
     """Ragic 存檔（第 2 期）。簡易模式各秒數版是給客戶挑的選項，存檔時選定採用的秒數版。"""
     import cue_store as cs
     import ragic_ui
@@ -472,7 +490,11 @@ def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov
     mode = "代理商一鍵" if is_agency else "簡易模式"
     snap = cs.make_snapshot(mode, header, [{"label": "", "start": model.start, "end": model.end, "rows": rows}],
                             restore=restore, customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+    if len(model.sheets) == 1:
+        files = {"xlsx": (fname, xlsx_val),
+                 "pdf": (safe_filename(fname.replace(".xlsx", ".pdf")), pdf) if pdf else None}
+    else:   # 多秒數版：只輸出採用的那一張（存檔／下載時才產生）
+        files = lambda: _picked_files(model, sheet, fmt, fname, transform, sales_full)  # noqa: E731
     ragic_ui.render_save_panel(
-        snap, files={"xlsx": (fname, xlsx_val),
-                     "pdf": (safe_filename(fname.replace(".xlsx", ".pdf")), pdf) if pdf else None},
+        snap, files=files,
         extra_fields={}, key_prefix="agsimple_save" if is_agency else "simple_save")
