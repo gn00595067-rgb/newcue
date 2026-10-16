@@ -664,7 +664,7 @@ def _aq_save_panel(format_type, waves_out, client_name, client_tax_id, product_n
          "end": max(w["end"] for w in waves_out), "budget": budget, "final": budget, "prod_cost": 0},
         [{k: w[k] for k in ("label", "start", "end", "rows")} for w in waves_out],
         restore={**ragic_ui.capture(["aq_combos", "aq_waves", "aq_format", "aq_client", "aq_tax", "aq_product",
-                                     "aq_sales", "aq_ag_campaign",
+                                     "aq_sales", "aq_ag_campaign", "aq_ag_uni",
                                      "aq_ag_ac", "aq_ag_ac_free"] + bonus_keys("aq_") + bonus_keys("aqag_")),
                  # 由 aq_waves 重算的表格／備註欄位，開啟時先清掉讓預設值從 aq_waves 帶入
                  "_clear_prefixes": ["aq_tbl_", "aq_w_", "aq_wave_", "aq_ct_", "aq_ag_mat_", "aq_ag_sign_",

@@ -292,8 +292,9 @@ def _new_row(kind, media_label, region_label, daypart, seconds, spots, schedule,
 
 def _build_family_sheet(agency, sec, budget, days, comp_mode, rebate_pct,
                         spots_override, material_due, ac_pct, agency_pricing, logs,
-                        auto_rebate=True):
-    """建立全家企頻 sheet。auto_rebate：自帶專案回饋（凌晨時數轉換），預設開。"""
+                        auto_rebate=True, comp_override=None):
+    """建立全家企頻 sheet。auto_rebate：自帶專案回饋（凌晨時數轉換），預設開。
+    comp_override：方案一贈檔直接指定（年約統一規則依購買檔數算，不依實收）。"""
     unit_net = family_unit_net(sec)
     main_spots = spots_override if spots_override else rhu(budget / unit_net)
     logs.append(f"【全家企頻】單檔實作價({sec}秒)=250000/480/30×{sec}={unit_net:.2f}")
@@ -304,6 +305,9 @@ def _build_family_sheet(agency, sec, budget, days, comp_mode, rebate_pct,
     if comp_mode == COMP_MOVE50:
         comp_spots = rhu(main_spots * 0.5)
         logs.append(f"【全家企頻】凌晨補償(原50%)=round({main_spots}×0.5)={comp_spots}")
+    elif comp_mode == COMP_PLAN1 and comp_override is not None:
+        comp_spots = int(comp_override)
+        logs.append(f"【全家企頻】凌晨補償(方案一15%，依購買檔)={comp_spots}")
     elif comp_mode == COMP_PLAN1:
         comp_spots = rhu(0.15 * budget / unit_net)
         logs.append(f"【全家企頻】凌晨補償(方案一15%)=round(0.15×{budget}/{unit_net:.2f})={comp_spots}")
@@ -575,13 +579,19 @@ def build_agency_model(agency, client_name, product_name, campaign,
     sheets = []
 
     # 方案二：全家凌晨 20% 媒體價值轉萬家福（即使萬家福未單獨啟用也要產生補償）
+    # 換算秒數：有萬家福設定（啟用的秒數，或畫面選的「方案二轉換秒數」）照用；沒有則用全家購買秒數
+    # （統一贈檔說明「以 20 秒計」，2026-10-16；原本沒有時固定 15 秒）
     comp_mag = comp_super = 0
-    comp_wjf_sec = wjf_cfg.get("seconds", 15) if wjf_cfg else 15
+    comp_wjf_sec = int(wjf_cfg["seconds"]) if wjf_cfg and wjf_cfg.get("seconds") else         (int(fam_cfg["seconds"]) if fam_on else 15)
     if fam_on and comp_mode == COMP_PLAN2:
-        comp_mag = rhu(0.20 * fam_budget / wjf_unit_net(comp_wjf_sec))
+        if fam_cfg.get("comp_mag_override") is not None:
+            comp_mag = int(fam_cfg["comp_mag_override"])
+            logs.append(f"【凌晨補償方案二】依購買檔換算 量販{comp_mag}")
+        else:
+            comp_mag = rhu(0.20 * fam_budget / wjf_unit_net(comp_wjf_sec))
+            logs.append(f"【凌晨補償方案二】20%×{fam_budget}/萬家福單檔({comp_wjf_sec}秒)=量販{comp_mag}")
         comp_super = super_spots_from_mag(comp_mag)
-        logs.append(f"【凌晨補償方案二】20%×{fam_budget}/萬家福單檔({comp_wjf_sec}秒)="
-                    f"量販{comp_mag}、超市{comp_super}")
+        logs.append(f"【凌晨補償方案二】超市＝量販×720/420＝{comp_super}")
 
     if fam_on:
         sheets.append(_build_family_sheet(
@@ -589,6 +599,7 @@ def build_agency_model(agency, client_name, product_name, campaign,
             fam_cfg.get("rebate_pct", 0), int(fam_cfg.get("spots_override", 0) or 0),
             material_due, ac_pct, agency_pricing, logs,
             auto_rebate=bool(fam_cfg.get("auto_rebate", True)),
+            comp_override=fam_cfg.get("comp_override"),
         ))
 
     # 方案二補償需要一張萬家福表承載；若萬家福未啟用則單獨為補償建表

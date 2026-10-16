@@ -288,7 +288,9 @@ def render_agency_cue(sales_map=None):
                        "rebate_pct": float(wjf_reb), "mag_override": int(wjf_ovr),
                        "is_rebate_wave": bool(wjf_wave)}
         elif comp_mode == ac.COMP_PLAN2:
-            # 方案二補償需萬家福秒數
+            # 方案二補償需萬家福秒數：預設＝全家秒數（統一贈檔說明「以 20 秒計」，原本固定 15 秒）
+            if "ag_wjf_comp_sec" not in st.session_state and fam_cfg and fam_cfg["seconds"] in SEC_OPTIONS:
+                st.session_state["ag_wjf_comp_sec"] = fam_cfg["seconds"]
             wjf_cfg = {"enabled": False, "seconds": int(st.selectbox(
                 "方案二 萬家福轉換秒數", SEC_OPTIONS, index=SEC_OPTIONS.index(15), key="ag_wjf_comp_sec"))}
 
@@ -574,8 +576,16 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
                                  step=0.5, key="aq_ag_ac")
     else:
         ac_pct = None if st.checkbox("A.C 3% 免收（顯示「-」）", value=False, key="aq_ag_ac_free") else 3.0
-    st.caption("檔次與實收以上方表格為準（不另加凌晨補償、專案回饋列，要加贈請用下方加贈）；"
-               "萬家福的檔次指量販檔次，超市檔次依 720/420 自動換算。")
+    from annual_quarter_cue import UNI_NONE, UNI_OPTIONS
+    uni_plan = st.radio("統一贈檔規則（整份合約共用）", UNI_OPTIONS, horizontal=True, key="aq_ag_uni",
+                        help="套用時，上方表格填的全家檔次＝購買檔（不含贈檔），程式自動加："
+                             "方案一＝購買檔×15% 全家贈檔＋(購買＋贈檔)×40% 專案回饋；"
+                             "方案二＝萬家福贈檔（購買檔×8400/14400×20%，樂家康依 720/420）＋購買檔×40% 全家專案回饋。")
+    if uni_plan == UNI_NONE and "統一" in str(client_name or ""):
+        st.info("客戶是統一：如適用統一贈檔，請在上方選擇方案一或方案二。")
+    st.caption(("檔次與實收以上方表格為準（不另加凌晨補償、專案回饋列，要加贈請用下方加贈）；" if uni_plan == UNI_NONE else
+                "上方表格的全家檔次＝購買檔，贈檔列依統一規則自動加（實收 0）；")
+               + "萬家福的檔次指量販檔次，超市檔次依 720/420 自動換算。")
     from bonus_adjust import agency_groups, apply_agency_bonus, render_agency_bonus_ui
     _bonus = render_agency_bonus_ui(agency_groups(combos), min(w["start"] for w in waves),
                                     max(w["end"] for w in waves), key_prefix="aqag_")
@@ -628,7 +638,7 @@ def render_annual_agency_waves(agency, combos, waves, client_name, product_name)
                 agency, combos, start_d, end_d, spots, nets, client_name=client_name,
                 product_name=product_name, campaign=campaign, ac_pct=ac_pct,
                 material_due=material_due, agency_pricing=agency_pricing, remarks=remarks,
-                payment_note=pay_note)
+                payment_note=pay_note, uni_plan=uni_plan)
         except Exception as e:  # noqa: BLE001
             st.error(f"波段 {i+1} 計算失敗：{e}")
             continue
