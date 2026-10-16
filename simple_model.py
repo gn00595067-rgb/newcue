@@ -466,7 +466,7 @@ def _mmdd(d):
 # =============================================================================
 def build_model(combo_key, budget, start, end, *, client="", tax_id="", product="",
                 sales="", campaign="", prod_cost=0, today=None, data=None, regions=None,
-                party_b="", party_b_tax="", payment_date=""):
+                party_b="", party_b_tax="", payment_date="", sign_deadline=None, billing_month=""):
     if combo_key not in sc.COMBOS:
         raise ValueError(f"未知組合：{combo_key}")
     ndays = (end - start).days + 1
@@ -489,15 +489,16 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
     else:
         sheets = _build_carat(combo, budget, start, end, data)
 
-    sign = start - timedelta(days=7)
+    # 回簽截止日／請款月份：業務可於介面自填（存檔必填，寫入 cue/2）；未給則依走期預設
+    sign = sign_deadline or (start - timedelta(days=7))
     material_due = start - timedelta(days=7)
-    billing = _minguo_month(end)
+    billing = (billing_month or "").strip() or _minguo_month(end)
     # 付款兌現日期：業務可於介面自填；留白則回退範本佔位（民國年.XX.XX）
     pay = payment_date.strip() if (payment_date and payment_date.strip()) \
         else f"{start.year - 1911}.XX.XX"
 
     remarks = _subsidiary_remarks(combo, sign, billing, pay) if fam == "subsidiary" else \
-        _agency_remarks(combo, start, end, budget)
+        _agency_remarks(combo, start, end, budget, sign)
 
     model = CueModel(
         combo_key=combo_key, combo_label=combo["label"], family=fam,
@@ -515,10 +516,10 @@ def _subsidiary_remarks(combo, sign, billing, pay):
     return [(t, remark_color(t) == "FF0000") for t in get_remarks_text(sign, billing, pay)]
 
 
-def _agency_remarks(combo, start, end, budget):
+def _agency_remarks(combo, start, end, budget, sign=None):
     agency = combo["agency"]
     if agency == "凱絡":
-        sign = start - timedelta(days=7)
+        sign = sign or (start - timedelta(days=7))
         pay = _carat_payment(start, end, budget)
         lines = ac.default_remarks("凱絡", sign_date=sign, payment_note=pay)
         return [(t, i == 4) for i, t in enumerate(lines)]  # 第5行(請款)紅字

@@ -486,7 +486,7 @@ def _render_downloads(files, key_prefix, saved_ok):
 
 
 def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None, key_prefix="save",
-                      allow_style_excel=True):
+                      allow_style_excel=True, save_block=None):
     """存檔到 Ragic（cue/2）＋下載＋送出訂檔＋主管審核（核准／退回）。
     - 第一次存檔給存檔編號（P2610-023）並記存檔人；同一份再存＝更新同一筆、版本 +1、編號不變。
     - 存檔後且內容未再改動才可下載。
@@ -564,8 +564,12 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     has_sign = bool(od["signback"] or ((prev or {}).get("review") or {}).get("signback"))
     block = ([] if live else ["乾跑模式"]) + ([] if booking_enabled() else ["訂檔寫入未開放（RAGIC_BOOKING_ENABLED）"]) \
         + od["missing"] + ([] if has_sign else ["客戶回簽檔"])
+    if save_block:   # 呼叫端指定的存檔必填（如簡易模式的請款月份、付款兌現日）
+        st.warning("存檔前請先在上方「客戶名稱／業務／產品／付款／甲乙方」填寫：" + "、".join(save_block))
+        block = list(save_block) + block
     b1, b2 = st.columns(2)
-    do_save = b1.button("💾 存檔到 Ragic", key=f"{key_prefix}_btn", type="primary", disabled=not live)
+    do_save = b1.button("💾 存檔到 Ragic", key=f"{key_prefix}_btn", type="primary",
+                        disabled=not live or bool(save_block))
     do_book = b2.button("📨 存檔並" + ("送出更新訂檔" if booked_before else "送出訂檔（成交）"),
                         key=f"{key_prefix}_submit", disabled=bool(block),
                         help=("尚缺：" + "、".join(block)) if block else

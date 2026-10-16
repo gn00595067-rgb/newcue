@@ -77,14 +77,16 @@ def _to_sheetdata(store_counts_num, pricing_db, sec_factors):
 @st.cache_data(ttl=600, show_spinner=False)
 def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
               sales, campaign, prod_cost, made_iso, _data, regions=None,
-              party_b="", party_b_tax="", payment_date=""):
+              party_b="", party_b_tax="", payment_date="", sign_iso="", billing=""):
     start = date.fromisoformat(start_iso)
     end = date.fromisoformat(end_iso)
     model = sm.build_model(combo_key, budget, start, end, client=client, tax_id=tax_id,
                            product=product, sales=sales, campaign=campaign,
                            prod_cost=prod_cost, today=date.fromisoformat(made_iso), data=_data,
                            regions=list(regions) if regions else None,
-                           party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date)
+                           party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date,
+                           sign_deadline=date.fromisoformat(sign_iso) if sign_iso else None,
+                           billing_month=billing)
     xlsx = se.render(model, formulas=True)
     xlsx_val = se.render(model, formulas=False)
     htmls = shtml.render_html(model)
@@ -98,12 +100,12 @@ FORMAT_OPTIONS = ["東吳", "聲活", "鉑霖"]
 @st.cache_data(ttl=600, show_spinner=False)
 def _render_general(fmt, sales_full, combo_key, budget, start_iso, end_iso, client, tax_id, product,
                     sales, campaign, prod_cost, made_iso, _data, regions=None, payment_date="",
-                    bonus=None, _bonus_data=None):
+                    bonus=None, _bonus_data=None, sign_iso="", billing=""):
     """聲活／鉑霖（或有加贈的東吳）：同一份簡易模式 model，改用一般 CUE renderer 產 Excel／HTML。
     bonus：檔次調整（加贈）設定；_bonus_data＝(pricing_db, sec_factors, store_counts_num, regions_order)。"""
     model, _x, _xv, _h = _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
                                    sales, campaign, prod_cost, made_iso, _data, regions,
-                                   payment_date=payment_date)
+                                   payment_date=payment_date, sign_iso=sign_iso, billing=billing)
     tf = _bonus_transform(model, bonus, _bonus_data)
     return (sg.render_xlsx(model, fmt, sales_person=sales_full, transform=tf),
             sg.render_htmls(model, fmt, transform=tf))
@@ -287,7 +289,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     import ragic_ui
     # 10/14 實測：同事找不到改客戶名稱／選業務的地方 → 標題寫出內含欄位（標題固定，避免打字時收合）
     with st.expander("客戶名稱／業務／產品／付款／甲乙方（點開修改）"):
-        st.caption("甲方＝客戶、乙方＝我方（供應商）；付款兌現日期預設為佔位，可直接改成實際日期。")
+        st.caption("甲方＝客戶、乙方＝我方（供應商）。回簽截止日、請款月份、付款兌現日期存檔前必填（會寫入 Ragic）。")
         pcol = st.columns(2)
         for _k in ("simple_client", "simple_tax", "simple_product"):
             st.session_state.setdefault(_k, "")   # 可由 Ragic 客戶帶入
@@ -303,7 +305,10 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
 
         default_pay = f"{start.year - 1911}.XX.XX"
         e1, e2, e3 = st.columns(3)
-        payment_date = e1.text_input("付款兌現日期（民國，可留白）", _ov.get("payment", default_pay))
+        sign_deadline = e1.date_input("回簽截止日 *", _ov.get("sign") or sign, format="YYYY-MM-DD")
+        billing = e1.text_input("請款月份 *", _ov.get("billing") or f"{end.year - 1911}年{end.month}月")
+        st.session_state.setdefault("simple_payment", _ov.get("payment", default_pay))
+        payment_date = e1.text_input("付款兌現日期 *（民國，如 115.11.30）", key="simple_payment")
         product = e2.text_input("產品名稱", key="simple_product")
         sales_options = list(sales_map.keys()) if sales_map else []
         _s_opts = ["—"] + sales_options
@@ -344,7 +349,8 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                 combo_key, int(budget), start.isoformat(), end.isoformat(),
                 client, tax_id, product, sales, campaign, int(prod_cost),
                 date.today().isoformat(), data, regions,
-                party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date)
+                party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date,
+                sign_iso=sign_deadline.isoformat(), billing=billing)
         # 檔次調整（加贈，不收費）：簡易範本沒有加贈列，有加贈時東吳改用一般CUE 東吳版面
         bonus = {}
         _bonus_data = (pricing_db or {}, sec_factors or {}, store_counts_num or {}, list(regions_order or sc.REGIONS_ORDER))
@@ -364,7 +370,8 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                     combo_key, int(budget), start.isoformat(), end.isoformat(),
                     client, tax_id, product, sales, campaign, int(prod_cost),
                     date.today().isoformat(), data, regions, payment_date=payment_date,
-                    bonus=bonus or None, _bonus_data=_bonus_data)
+                    bonus=bonus or None, _bonus_data=_bonus_data,
+                    sign_iso=sign_deadline.isoformat(), billing=billing)
     except Exception as e:  # noqa: BLE001
         st.error(f"產生失敗：{e}")
         st.exception(e)
@@ -439,7 +446,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                    combo_key="agency_simple_combo" if is_agency else "simple_combo",
                    ov={"start": start, "weeks": weeks, "end": end, "party_b": party_b, "party_b_tax": party_b_tax,
                        "payment": payment_date, "sales_name": sales_name, "prod_cost": int(prod_cost),
-                       "campaign": campaign},
+                       "campaign": campaign, "sign": sign_deadline, "billing": billing},
                    sales=sales, budget=int(budget), transform=_bonus_transform(model, bonus, _bonus_data),
                    sales_full=sales_name if sales_name != "—" else "")
 
@@ -488,7 +495,7 @@ def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov
               "sales": sales, "start": model.start, "end": model.end, "budget": budget, "final": budget,
               "prod_cost": model.sheets[0].prod_cost, "seconds_pick": sec}
     restore = ragic_ui.capture([combo_key, combo_key + "_r", "simple_format", "simple_budget2", "simple_client",
-                                "simple_tax", "simple_product", "simple_regions", pick_key] + bonus_keys("simple_"))
+                                "simple_tax", "simple_product", "simple_regions", "simple_payment", pick_key] + bonus_keys("simple_"))
     restore["_simple_restore"] = ov
     mode = "代理商一鍵" if is_agency else "簡易模式"
     snap = cs.make_snapshot(mode, header, [{"label": "", "start": model.start, "end": model.end, "rows": rows}],
@@ -498,6 +505,27 @@ def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov
                  "pdf": (safe_filename(fname.replace(".xlsx", ".pdf")), pdf) if pdf else None}
     else:   # 多秒數版：只輸出採用的那一張（存檔／下載時才產生）
         files = lambda: _picked_files(model, sheet, fmt, fname, transform, sales_full)  # noqa: E731
+    # 回簽截止日／請款月份／付款兌現日：存檔必填（10/14 實測 cue/2 這三欄空白）
+    pay = parse_roc_date(ov.get("payment"))
+    save_block = ([] if str(ov.get("billing") or "").strip() else ["請款月份"])         + ([] if pay else ["付款兌現日期（民國，如 115.11.30）"])
+    from config import RAGIC_MAP
     ragic_ui.render_save_panel(
-        snap, files=files,
-        extra_fields={}, key_prefix="agsimple_save" if is_agency else "simple_save")
+        snap, files=files, save_block=save_block,
+        extra_fields={RAGIC_MAP["date_sign"]: str(ov.get("sign") or ""), RAGIC_MAP["bill_month"]: ov.get("billing", ""),
+                      RAGIC_MAP["date_pay"]: str(pay or "")},
+        key_prefix="agsimple_save" if is_agency else "simple_save")
+
+
+def parse_roc_date(text):
+    """付款兌現日期文字 → date：民國 115.11.30／115/11/30／115-11-30，或西元 2026-11-30；佔位（XX）或無法辨識回 None。"""
+    import re
+    m = re.fullmatch(r"\s*(\d{2,4})\s*[./\-年]\s*(\d{1,2})\s*[./\-月]\s*(\d{1,2})\s*日?\s*", str(text or ""))
+    if not m:
+        return None
+    y, mo, d = (int(x) for x in m.groups())
+    if y < 1911:
+        y += 1911
+    try:
+        return date(y, mo, d)
+    except ValueError:
+        return None

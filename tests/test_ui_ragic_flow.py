@@ -20,6 +20,7 @@ def _app(mode, **state):
     at = AppTest.from_file(HARNESS, default_timeout=600)
     at.session_state["ragic_user"] = USER
     at.session_state["cue_mode"] = mode
+    at.session_state["simple_payment"] = "115.12.31"   # 簡易模式存檔必填（佔位 XX 會擋存檔）
     for k, v in state.items():
         at.session_state[k] = v
     at.run()
