@@ -47,6 +47,40 @@ def test_payloads_and_missing():
     assert oc.missing(snap, orders) == {"CUE號申請": [], "訂檔": []}
 
 
+def test_cue_apply_sends_customer_name_and_supervisor():
+    """10/16 實測 INVALID：CUE號申請表的「客戶名稱」「主管」必填，API 建檔 doLinkLoad 不帶 → 要明送。"""
+    snap = _snap()
+    ap = oc.cue_apply_payload(snap, "王小明")
+    F = rf.CueApplyF
+    assert ap[F.客戶名稱] == ap[F.客戶名稱成交] == "客戶甲股份有限公司"
+    assert ap[F.主管] == ap[F.主管成交] == "李主管"
+    assert ap[F.業務成交] == ["王小明"] and ap[F.產品名稱] == "產品乙"
+    p = rf.order_payload_json(oc.build_orders(snap)[0])
+    assert p[rf.OrderF.客戶] == "客戶甲股份有限公司" and p[rf.OrderF.業務主管] == "李主管"
+
+
+def test_submit_full_order_passes_customer_to_cue_apply(monkeypatch):
+    from ragic_booking import write as rw
+    sent = {}
+
+    def fake_create(form, payload, flags=None):
+        sent[form] = payload
+        return rw.WriteResult(ok=True, form=form, rid="9", raw={"data": {rf.CueApplyF.CUE號: "1151099"}})
+
+    monkeypatch.setattr(rw, "create_record", fake_create)
+    d = oc.build_orders(_snap())[0]
+    res = rw.submit_full_order(d, apply_cue=True, 起走日期="2027/01/04", 申請人="王小明", 產品名稱=d.產品名稱)
+    assert res["ok"] and res["cue_id"] == "1151099"
+    ap = sent[rf.FORM_CUE_APPLY]
+    assert ap[rf.CueApplyF.客戶名稱] == "客戶甲股份有限公司" and ap[rf.CueApplyF.主管] == "李主管"
+
+
+def test_missing_flags_customer_master_without_supervisor():
+    snap = _snap(customer={"編號": "C01399", "名稱": "客戶甲", "主管": ""})
+    m = oc.missing(snap, oc.build_orders(snap))
+    assert any("主管" in x for x in m["CUE號申請"])
+
+
 def test_missing_without_customer():
     snap = _snap(customer={})
     orders = oc.build_orders(snap)

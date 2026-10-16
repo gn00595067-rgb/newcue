@@ -284,7 +284,9 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
         st.warning("距上檔不足 7 天，回簽／素材時程可能來不及。")
 
     # 甲乙方／付款／其他（收合）
-    with st.expander("甲乙方／付款／產品／其他（可留白）"):
+    import ragic_ui
+    # 10/14 實測：同事找不到改客戶名稱／選業務的地方 → 標題寫出內含欄位（標題固定，避免打字時收合）
+    with st.expander("客戶名稱／業務／產品／付款／甲乙方（點開修改）"):
         st.caption("甲方＝客戶、乙方＝我方（供應商）；付款兌現日期預設為佔位，可直接改成實際日期。")
         pcol = st.columns(2)
         for _k in ("simple_client", "simple_tax", "simple_product"):
@@ -305,7 +307,8 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
         product = e2.text_input("產品名稱", key="simple_product")
         sales_options = list(sales_map.keys()) if sales_map else []
         _s_opts = ["—"] + sales_options
-        _s_idx = _s_opts.index(_ov["sales_name"]) if _ov.get("sales_name") in _s_opts else 0
+        _s_idx = (_s_opts.index(_ov["sales_name"]) if _ov.get("sales_name") in _s_opts
+                  else ragic_ui.default_sales_index(sales_options, offset=1) or 0)
         sales_name = e2.selectbox("業務", _s_opts, index=_s_idx) if sales_options else "—"
         # 下拉顯示姓名、傳暱稱給 model（檔名用暱稱，§3-1）
         sales = "" if sales_name == "—" else (sales_map.get(sales_name) or sales_name)

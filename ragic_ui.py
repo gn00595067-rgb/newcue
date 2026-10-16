@@ -27,6 +27,27 @@ def current_user():
     return st.session_state.get(SS_USER)
 
 
+def match_sales(name, options):
+    """登入者姓名 → 業務下拉中的對應選項（Ragic 名稱可能帶英文名，如「楊心瑀 Alison」）；對不到回 None。"""
+    name = str(name or "").strip()
+    if not name:
+        return None
+    for o in options:
+        if o == name:
+            return o
+    for o in options:
+        if o and (name.startswith(o) or o in name.split()):
+            return o
+    return None
+
+
+def default_sales_index(options, offset=0):
+    """業務下拉預設＝登入者本人（10/14 實測：業務留「—」→ 存檔表業務人員空白）；對不到回 None。"""
+    u = current_user() or {}
+    o = match_sales(u.get("name"), list(options))
+    return None if o is None else list(options).index(o) + offset
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def _ragic_users():
     return auth.fetch_ragic_users(str(_secret("RAGIC_API_KEY", "")))
@@ -143,7 +164,8 @@ def render_login_sidebar():
         pwd = st.text_input("密碼", type="password", key="ragic_login_pwd",
                             help="第一次登入請用預設密碼 123456，登入後會要求設定自己的密碼。")
         ok = st.form_submit_button("登入")
-    st.caption("登入後才能存檔、下載與從 Ragic 帶入客戶。第一次登入密碼 123456；忘記密碼請找 Jonathan。")
+    st.caption("登入後才能存檔、下載與從 Ragic 帶入客戶。第一次登入密碼 123456；忘記密碼請找 Jonathan。"
+               "這是本 app 專用密碼，和 Ragic 密碼分開、不會同步（Ragic 擋雲端登入）。")
     if ok:
         try:
             user, must_change = login(email, pwd)
@@ -213,6 +235,8 @@ def customer_picker(targets, key_prefix):
         if sel:
             st.caption(f"客戶編號 {sel['編號']}｜{sel['類別'] or '—'}｜統編 {sel['統編'] or '—'}｜"
                        f"現折 {sel['現折'] or '—'}％｜退佣 {sel['退佣'] or '—'}％｜付款 {sel['付款條件'] or '—'}")
+            st.caption("要改 CUE 上顯示的客戶名稱，直接改下方客戶名稱欄（簡易模式在「客戶名稱／業務…」展開區）；"
+                       "改名不影響訂檔，送 Ragic 仍以這個客戶編號為準。")
             if st.button("取消帶入", key=f"{key_prefix}_cust_clear"):
                 st.session_state.pop(SS_CUSTOMER, None)
                 st.rerun()

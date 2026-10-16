@@ -349,7 +349,9 @@ def submit_full_order(order: OrderDraft, *, apply_cue: bool,
     if apply_cue and not order.CUE號:
         cr = create_record(
             FORM_CUE_APPLY,
-            cue_apply_payload_json(order.客戶編號, 起走日期, 總波段, 申請人, 產品名稱),
+            cue_apply_payload_json(order.客戶編號, 起走日期, 總波段, 申請人, 產品名稱,
+                                   客戶名稱=order.客戶名稱, 主管=order.業務主管,
+                                   業務=order.業務開發客戶),
         )
         record("申請CUE號", cr)
         if not cr.ok:

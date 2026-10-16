@@ -85,6 +85,7 @@ def build_orders(snap, *, applicant="", company="", category="商品", 收款日
         d = rf.OrderDraft()
         d.客戶編號 = cust.get("編號", "")
         d.客戶類別 = cust.get("類別", "")
+        d.客戶名稱 = cust.get("名稱", "")
         d.CUE號 = cue_no
         d.波段 = str(i + 1)
         d.申請人 = d.訂檔人 = applicant
@@ -115,7 +116,8 @@ def cue_apply_payload(snap, applicant=""):
     waves = snap.get("waves", [])
     start = _d(waves[0].get("start")) if waves else ""
     return rf.cue_apply_payload_json(cust.get("編號", ""), start, str(len(waves)), applicant,
-                                     snap.get("header", {}).get("product", ""))
+                                     snap.get("header", {}).get("product", ""), 客戶名稱=cust.get("名稱", ""),
+                                     主管=cust.get("主管", ""), 業務=cust.get("業務", ""))
 
 
 def missing(snap, orders):
@@ -124,6 +126,12 @@ def missing(snap, orders):
     out = {"CUE號申請": [], "訂檔": []}
     if not cust.get("編號"):
         out["CUE號申請"].append("客戶編號（請先從 Ragic 帶入客戶）")
+    else:
+        # CUE號申請表必填，取自客戶主檔；主檔空白時 Ragic 會整筆拒絕（10/16 實測 INVALID）
+        for k in ("名稱", "主管"):
+            if not str(cust.get(k) or "").strip():
+                fname = "客戶名稱" if k == "名稱" else "主管"
+                out["CUE號申請"].append(f"Ragic 客戶主檔的{fname}（{cust.get('編號')} 空白，請先到 Ragic 客戶表補上再送）")
     for d in orders[:1]:
         m = rf.missing_required_order(d)
         # CUE號在核准時才申請，這裡不算缺

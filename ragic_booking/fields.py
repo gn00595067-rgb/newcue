@@ -133,6 +133,9 @@ class CueApplyF:
     產品名稱成交 = "1002651"
     業務成交 = "1002660"         # multi
     主管成交 = "1002658"
+    客戶名稱 = "1002619"         # 🟠* 必填（與「客戶名稱(成交)」同值；API 建檔時 doLinkLoad 不會帶 → 要明送）
+    主管 = "1002617"             # 🟠* 必填（同上，＝主管(成交)）
+    產品名稱 = "1002652"         # ＝產品名稱(成交)
     起走日期 = "1002661"
     總波段 = "1002662"
     序號依據 = "1002667"         # ⚪ 公式 = 民國年+月 不設
@@ -300,6 +303,7 @@ class OrderDraft:
     """一張訂檔的最小必要輸入（多數來自 CUE 解析與客戶主檔）。"""
     客戶編號: str = ""
     客戶類別: str = ""
+    客戶名稱: str = ""          # 客戶主檔名稱 → 訂檔「客戶」＋CUE號申請「客戶名稱」（必填，要明送）
     CUE號: str = ""
     波段: str = "1"
     申請人: str = ""             # Ragic 使用者/員工選單（多半＝登入建立者）
@@ -377,6 +381,7 @@ def build_order_payload(d: OrderDraft) -> dict[str, str]:
     put(OrderF.公司, d.公司)                 # 🟠*必填 開票公司別
     put(OrderF.客戶編號, d.客戶編號)          # 🔗 doLinkLoad 會帶客戶名/統編/付款…
     put(OrderF.客戶類別, d.客戶類別)
+    put(OrderF.客戶, d.客戶名稱)            # 必填；API 建檔 doLinkLoad 不一定帶（CUE號申請已實測不帶）
     put(OrderF.節配, d.節配)
     put(OrderF.CUE號, d.CUE號)              # 選單/連結；Ragic 帶 CUE、總波段
     put(OrderF.波段, d.波段)
@@ -465,6 +470,7 @@ def order_payload_json(d: OrderDraft) -> dict[str, Any]:
     put(OrderF.公司, d.公司)
     put(OrderF.客戶編號, d.客戶編號)
     put(OrderF.客戶類別, d.客戶類別)
+    put(OrderF.客戶, d.客戶名稱)            # 必填；API 建檔 doLinkLoad 不一定帶（CUE號申請已實測不帶）
     put(OrderF.節配, d.節配)
     put(OrderF.CUE號, d.CUE號)
     put(OrderF.波段, d.波段)
@@ -596,28 +602,40 @@ def missing_required_cue_apply(payload: dict[str, str], 客戶編號: str) -> di
 
 
 def build_cue_apply_payload(客戶編號: str, 起走日期: str, 總波段: str,
-                            申請人: str, 產品名稱: str = "") -> dict[str, str]:
-    """CUE號申請表 create 參數。序號依據/CUE號 交給 Ragic 公式產生。"""
-    p: dict[str, str] = {}
+                            申請人: str, 產品名稱: str = "", *, 客戶名稱: str = "",
+                            主管: str = "", 業務: str = "") -> dict[str, Any]:
+    """CUE號申請表 create 參數。序號依據/CUE號 交給 Ragic 公式產生。
+
+    2026-10-16 實測：只送客戶編號時 Ragic 回 INVALID「客戶名稱、主管為必填」——API 建檔的
+    doLinkLoad 沒帶出這兩欄，故客戶名稱／主管／業務／產品（成交與通用欄）一律由客戶主檔明送。
+    """
+    p: dict[str, Any] = {}
     if 申請人:
         p[CueApplyF.申請人] = 申請人
     p[CueApplyF.客戶類型] = "成交客戶"
-    p[CueApplyF.客戶編號成交] = 客戶編號       # 🔗 帶客戶名/產品/業務/主管
+    p[CueApplyF.客戶編號成交] = 客戶編號
     p[CueApplyF.起走日期] = 起走日期
     p[CueApplyF.總波段] = 總波段
-    if 產品名稱:
-        p[CueApplyF.產品名稱成交] = 產品名稱
+    for fids, val in (((CueApplyF.產品名稱成交, CueApplyF.產品名稱), 產品名稱),
+                      ((CueApplyF.客戶名稱成交, CueApplyF.客戶名稱), 客戶名稱),
+                      ((CueApplyF.主管成交, CueApplyF.主管), 主管)):
+        if val:
+            for fid in fids:
+                p[fid] = val
+    sales = [x.strip() for x in str(業務 or "").replace("、", ",").split(",") if x.strip()]
+    if sales:
+        p[CueApplyF.業務成交] = sales            # 多值欄
     return p
 
 
 def cue_apply_payload_json(客戶編號: str, 起走日期: str, 總波段: str,
-                           申請人: str, 產品名稱: str = "") -> dict[str, Any]:
+                           申請人: str, 產品名稱: str = "", **cust: str) -> dict[str, Any]:
     """CUE號申請表建立 API 的 JSON body。無多值/子表，形狀同扁平版。
 
     序號依據/CUE號 是公式欄，不送，由 Ragic 於建立當下產生。
     """
     return {k: v for k, v in
-            build_cue_apply_payload(客戶編號, 起走日期, 總波段, 申請人, 產品名稱).items()}
+            build_cue_apply_payload(客戶編號, 起走日期, 總波段, 申請人, 產品名稱, **cust).items()}
 
 
 # ================================================================== 新增客戶 payload

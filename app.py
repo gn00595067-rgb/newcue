@@ -314,7 +314,9 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
     client_name = st.text_input("客戶名稱", key="aq_client")
     client_tax_id = st.text_input("統一編號", key="aq_tax")
     product_name = st.text_input("產品名稱", key="aq_product")
-    sales_person = st.selectbox("業務名稱", options=sales_options, index=0, key="aq_sales") if sales_options else ""
+    if sales_options and "aq_sales" not in st.session_state:
+        st.session_state["aq_sales"] = sales_options[ragic_ui.default_sales_index(sales_options) or 0]   # 預設登入者
+    sales_person = st.selectbox("業務名稱", options=sales_options, key="aq_sales") if sales_options else ""
 
     st.markdown("---")
     st.markdown("#### 廣告組合（平台、區域、秒數）")
@@ -714,6 +716,8 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
         prod_cost = st.number_input("製作費 (未稅)", value=0.0, step=1000.0, key="fp_prod_cost")
     with c4:
         sales_options = list(sales_map.keys()) if sales_map else []
+        if sales_options and "fp_sales" not in st.session_state:
+            st.session_state["fp_sales"] = sales_options[ragic_ui.default_sales_index(sales_options) or 0]   # 預設登入者
         sales_person = st.selectbox("業務名稱", options=sales_options, key="fp_sales") if sales_options else ""
 
     _def_sign = date.today() + timedelta(days=3)
@@ -1004,7 +1008,7 @@ def main():
         def_prod = st.session_state.get('temp_product_name', "統一布丁")
         def_budget = float(st.session_state.get("_total_budget_for_sidebar", st.session_state.get('temp_budget', 1000000)))
         def_cost = float(st.session_state.get('temp_prod_cost', 0))
-        def_sales_idx = 0
+        def_sales_idx = ragic_ui.default_sales_index(list(SALES_MAP.keys()) if SALES_MAP else []) or 0   # 預設登入者
         
         # 嘗試還原業務選項
         loaded_sales = st.session_state.get('temp_sales')
