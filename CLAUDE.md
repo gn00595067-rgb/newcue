@@ -35,7 +35,9 @@
 - 測試：`tests/`（含 fidelity／visual_check／各模式 smoke）
 
 ## 下次續做
-（2026-10-14 停在這裡；ragic-dev 最新 `b50790e`，完整測試 579 綠；main 最新 `44867dd`）
+（2026-10-16 停在這裡；ragic-dev 最新 `47fcb5d`，完整測試 615 綠；main 最新 `44867dd`）
+- 10-16 依宜歆 10/14 測試報告修：#11 CUE號申請被拒（改明送客戶名稱／主管）、業務預設登入者、簡易模式存檔必填回簽截止日／請款月份／付款兌現日；另加年約 2008／凱絡「統一贈檔規則」（spec `docs/specs/統一贈檔規則.md`）。待宜歆重測 #4-2、#11→#15、#10 後半（開別人的 CUE）及統一方案一／二。
+- 待 Jonathan 決定：CUE 管理主管預設「待審」空清單改提示／預設全部；營運加贈提示補「已訂檔記得送出更新」。
 - **Ragic 串接第 1～5 期程式全部完成，只在 ragic-dev**（spec：`docs/specs/Ragic串接_訂檔流程.md`、`docs/specs/Ragic串接_第5期_存檔編號與統計.md`）。正式版 main 未合併。
 - 下一步＝陪 Jonathan 在測試 app（https://newcue-gffrnqkzgd52wysftlnwyu.streamlit.app/ ，指向 ragic-dev）實測，推版後先 Reboot：
   1. Ragic 帳號登入（含開兩步驟驗證的同事）、客戶帶入、存檔給編號、存檔後下載 → Secrets `RAGIC_WRITE_ENABLED="true"`
