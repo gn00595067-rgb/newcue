@@ -759,10 +759,104 @@ def _render_audit(linked, legacy_details, key_prefix):
 
 
 def _order_lines(orders):
+    def n(v):
+        try:
+            return int(float(v or 0))
+        except (TypeError, ValueError):
+            return 0
     for i, d in enumerate(orders, 1):
         st.caption(f"第 {i} 波｜{d.執行開始日期}～{d.執行結束日期}｜" + "；".join(
-            f"{r['平台細項']}{(' ' + str(r['秒數']) + '秒') if r['秒數'] else ''} "
-            f"{r['平台檔數']:,}檔 ${r['實收金額未稅']:,}" for r in d.收入明細))
+            f"{r.get('平台細項', '')}{(' ' + str(r['秒數']) + '秒') if r.get('秒數') else ''} "
+            f"{n(r.get('平台檔數')):,}檔 ${n(r.get('實收金額未稅')):,}" for r in d.收入明細))
+
+
+INCOME_COLS = ["類別", "業績年月", "平台細項", "平台檔數", "秒數", "製作成本", "配音員費用", "實收金額未稅", "其他成本", "公司"]
+PLATFORM_DETAILS = ["全家企頻", "新鮮視", "家樂福企頻", "健康視", "廣播", "其他", "製作收入"]   # 訂檔表實際值
+_NUM_COLS = ("平台檔數", "秒數", "製作成本", "配音員費用", "實收金額未稅", "其他成本")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _order_opts(field_name):
+    try:
+        return rf.order_field_options(field_name)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _clean_income(records):
+    """data_editor 回傳 → 乾淨的收入列（NaN→空、整數不帶 .0、整列空白略過）。"""
+    import math
+    out = []
+    for r in records:
+        row = {}
+        for c in INCOME_COLS:
+            v = r.get(c)
+            if v is None or (isinstance(v, float) and math.isnan(v)):
+                v = ""
+            if c in _NUM_COLS and v != "":
+                try:
+                    f = float(v)
+                    v = int(f) if f.is_integer() else f
+                except (TypeError, ValueError):
+                    pass
+            row[c] = v
+        if any(str(row[c]).strip() for c in INCOME_COLS if c not in ("類別", "公司", "業績年月")):
+            out.append(row)
+    return out
+
+
+def _income_editor(base_orders, key_prefix):
+    """逐波收入子表編輯（cueupload 同做法：data_editor 動態增列）。CUE 或 ② 的類別／公司改了就重設成新預填。
+    回傳逐波的收入列清單。"""
+    import hashlib
+    import json
+
+    import pandas as pd
+    from ragic_booking import order_from_cue as oc
+    tabs = st.tabs([f"第{i + 1}波" for i in range(len(base_orders))]) if len(base_orders) > 1 else [st.container()]
+    out = []
+    for i, (d, tab) in enumerate(zip(base_orders, tabs)):
+        base = [{c: ("" if r.get(c) is None else r.get(c, "")) for c in INCOME_COLS} for r in d.收入明細]
+        sig = hashlib.md5(json.dumps(base, ensure_ascii=False, default=str).encode()).hexdigest()[:8]
+        df = pd.DataFrame(base, columns=INCOME_COLS)
+        for c in _NUM_COLS:
+            df[c] = pd.to_numeric(df[c].replace("", None), errors="coerce")
+        for c in ("類別", "業績年月", "平台細項", "公司"):
+            df[c] = df[c].astype(str)
+        with tab:
+            ed = st.data_editor(
+                df, num_rows="dynamic", hide_index=True, key=f"{key_prefix}_od_inc_{i}_{sig}", width="stretch",
+                column_config={
+                    "類別": st.column_config.SelectboxColumn("類別*", options=oc.INCOME_CATEGORIES),
+                    "業績年月": st.column_config.TextColumn("業績年月*", help="yyyy/MM/dd（Ragic 顯示成 yyyy/MM）"),
+                    "平台細項": st.column_config.SelectboxColumn("平台細項*", options=PLATFORM_DETAILS),
+                    "平台檔數": st.column_config.NumberColumn("平台檔數*", step=1, format="%d"),
+                    "秒數": st.column_config.NumberColumn("秒數*", step=1, format="%d"),
+                    "製作成本": st.column_config.NumberColumn("製作成本", step=1, format="%d"),
+                    "配音員費用": st.column_config.NumberColumn("配音員費用", step=1, format="%d"),
+                    "實收金額未稅": st.column_config.NumberColumn("實收金額(未稅)*", step=1, format="%d"),
+                    "其他成本": st.column_config.NumberColumn("其他成本", step=1, format="%d"),
+                    "公司": st.column_config.SelectboxColumn("公司", options=COMPANY_OPTIONS),
+                })
+        rows = _clean_income(ed.to_dict("records"))
+        out.append(rows)
+        tot = sum(int(float(r.get("平台檔數") or 0)) for r in rows if r.get("平台細項") != oc.PROD_LABEL)
+        st.caption(f"{'第' + str(i + 1) + '波 ' if len(base_orders) > 1 else ''}{len(rows)} 列｜"
+                   f"平台檔數合計 {tot:,}（＝主表 CUE表總檔數；平台、CUE表秒數也依此表）")
+    return out
+
+
+def _ragic_preview(orders, signback, materials):
+    """仿 Ragic 表單畫出每一波會寫入的內容。"""
+    import ragic_order_preview as rp
+    sign_name = getattr(signback, "name", signback) or ""
+    mats = [{"廣告篇名": m.get("廣告篇名", ""), "音檔": getattr(m.get("音檔"), "name", ""),
+             "文案": getattr(m.get("文案"), "name", "")} for m in materials or []]
+    tabs = st.tabs([f"第{d.波段}波" for d in orders]) if len(orders) > 1 else [st.container()]
+    for d, tab in zip(orders, tabs):
+        with tab:
+            st.html(rp.order_html(d, attachments={"cue": "（存檔時產生的 CUE Excel）", "sign": sign_name},
+                                  materials=mats))
 
 
 def clear_loaded():
@@ -879,7 +973,8 @@ def _order_extra(p):
     return {"客戶類別": p.get("客戶類別", ""), "客服": p.get("客服") or None, "播證名稱": p.get("播證名稱") or None,
             "需求說明": p.get("需求說明", ""), "notify": _notify_defaults(),
             "現折": p.get("現折"), "退佣": p.get("退佣"), "文案": p.get("文案") or None, "素材走法": p.get("素材走法", ""),
-            "素材": [{"廣告篇名": n} for n in p.get("素材") or []]}
+            "素材": [{"廣告篇名": n} for n in p.get("素材") or []],
+            "收入": p.get("收入") or None, "電台": p.get("電台") or None}
 
 
 def _order_customer(snap, key_prefix, last, bind_session):
@@ -1005,7 +1100,17 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
         if same and not cert and cert_default:
             st.caption(f"電台播證開立名稱留空＝{cert_default}")
 
-        st.markdown("**④ 子表格**")
+        fmt = lambda d: d.strftime("%Y/%m/%d") if d else ""   # noqa: E731
+        st.markdown("**④ 訂檔收入相關資訊**（照 CUE 預填；可改格、可加列，例如廣播、其他）")
+        base = oc.build_orders(snap, applicant=u.get("name", ""), company=company, category=category,
+                               收款日期=fmt(pay), 發票開立日=fmt(inv))
+        income = _income_editor(base, key_prefix)
+        stations = []
+        if any(r.get("平台細項") == "廣播" for rows in income for r in rows):
+            stations = st.multiselect("電台（平台有廣播才需要）", _order_opts("電台"), key=f"{key_prefix}_od_station",
+                                      accept_new_options=True)
+
+        st.markdown("**⑤ 素材及需求**")
         materials = _material_inputs(key_prefix, update)
         has_audio = any(m.get("音檔") for m in materials)
         need_def = f"{_date.today():%m/%d} " + ("更新 CUE 表" if update else "提供訂檔CUE表+回簽") + (
@@ -1029,13 +1134,15 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
         params = {"公司": company, "類別": category, "收款日期": pay, "發票開立日": inv,
                   "客戶類別": ccat, "客服": cserv, "播證名稱": cert, "需求說明": need.strip(),
                   "現折": disc.strip(), "退佣": rebate.strip(), "文案": [x for x in cw if x] or ["無"],
-                  "素材走法": mat.strip(), "素材": [m["廣告篇名"] for m in materials]}
-        fmt = lambda d: d.strftime("%Y/%m/%d") if d else ""   # noqa: E731
+                  "素材走法": mat.strip(), "素材": [m["廣告篇名"] for m in materials],
+                  "收入": income, "電台": stations}
         orders = oc.build_orders(snap, applicant=u.get("name", ""), company=company, category=category,
                                  收款日期=fmt(pay), 發票開立日=fmt(inv), **_order_extra(params))
         if orders:
             st.caption(f"通知（依平台自動）：{orders[0].通知部門}｜{'、'.join(orders[0].通知個人)}")
         _order_lines(orders)
+        if st.toggle("👀 預覽送出 Ragic 畫面", key=f"{key_prefix}_od_preview"):
+            _ragic_preview(orders, sign or (prev_review or {}).get("signback"), materials)
         miss = oc.missing(snap, orders)
         missing = list(dict.fromkeys(miss["CUE號申請"] + miss["訂檔"]))
         if missing:

@@ -106,6 +106,23 @@ def pct(v):
     return f"{x:.4f}".rstrip("0").rstrip(".") or "0"
 
 
+def derive_from_income(d):
+    """主表的平台、CUE表秒數、CUE表總檔數由收入子表推（改表就跟著變；製作收入列不計）。"""
+    rows = [r for r in d.收入明細 if r.get("平台細項") and r.get("平台細項") != PROD_LABEL]
+    if not rows:
+        return d
+    d.平台 = list(dict.fromkeys(str(r["平台細項"]) for r in rows))
+    secs = set()
+    for r in rows:
+        try:
+            secs.add(int(float(r.get("秒數"))))
+        except (TypeError, ValueError):
+            pass
+    d.CUE表秒數 = sorted(secs)
+    d.CUE表總檔數 = sum(int(float(r.get("平台檔數") or 0)) for r in rows) or None
+    return d
+
+
 def default_category(snap):
     """收入類別預設（10-21 讀訂檔 300 筆）：產業別公家機關→公家（31/31）；客戶／產品含「統一」→統一；其餘商品。可改。"""
     h, cust = snap.get("header", {}), snap.get("customer") or {}
@@ -141,7 +158,7 @@ def wave_pay_dates(snap):
 
 def build_orders(snap, *, applicant="", company="", category="商品", 收款日期="", 發票開立日="", cue_no="",
                  客戶類別="", 客服=None, 播證名稱=None, 需求說明="", notify=None,
-                 現折=None, 退佣=None, 文案=None, 素材走法="", 素材=None):
+                 現折=None, 退佣=None, 文案=None, 素材走法="", 素材=None, 收入=None, 電台=None):
     """快照各波 → OrderDraft 清單（製作費只算在第 1 波）。客戶相關欄位取快照 customer。
     收款日期：有給＝各波相同；空白＝各波 CUE 上的付款兌現日。
     客戶類別／客服：有給就覆蓋客戶主檔（主檔空白時在訂檔區補）。
@@ -150,7 +167,10 @@ def build_orders(snap, *, applicant="", company="", category="商品", 收款日
     notify：rf.notify_defaults() 的結果，依平台含企頻與否帶 平台2／通知部門／通知個人；None 用 rf.NOTIFY_FALLBACK。
     現折／退佣：小數字串（0.02＝2%）；None＝客戶主檔，主檔空白＝0（主檔現折 96% 空白，訂檔必填）。
     文案：文案人員清單，None／空＝["無"]；素材走法：文字，可空。
-    素材：[{"廣告篇名": str}]，每支一列（音檔／文案附件由呼叫端以 rf.material_file_keys 對應列號上傳）；各波相同。"""
+    素材：[{"廣告篇名": str}]，每支一列（音檔／文案附件由呼叫端以 rf.material_file_keys 對應列號上傳）；各波相同。
+    收入：逐波的收入子表列（畫面上可改格、加列；None 或該波 None＝依 CUE）。
+          平台、CUE表秒數、CUE表總檔數一律由收入列推（實際訂檔：總檔數＝各列檔數加總；製作收入列不算平台）。
+    電台：廣播電台清單（平台含「廣播」才送）。"""
     from datetime import datetime
     h = snap.get("header", {})
     cust = snap.get("customer") or {}
@@ -195,6 +215,11 @@ def build_orders(snap, *, applicant="", company="", category="商品", 收款日
         d.需求建立時間 = datetime.now().strftime("%Y/%m/%d %H:%M:%S") if d.需求說明 else ""
         d.收入明細 = income_rows(w, category=category, company=company,
                              prod_cost=(h.get("prod_cost") or 0) if i == 0 else 0)
+        edited = 收入[i] if isinstance(收入, (list, tuple)) and i < len(收入) else None
+        if edited is not None:
+            d.收入明細 = [dict(COST_ZERO, **{k: v for k, v in r.items() if v not in (None, "")}) for r in edited]
+        derive_from_income(d)
+        d.電台 = list(電台 or []) if "廣播" in d.平台 else []
         out.append(d)
     return out
 

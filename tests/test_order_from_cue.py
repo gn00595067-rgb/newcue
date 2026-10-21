@@ -382,3 +382,31 @@ def test_defaults_derived_from_cue_and_customer():
     assert oc.default_category(snap) == "公家"
     assert oc.default_category(_snap(customer={"名稱": "二零零八傳媒", "產品": "統一陽光"})) == "統一"
     assert [oc.default_material_note(n) for n in (0, 1, 2, 4)] == ["", "單支素材無走法", "兩支素材平均輪播", "四支素材平均輪播"]
+
+
+# ---------------------------------------------------------------- 收入子表可編、加列（Jonathan 10-21）
+def test_edited_income_rows_drive_main_fields():
+    snap = _snap(prod_cost=0)
+    base = oc.build_orders(snap)[0].收入明細
+    edited = [dict(r) for r in base] + [{"類別": "商品", "業績年月": "2027/01/04", "平台細項": "廣播", "平台檔數": 84,
+                                         "秒數": 30, "實收金額未稅": 251250, "公司": "聲活"}]
+    o = oc.build_orders(snap, 收入=[edited, None], 電台=["中廣", "BEST989"])
+    assert o[0].平台 == ["全家企頻", "家樂福企頻", "廣播"] and o[0].CUE表秒數 == [15, 20, 30]
+    assert o[0].CUE表總檔數 == 1600 + 814 + 84                                   # 總檔數＝各列加總
+    assert o[0].收入明細[-1]["配音員費用"] == "0"                                  # 新列補成本欄 0
+    assert o[0].電台 == ["中廣", "BEST989"] and o[1].電台 == []                    # 只有含廣播的波段送電台
+    assert rf.order_payload_json(o[0])[rf.OrderF.電台] == ["中廣", "BEST989"]
+    assert o[1].平台 == ["新鮮視"]                                                # 第 2 波沒改＝依 CUE
+
+
+def test_ragic_like_preview_html():
+    import ragic_order_preview as rp
+    o = oc.build_orders(_snap(), applicant="王小明", 收款日期="2027/02/28", 需求說明="10/21 提供CUE",
+                        素材=[{"廣告篇名": "A篇"}])[0]
+    html = rp.order_html(o, attachments={"cue": "cue.xlsx", "sign": "回簽.pdf"},
+                         materials=[{"廣告篇名": "A篇", "音檔": "a.mp3", "文案": ""}])
+    for s in ("訂檔資訊", "訂檔收入相關資訊", "訂檔素材及需求資訊", "客戶甲-產品乙", "全家企頻", "a.mp3",
+              "10/21 提供CUE", "平台檔數總計 2,414", "（Ragic 自動）", "回簽.pdf"):
+        assert s in html, s
+    o.電台播證開立名稱 = ""
+    assert 'class="v miss"' in rp.order_html(o)                                    # 空白必填標紅

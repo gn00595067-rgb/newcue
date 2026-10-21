@@ -29,6 +29,7 @@ from ragic_booking import cue2  # noqa: E402
 
 ragic_ui.write_enabled = lambda: True
 ragic_ui._options = lambda field_name: []   # 客服等下拉選項不連 Ragic
+ragic_ui._order_opts = lambda field_name: []
 ragic_ui._search = lambda q: list(st.session_state.get("_fake_customers", []))   # 客戶搜尋改假資料
 from ragic_booking import fields as _rf  # noqa: E402
 

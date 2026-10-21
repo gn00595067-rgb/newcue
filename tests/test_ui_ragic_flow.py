@@ -311,6 +311,8 @@ def test_order_panel_inline_customer_and_fields():
     at.selectbox(key="simple_save_od_ccat").set_value("廣代").run()
     assert "素材後補" in at.text_input(key="simple_save_od_need").value                # 沒放素材 → 預設寫素材後補
     at.text_area(key="simple_save_od_mat_names").input("B篇.30秒").run()             # 只有篇名、素材後補
+    at.toggle(key="simple_save_od_preview").set_value(True).run()                  # 仿 Ragic 預覽
+    _ok(at)
     at.text_input(key="simple_save_od_need").input("10/21 提供CUE+回簽").run()
     btn = at.button(key="simple_save_submit")
     assert not btn.disabled, btn.help                                          # 收款日期取付款兌現日 115.12.31
@@ -406,7 +408,7 @@ def test_manage_submit_saved_record():
     btn.click().run()
     _after_rerun(at, adm_od_company="", adm_od_cat="商品", adm_od_pay=None, adm_od_inv=None, adm_od_ccat="",
                  adm_od_cs=[], adm_od_cert="", adm_od_need="", adm_od_disc="0", adm_od_rebate="0", adm_od_mat="",
-                 adm_od_cw=["無"], adm_od_mat_names="")
+                 adm_od_cw=["無"], adm_od_mat_names="", adm_od_preview=False)
     _ok(at)
     rid = next(iter(at.session_state["_fake_db"]))
     import cue_store as cs

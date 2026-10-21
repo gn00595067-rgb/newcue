@@ -68,6 +68,7 @@ class OrderF:
     產品名稱 = "1015349"
     通知個人 = "1015350"       # multi
     平台 = "1015351"           # multi 🟢 CUE
+    電台 = "1015352"           # multi；平台含「廣播」才填（10-21：20/300 全是廣播案）
     執行開始日期 = "1015353"    # 🟢 CUE
     執行結束日期 = "1015354"    # 🟢 CUE
     企頻素材 = "1015355"       # ☑️ Yes/No（截圖標「企銷素材」，實際＝企頻素材）
@@ -322,6 +323,7 @@ class OrderDraft:
     文案: list[str] = field(default_factory=lambda: ["無"])  # 🟠*必填 預設「無」
     節配: str = "無"            # 預設「無」
     平台: list[str] = field(default_factory=list)
+    電台: list[str] = field(default_factory=list)   # 廣播電台（平台含廣播時）
     執行開始日期: str = ""        # yyyy/MM/dd
     執行結束日期: str = ""
     CUE表秒數: list[int] = field(default_factory=list)
@@ -429,6 +431,8 @@ def build_order_payload(d: OrderDraft) -> dict[str, str]:
         p[f"{OrderF.CUE表秒數}#{i}"] = str(sec)
     for i, v in enumerate(d.通知個人):
         p[f"{OrderF.通知個人}#{i}"] = v
+    for i, v in enumerate(d.電台):
+        p[f"{OrderF.電台}#{i}"] = v
 
     # 子表：訂檔收入相關資訊（逐平台一列）
     for n, row in enumerate(d.收入明細, 1):
@@ -520,6 +524,8 @@ def order_payload_json(d: OrderDraft) -> dict[str, Any]:
         p[OrderF.CUE表秒數] = [str(x) for x in d.CUE表秒數]
     if d.通知個人:
         p[OrderF.通知個人] = [str(x) for x in d.通知個人]
+    if d.電台:
+        p[OrderF.電台] = [str(x) for x in d.電台]
 
     # 子表：訂檔收入相關資訊（逐平台一列）。收入_公司列自帶時用列值，否則退回主檔公司。
     inc = _subrows(d.收入明細, {
