@@ -293,6 +293,31 @@ def test_book_blocked_without_customer_signback_or_flag():
     assert btn.disabled and "RAGIC_BOOKING_ENABLED" in btn.help
 
 
+def test_order_panel_inline_customer_and_fields():
+    """宜歆 10/21：缺客戶編號等找不到去哪填 → 訂檔區直接搜尋帶入客戶、補客戶類別，播證名稱預設廣告主-產品。"""
+    at = _app("簡易模式", _fake_customers=[dict(CUSTOMER, 類別="")], _fake_sign=True)
+    btn = at.button(key="simple_save_submit")
+    assert btn.disabled and "客戶編號（① 客戶：搜尋帶入）" in btn.help
+    at.text_input(key="simple_save_od_cust_q").input("客戶甲").run()
+    at.button(key="simple_save_od_cust_apply").click().run()
+    at.run()
+    _ok(at)
+    assert at.session_state["ragic_customer"]["編號"] == "C01399"
+    assert at.session_state["simple_client"] == "客戶甲股份有限公司"            # 上方空白的客戶名稱回填
+    btn = at.button(key="simple_save_submit")
+    assert "客戶類別（① 客戶）" in btn.help and "客戶編號" not in btn.help
+    at.selectbox(key="simple_save_od_ccat").set_value("廣代").run()
+    at.text_input(key="simple_save_od_need").input("10/21 提供CUE+回簽").run()
+    btn = at.button(key="simple_save_submit")
+    assert not btn.disabled, btn.help                                          # 收款日期取付款兌現日 115.12.31
+    btn.click().run()
+    _after_rerun(at, "simple_save_au_reason")
+    _ok(at)
+    import cue_store as cs
+    p = cs.from_jsonable(_rec(at)["snap"]["review"]["params"])
+    assert p["客戶類別"] == "廣代" and p["需求說明"] == "10/21 提供CUE+回簽" and p["客服"] == ["陳客服"]
+
+
 def test_ops_bonus_mark_and_audit_reject():
     at = _app("專案CUE", ragic_customer=CUSTOMER, fp_client="客戶甲", _fake_sign=True)
     _book(at, "fp_save")
@@ -374,7 +399,8 @@ def test_manage_submit_saved_record():
     btn = at.button(key="adm_submit")
     assert not btn.disabled, btn.help
     btn.click().run()
-    _after_rerun(at, adm_od_company="", adm_od_cat="商品", adm_od_pay=None, adm_od_inv=None)
+    _after_rerun(at, adm_od_company="", adm_od_cat="商品", adm_od_pay=None, adm_od_inv=None, adm_od_ccat="",
+                 adm_od_cs=[], adm_od_cert="", adm_od_need="")
     _ok(at)
     rid = next(iter(at.session_state["_fake_db"]))
     import cue_store as cs

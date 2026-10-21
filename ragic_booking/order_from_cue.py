@@ -55,8 +55,8 @@ def _d(v):
 
 
 def income_rows(wave, *, category="商品", company="", prod_cost=0):
-    """單一波段的收入子表列（平台＋秒數一列）。"""
-    ym = _d(wave.get("start"))[:7]
+    """單一波段的收入子表列（平台＋秒數一列）。業績年月＝該波開始日（Ragic 實際存完整日期，如 2026/11/08）。"""
+    ym = _d(wave.get("start"))
     groups, members = {}, {}
     for r in wave.get("rows", []):
         lbl = PLATFORM_LABEL.get(r["platform"], r["platform"])
@@ -74,24 +74,58 @@ def income_rows(wave, *, category="商品", company="", prod_cost=0):
     return out
 
 
-def build_orders(snap, *, applicant="", company="", category="商品", 收款日期="", 發票開立日="", cue_no=""):
-    """快照各波 → OrderDraft 清單（製作費只算在第 1 波）。客戶相關欄位取快照 customer。"""
+# 送出前缺欄 → 在訂檔資料區的哪一段填（宜歆 10/21：只寫缺什麼，找不到去哪填）
+WHERE = {"客戶編號": "① 客戶：搜尋帶入", "客戶類別": "① 客戶", "客服": "① 客戶",
+         "公司": "② 開票收款", "收款日期": "② 開票收款", "電台播證開立名稱": "③ 播證",
+         "訂檔人": "請重新登入", "平台": "CUE 內容", "CUE表秒數": "CUE 內容", "CUE表總檔數": "CUE 內容",
+         "執行開始日期": "CUE 內容", "執行結束日期": "CUE 內容"}
+
+
+def advertiser(snap):
+    """廣告主：CUE 上的客戶名稱（代理商案即廣告主），空白退回 Ragic 客戶主檔名稱。"""
+    return (snap.get("header", {}).get("client") or (snap.get("customer") or {}).get("名稱") or "").strip()
+
+
+def default_cert_name(snap):
+    """電台播證開立名稱預設＝「廣告主-產品」（訂檔表實際寫法，廣代案用廣告主不是代理商）。"""
+    h = snap.get("header", {})
+    product = (h.get("product") or (snap.get("customer") or {}).get("產品") or "").strip()
+    return "-".join(x for x in (advertiser(snap), product) if x)
+
+
+def wave_pay_dates(snap):
+    """各波 CUE 上的付款兌現日（年約每波各自；其他模式取 header）→ yyyy/MM/dd，沒有回空字串。"""
+    h = _d(snap.get("header", {}).get("payment_date"))
+    return [_d(w.get("payment_date")) or h for w in snap.get("waves", [])]
+
+
+def build_orders(snap, *, applicant="", company="", category="商品", 收款日期="", 發票開立日="", cue_no="",
+                 客戶類別="", 客服=None, 播證名稱=None, 需求說明="", notify=None):
+    """快照各波 → OrderDraft 清單（製作費只算在第 1 波）。客戶相關欄位取快照 customer。
+    收款日期：有給＝各波相同；空白＝各波 CUE 上的付款兌現日。
+    客戶類別／客服：有給就覆蓋客戶主檔（主檔空白時在訂檔區補）。
+    播證名稱：字串＝各波相同；清單＝逐波（空的退回預設「廣告主-產品」）。
+    需求說明：建立「需求或狀況說明」子表一列（更新訂檔時為追加一列）。
+    notify：rf.notify_defaults() 的結果，依平台含企頻與否帶 平台2／通知部門／通知個人；None 用 rf.NOTIFY_FALLBACK。"""
     h = snap.get("header", {})
     cust = snap.get("customer") or {}
     company = company or default_company(snap)
+    notify = notify or rf.NOTIFY_FALLBACK
+    pays = wave_pay_dates(snap)
+    cert_default = default_cert_name(snap)
     out = []
     for i, w in enumerate(snap.get("waves", [])):
         rows = w.get("rows", [])
         d = rf.OrderDraft()
         d.客戶編號 = cust.get("編號", "")
-        d.客戶類別 = cust.get("類別", "")
+        d.客戶類別 = 客戶類別 or cust.get("類別", "")
         d.客戶名稱 = cust.get("名稱", "")
         d.CUE號 = cue_no
         d.波段 = str(i + 1)
         d.申請人 = d.訂檔人 = applicant
         d.公司 = company
         d.產品名稱 = h.get("product") or cust.get("產品", "")
-        d.客服 = list(cust.get("客服") or [])
+        d.客服 = list(客服 if 客服 else (cust.get("客服") or []))
         d.業務開發客戶 = cust.get("業務", "")
         d.業務主管 = cust.get("主管", "")
         d.平台 = list(dict.fromkeys(PLATFORM_LABEL.get(r["platform"], r["platform"]) for r in rows))
@@ -99,11 +133,15 @@ def build_orders(snap, *, applicant="", company="", category="商品", 收款日
         d.執行結束日期 = _d(w.get("end"))
         d.CUE表秒數 = sorted({r["seconds"] for r in rows if r.get("seconds")})
         d.CUE表總檔數 = count_spots(rows) or None
-        d.電台播證開立名稱 = f"{h.get('client') or cust.get('名稱', '')} {d.產品名稱}".strip()
+        per = 播證名稱[i] if isinstance(播證名稱, (list, tuple)) and i < len(播證名稱) else 播證名稱
+        d.電台播證開立名稱 = (per if isinstance(per, str) else "").strip() or cert_default
         d.現折pct = cust.get("現折", "")
         d.退佣 = cust.get("退佣", "")
-        d.收款日期 = 收款日期
+        d.收款日期 = 收款日期 or (pays[i] if i < len(pays) else "")
         d.發票開立日業務 = 發票開立日
+        nt = notify[rf.has_qp(d.平台)]
+        d.平台2, d.通知部門, d.通知個人 = nt["平台2"], nt["通知部門"], list(nt["通知個人"])
+        d.需求說明 = (需求說明 or "").strip()
         d.收入明細 = income_rows(w, category=category, company=company,
                              prod_cost=(h.get("prod_cost") or 0) if i == 0 else 0)
         out.append(d)
@@ -121,24 +159,34 @@ def cue_apply_payload(snap, applicant=""):
 
 
 def missing(snap, orders):
-    """送出前必填盤點：{"CUE號申請": [...], "訂檔": [...]}（附件另計）。"""
+    """送出前必填盤點：{"CUE號申請": [...], "訂檔": [...]}（附件另計）。
+    每項寫成「欄名（在哪裡填）」；只有部分波段缺時標出波段。"""
     cust = snap.get("customer") or {}
     out = {"CUE號申請": [], "訂檔": []}
     if not cust.get("編號"):
-        out["CUE號申請"].append("客戶編號（請先從 Ragic 帶入客戶）")
+        out["CUE號申請"].append(f"客戶編號（{WHERE['客戶編號']}）")
     else:
         # CUE號申請表必填，取自客戶主檔；主檔空白時 Ragic 會整筆拒絕（10/16 實測 INVALID）
         for k in ("名稱", "主管"):
             if not str(cust.get(k) or "").strip():
                 fname = "客戶名稱" if k == "名稱" else "主管"
                 out["CUE號申請"].append(f"Ragic 客戶主檔的{fname}（{cust.get('編號')} 空白，請先到 Ragic 客戶表補上再送）")
-    for d in orders[:1]:
+    by_name = {}
+    for wi, d in enumerate(orders, 1):
         m = rf.missing_required_order(d)
-        # CUE號在核准時才申請，這裡不算缺
-        # 製作收入列沒有檔數／秒數（實際訂檔亦然），不算缺
+        # CUE號在送出時才申請，這裡不算缺；製作收入列沒有檔數／秒數（實際訂檔亦然），不算缺
         prod = {f"收入第{i}列.{k}" for i, r in enumerate(d.收入明細, 1) if r["平台細項"] == PROD_LABEL
                 for k in ("平台檔數", "秒數")}
-        out["訂檔"] = [x for x in m.get("blocking", []) if not x.startswith("CUE號") and x not in prod]
+        for x in m.get("blocking", []):
+            if x.startswith("CUE號") or x in prod:
+                continue
+            by_name.setdefault(x.split("（")[0], []).append(wi)
+        if not d.客服:
+            by_name.setdefault("客服", []).append(wi)
+    for name, waves in by_name.items():
+        where = WHERE.get(name, "")
+        part = "" if len(orders) <= 1 or len(waves) == len(orders) else "第" + "、".join(map(str, waves)) + "波 "
+        out["訂檔"].append(f"{part}{name}" + (f"（{where}）" if where else ""))
     return out
 
 
@@ -185,7 +233,8 @@ def _income_rowids(record):
 
 
 def update_payload(d, record):
-    """已訂檔波段的更新內容：CUE 相關欄位＋收入子表（同平台＋秒數更新原列，新的平台加新列）。"""
+    """已訂檔波段的更新內容：CUE 相關欄位＋收入子表（同平台＋秒數更新原列，新的平台加新列，
+    CUE 已拿掉的平台列檔數／金額歸零保留痕跡）＋需求說明（有填才追加一列，既有列不動）。"""
     full = rf.order_payload_json(d)
     p = {k: v for k, v in full.items() if k in _UPDATE_FIELDS}
     rowids = _income_rowids(record)
@@ -198,8 +247,15 @@ def update_payload(d, record):
         else:
             n += 1
             new_rows[f"-{n}"] = row
+    ours = set(PLATFORM_LABEL.values()) | {PROD_LABEL}
+    for (plat, _sec), rowid in rowids.items():   # 只歸零程式產生的平台列，營運手加的其他列不動
+        if rowid not in new_rows and plat in ours:
+            new_rows[rowid] = {rf.OrderF.收入_平台檔數: "0", rf.OrderF.收入_實收金額未稅: "0"}
     if new_rows:
         p[sub_key] = new_rows
+    need = full.get(f"_subtable_{rf.OrderF.SUB_NEED}")
+    if need:   # 負號列 id＝新增一列
+        p[f"_subtable_{rf.OrderF.SUB_NEED}"] = need
     return p
 
 

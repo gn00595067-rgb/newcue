@@ -180,7 +180,8 @@ def _submit_box(rec, snap):
     from config import RAGIC_MAP
     from ragic_booking import cue2
     st.markdown("#### 📨 送出訂檔")
-    od = ragic_ui.render_order_preview(snap, "adm", prev_review=snap.get("review"), update=bool(snap.get("booking")))
+    od = ragic_ui.render_order_preview(snap, "adm", prev_review=snap.get("review"), update=bool(snap.get("booking")),
+                                       bind_session=False)
     has_sign = bool(od["signback"] or (snap.get("review") or {}).get("signback"))
     block = ([] if ragic_ui.write_enabled() else ["乾跑模式"]) \
         + ([] if ragic_ui.booking_enabled() else ["訂檔寫入未開放（RAGIC_BOOKING_ENABLED）"]) \

@@ -507,6 +507,7 @@ def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov
         files = lambda: _picked_files(model, sheet, fmt, fname, transform, sales_full)  # noqa: E731
     # 回簽截止日／請款月份／付款兌現日：存檔必填（10/14 實測 cue/2 這三欄空白）
     pay = parse_roc_date(ov.get("payment"))
+    snap["header"]["payment_date"] = cs.to_jsonable(pay)   # 訂檔「收款日期」預設
     save_block = ([] if str(ov.get("billing") or "").strip() else ["請款月份"])         + ([] if pay else ["付款兌現日期（民國，如 115.11.30）"])
     from config import RAGIC_MAP
     ragic_ui.render_save_panel(

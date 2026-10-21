@@ -32,8 +32,8 @@ def test_income_rows_grouped_by_platform():
     assert all(r["平台細項"] != "製作收入" for r in orders[1].收入明細)
     o = orders[1]
     assert (o.波段, o.執行開始日期, o.公司, o.平台, o.CUE表秒數) == ("2", "2027/03/01", "聲活", ["新鮮視"], [15])
-    assert orders[0].收入明細[0]["業績年月"] == "2027/01" and orders[0].收入明細[0]["類別"] == "商品"
-    assert orders[0].電台播證開立名稱 == "客戶甲 產品乙" and orders[0].客服 == ["陳客服"]
+    assert orders[0].收入明細[0]["業績年月"] == "2027/01/04" and orders[0].收入明細[0]["類別"] == "商品"
+    assert orders[0].電台播證開立名稱 == "客戶甲-產品乙" and orders[0].客服 == ["陳客服"]
 
 
 def test_payloads_and_missing():
@@ -167,3 +167,78 @@ def test_update_booking_stops_on_error():
     res = oc.update_booking(snap, orders, booking={"cue_id": "X", "orders": [{"wave": 1, "rid": "55"}]},
                             reader=lambda f, r: {}, updater=lambda f, r, p: R())
     assert not res["ok"] and "第 1 波更新失敗" in res["error"]
+
+
+# ---------------------------------------------------------------- 訂檔資料補齊（spec：docs/specs/訂檔資料補齊.md）
+def test_missing_says_where_to_fill():
+    """宜歆 10/21：只寫缺什麼找不到去哪填 → 每項附上在訂檔區哪一段。"""
+    snap = _snap(customer={})
+    snap["header"]["client"] = snap["header"]["product"] = ""
+    m = oc.missing(snap, oc.build_orders(snap))
+    items = m["CUE號申請"] + m["訂檔"]
+    assert "客戶編號（① 客戶：搜尋帶入）" in items
+    assert "客戶類別（① 客戶）" in items and "電台播證開立名稱（③ 播證）" in items
+    assert "收款日期（② 開票收款）" in items and "客服（① 客戶）" in items
+
+
+def test_payment_date_defaults_from_cue_per_wave():
+    snap = _snap()
+    snap["waves"][0]["payment_date"] = {"__date__": "2027-02-28"}
+    snap["header"]["payment_date"] = {"__date__": "2027-04-30"}
+    orders = oc.build_orders(snap, applicant="王小明")
+    assert [o.收款日期 for o in orders] == ["2027/02/28", "2027/04/30"]       # 波段自己的優先，沒有用 header
+    assert oc.missing(snap, orders)["訂檔"] == []
+    assert [o.收款日期 for o in oc.build_orders(snap, 收款日期="2027/05/31")] == ["2027/05/31"] * 2   # 手填覆蓋
+
+
+def test_partial_wave_missing_marks_wave():
+    snap = _snap()
+    snap["waves"][0]["payment_date"] = {"__date__": "2027-02-28"}
+    assert oc.missing(snap, oc.build_orders(snap, applicant="王小明"))["訂檔"] == ["第2波 收款日期（② 開票收款）"]
+
+
+def test_overrides_category_service_and_cert_name():
+    snap = _snap(customer={"編號": "C1", "名稱": "二零零八傳媒", "類別": "", "主管": "李", "客服": []})
+    snap["header"]["client"] = "統一企業股份有限公司"
+    o = oc.build_orders(snap, applicant="王小明", 收款日期="2027/02/28", 客戶類別="廣代-商品", 客服=["豐季妍"],
+                        播證名稱=["", "統一企業股份有限公司-第二波"])
+    assert o[0].客戶類別 == "廣代-商品" and o[0].客服 == ["豐季妍"]
+    assert o[0].電台播證開立名稱 == "統一企業股份有限公司-產品乙"            # 廣告主，不是代理商
+    assert o[1].電台播證開立名稱 == "統一企業股份有限公司-第二波"
+    assert oc.missing(snap, o)["訂檔"] == []
+    assert {x.電台播證開立名稱 for x in oc.build_orders(snap, 播證名稱="同名")} == {"同名"}
+
+
+def test_notify_fields_follow_qp_platform():
+    snap = _snap()
+    o = oc.build_orders(snap)
+    assert o[0].平台2 == "企頻" and "企頻小組" in o[0].通知部門 and len(o[0].通知個人) == 7   # 全家企頻
+    assert o[1].平台2 == "" and o[1].通知部門 == "財務處+媒體處" and len(o[1].通知個人) == 5  # 只有新鮮視
+    p = rf.order_payload_json(o[0])
+    assert p[rf.OrderF.通知部門] == "財務處+媒體處+企頻小組" and len(p[rf.OrderF.通知個人]) == 7
+
+
+def test_need_row_created_and_appended_on_update():
+    snap = _snap(prod_cost=0)
+    o = oc.build_orders(snap, 需求說明="10/21 提供訂檔CUE表+回簽")
+    need_key = f"_subtable_{rf.OrderF.SUB_NEED}"
+    assert rf.order_payload_json(o[0])[need_key] == {"-1": {rf.OrderF.需求_說明: "10/21 提供訂檔CUE表+回簽"}}
+    rec = {need_key: {"700": {"需求或狀況說明": "營運寫的"}}}
+    p = oc.update_payload(o[0], rec)
+    assert p[need_key] == {"-1": {rf.OrderF.需求_說明: "10/21 提供訂檔CUE表+回簽"}}    # 新增一列，700 不動
+    assert need_key not in oc.update_payload(oc.build_orders(snap)[0], rec)            # 留白不送
+
+
+def test_update_zeroes_income_rows_removed_from_cue():
+    snap = _snap(prod_cost=0)
+    o = oc.build_orders(snap)[1]                                       # 第 2 波只剩新鮮視
+    rec = {"_subtable_1015394": {"901": {"平台細項": "新鮮視", "秒數": "15"},
+                                 "902": {"平台細項": "全家企頻", "秒數": "15"},
+                                 "903": {"平台細項": "廣播", "秒數": "30"}}}   # 營運手加
+    sub = oc.update_payload(o, rec)["_subtable_1015394"]
+    assert sub["902"] == {rf.OrderF.收入_平台檔數: "0", rf.OrderF.收入_實收金額未稅: "0"}
+    assert "903" not in sub and sub["901"][rf.OrderF.收入_平台檔數] == "100"
+
+
+def test_customer_category_options_match_ragic():
+    assert rf.CUSTOMER_CATEGORY_OPTIONS == ["直客", "廣代", "廣代-商品", "廣代-建案"]

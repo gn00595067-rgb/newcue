@@ -17,6 +17,7 @@ from ragic_booking import fields as rf
 
 SS_USER = "ragic_user"           # 登入者 {"email","name","groups"}
 SS_CUSTOMER = "ragic_customer"   # 目前帶入的客戶 {"編號","名稱","統編","產品","類別","現折","退佣",...}
+SS_CUST_FILL = "_ragic_customer_fill"   # 訂檔區帶入的客戶：下次執行由頁首 customer_picker 回填空白的客戶名稱／統編／產品
 
 
 def write_enabled():
@@ -226,6 +227,12 @@ def customer_picker(targets, key_prefix):
     """「從 Ragic 帶入客戶」區塊，放在客戶名稱欄位之上。
     targets：{"client": key, "tax": key, "product": key}，值為該模式輸入欄的 session key
     （一般CUE 傳 temp_* 預設值 key）。未登入時只顯示提示。"""
+    pend = st.session_state.pop(SS_CUST_FILL, None)
+    if pend:   # 只填空白欄，不蓋掉業務已輸入的名稱
+        vals = {"client": pend.get("名稱"), "tax": pend.get("統編"), "product": pend.get("產品")}
+        for f, key in targets.items():
+            if key and vals.get(f) and not str(st.session_state.get(key) or "").strip():
+                st.session_state[key] = vals[f]
     sel = st.session_state.get(SS_CUSTOMER)
     title = f"🔗 Ragic 客戶：{sel['編號']} {sel['名稱']}" if sel else "🔎 從 Ragic 帶入客戶"
     with st.expander(title, expanded=False):
@@ -631,7 +638,8 @@ def _book(snap, od, files_d, rid=None, signback_bytes=None):
     fmt = lambda d: d.strftime("%Y/%m/%d") if d else ""   # noqa: E731
     orders = oc.build_orders(snap, applicant=(reg_owner_name(snap) or (current_user() or {}).get("name", "")),
                              company=p.get("公司", ""), category=p.get("類別", "商品"),
-                             收款日期=fmt(p.get("收款日期")), 發票開立日=fmt(p.get("發票開立日")))
+                             收款日期=fmt(p.get("收款日期")), 發票開立日=fmt(p.get("發票開立日")),
+                             **_order_extra(p))
     url, key = _ragic_conn()
     with st.spinner("申請 CUE號、建立／更新訂檔中…"), tempfile.TemporaryDirectory() as td:
         att = {}
@@ -835,17 +843,77 @@ def open_record(rec, snap):
 COMPANY_OPTIONS = ["東吳", "聲活", "鉑霖", "錄音室", "聲活(采藝)"]   # 訂檔表實際使用值
 
 
-def render_order_preview(snap, key_prefix, prev_review=None, update=False):
-    """訂檔補充資料（公司、收入類別、收款日、發票日、客戶回簽檔）＋各波訂檔預覽。
+@st.cache_data(ttl=3600, show_spinner=False)
+def _notify_defaults():
+    return rf.notify_defaults()
+
+
+def _order_extra(p):
+    """送出參數 → build_orders 的訂檔補充欄位。"""
+    return {"客戶類別": p.get("客戶類別", ""), "客服": p.get("客服") or None, "播證名稱": p.get("播證名稱") or None,
+            "需求說明": p.get("需求說明", ""), "notify": _notify_defaults()}
+
+
+def _order_customer(snap, key_prefix, last, bind_session):
+    """① 客戶：沒帶客戶時就地搜尋；客戶類別、客服可補（主檔空白很常見）。回傳 (客戶類別, 客服)。"""
+    cust = snap.get("customer") or {}
+    st.markdown("**① 客戶**")
+    if cust.get("編號"):
+        st.caption(f"✅ {cust['編號']} {cust.get('名稱', '')}｜業務 {cust.get('業務') or '—'}｜主管 {cust.get('主管') or '—'}")
+    else:
+        st.caption("⚠️ 還沒帶入 Ragic 客戶，直接在這裡搜尋（等同頁面最上方「🔎 從 Ragic 帶入客戶」）。")
+        q = st.text_input("輸入統一編號、客戶名稱或客戶編號", key=f"{key_prefix}_od_cust_q")
+        if q.strip():
+            try:
+                found = _search(q.strip())
+            except Exception as e:  # noqa: BLE001
+                found = None
+                st.error(f"查詢 Ragic 失敗：{e}")
+            if found:
+                idx = st.selectbox(f"找到 {len(found)} 筆", range(len(found)), format_func=lambda i: _cust_label(found[i]),
+                                   key=f"{key_prefix}_od_cust_pick")
+                if st.button("帶入這個客戶", key=f"{key_prefix}_od_cust_apply", type="primary"):
+                    st.session_state[f"{key_prefix}_od_cust_val"] = found[idx]
+                    if bind_session:
+                        st.session_state[SS_CUSTOMER] = found[idx]
+                        st.session_state[SS_CUST_FILL] = found[idx]
+                    st.rerun()
+            elif found is not None:
+                st.info("查無此客戶，請到頁面最上方「➕ 新增客戶到 Ragic」。")
+    c1, c2 = st.columns(2)
+    cats = [""] + rf.CUSTOMER_CATEGORY_OPTIONS
+    dcat = last.get("客戶類別") or cust.get("類別") or ""
+    if dcat not in cats:
+        cats.append(dcat)
+    cat = c1.selectbox("客戶類別" + ("" if cust.get("類別") else "（客戶主檔空白，請選）"), cats, index=cats.index(dcat),
+                       key=f"{key_prefix}_od_ccat")
+    base = list(cust.get("客服") or [])
+    dcs = list(last.get("客服") or base)
+    opts = list(dict.fromkeys(dcs + base + _options("客服")))
+    cserv = c2.multiselect("客服（可多選）", opts, default=dcs, key=f"{key_prefix}_od_cs", accept_new_options=True)
+    return cat, cserv
+
+
+def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_session=True):
+    """訂檔資料（宜歆 10/21：缺欄要能就地補、寫清楚去哪填；spec docs/specs/訂檔資料補齊.md）。
+    ① 客戶（搜尋帶入、客戶類別、客服）② 開票收款 ③ 播證／通知 ④ 子表格（收入、需求說明）＋回簽檔。
+    在這裡帶入的客戶會寫進 snap["customer"]（呼叫端送出時用同一份 snap）。
     回傳 {"params", "missing", "signback"} 供「送出訂檔」使用；欄位預設帶上次送出的值。"""
     import cue_store as cs
-    from ragic_booking import fields as rf
+    from datetime import date as _date
+
     from ragic_booking import order_from_cue as oc
     last = cs.from_jsonable((prev_review or {}).get("params") or {})
+    picked = None if bind_session else st.session_state.get(f"{key_prefix}_od_cust_val")   # 編輯模式改走 SS_CUSTOMER
+    if picked and not (snap.get("customer") or {}).get("編號"):
+        snap["customer"] = cs.to_jsonable(picked)
     out = {"params": {}, "missing": [], "signback": None}
     title = "🧾 訂檔資料（送出即更新原訂檔）" if update else "🧾 訂檔資料（送出即申請 CUE號、建立訂檔＝成交）"
     with st.expander(title, expanded=False):
         u = current_user() or {}
+        ccat, cserv = _order_customer(snap, key_prefix, last, bind_session)
+
+        st.markdown("**② 開票收款**")
         c1, c2, c3, c4 = st.columns(4)
         opts = [""] + COMPANY_OPTIONS
         dflt = last.get("公司") or oc.default_company(snap)
@@ -853,25 +921,60 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False):
         cats = oc.INCOME_CATEGORIES
         category = c2.selectbox("收入類別", cats, index=cats.index(last["類別"]) if last.get("類別") in cats else 0,
                                 key=f"{key_prefix}_od_cat")
-        pay = c3.date_input("收款日期", value=last.get("收款日期"), key=f"{key_prefix}_od_pay")
-        inv = c4.date_input("發票開立日", value=last.get("發票開立日"), key=f"{key_prefix}_od_inv")
+        pays = oc.wave_pay_dates(snap)
+        pay = c3.date_input("收款日期" + ("（空白＝付款兌現日）" if any(pays) else ""), value=last.get("收款日期"),
+                            key=f"{key_prefix}_od_pay",
+                            help="填了就各波都用這天；空白則各波用 CUE 上的付款兌現日。打完日期請按 Enter 或點選日曆。")
+        inv = c4.date_input("發票開立日（選填）", value=last.get("發票開立日"), key=f"{key_prefix}_od_inv")
+        if not pay and any(pays):
+            st.caption("收款日期依 CUE 付款兌現日：" + "；".join(
+                (f"第{i}波 " if len(pays) > 1 else "") + (d or "（無）") for i, d in enumerate(pays, 1)))
+
+        st.markdown("**③ 播證／通知**")
+        waves = snap.get("waves", [])
+        cert_default = oc.default_cert_name(snap)
+        last_cert = last.get("播證名稱")
+        same = True
+        if len(waves) > 1:
+            same = st.checkbox("各波播證名稱相同", value=not isinstance(last_cert, list), key=f"{key_prefix}_od_cert_same")
+        if same:
+            cert = st.text_input("電台播證開立名稱", value=last_cert if isinstance(last_cert, str) else "",
+                                 placeholder=cert_default or "廣告主-產品", key=f"{key_prefix}_od_cert",
+                                 help=f"留空＝{cert_default or '（客戶名稱、產品都空白，請填寫）'}；廣代案寫廣告主，不是代理商。"
+                                 ).strip()
+        else:
+            cert = []
+            for i, _w in enumerate(waves):
+                lv = last_cert[i] if isinstance(last_cert, list) and i < len(last_cert) else ""
+                cert.append(st.text_input(f"第{i + 1}波 電台播證開立名稱", value=lv, placeholder=cert_default,
+                                          key=f"{key_prefix}_od_cert_{i}").strip())
+        if same and not cert and cert_default:
+            st.caption(f"電台播證開立名稱留空＝{cert_default}")
+
+        st.markdown("**④ 子表格**")
+        need_def = f"{_date.today():%m/%d} " + ("更新 CUE 表" if update else "提供訂檔CUE表+回簽")
+        need = st.text_input("需求或狀況說明（新增一列；可留白）", value=need_def, key=f"{key_prefix}_od_need",
+                             help="寫進訂檔「需求或狀況說明」子表；更新訂檔時是往下加一列，不會蓋掉營運寫的。")
         sign = st.file_uploader("客戶回簽檔（送出必附）", type=["pdf", "jpg", "jpeg", "png"], key=f"{key_prefix}_od_sign",
                                 help="客戶回簽後的 CUE（PDF 或照片）；已送出過可不重傳，沿用上次的檔案。")
         if (prev_review or {}).get("signback") and not sign:
             st.caption(f"已附客戶回簽檔：{prev_review['signback']}")
+        params = {"公司": company, "類別": category, "收款日期": pay, "發票開立日": inv,
+                  "客戶類別": ccat, "客服": cserv, "播證名稱": cert, "需求說明": need.strip()}
+        fmt = lambda d: d.strftime("%Y/%m/%d") if d else ""   # noqa: E731
         orders = oc.build_orders(snap, applicant=u.get("name", ""), company=company, category=category,
-                                 收款日期=pay.strftime("%Y/%m/%d") if pay else "",
-                                 發票開立日=inv.strftime("%Y/%m/%d") if inv else "")
+                                 收款日期=fmt(pay), 發票開立日=fmt(inv), **_order_extra(params))
+        if orders:
+            st.caption(f"通知（依平台自動）：{orders[0].通知部門}｜{'、'.join(orders[0].通知個人)}")
+        _order_lines(orders)
         miss = oc.missing(snap, orders)
-        missing = [x.split("（")[0] for x in miss["CUE號申請"] + miss["訂檔"]]
+        missing = list(dict.fromkeys(miss["CUE號申請"] + miss["訂檔"]))
         if missing:
-            st.warning("送出前還缺：" + "、".join(dict.fromkeys(missing)))
+            st.warning("送出前還缺：\n" + "\n".join(f"- {x}" for x in missing))
         else:
             st.success("訂檔必填欄位齊全。")
-        _order_lines(orders)
         with st.popover("檢視將寫入 Ragic 的欄位"):
             st.json({"CUE號申請（forms13/4）": oc.cue_apply_payload(snap, u.get("name", "")),
                      "訂檔（forms12/17）": [rf.order_payload_json(d) for d in orders]})
-        out = {"params": {"公司": company, "類別": category, "收款日期": pay, "發票開立日": inv},
-               "missing": list(dict.fromkeys(missing)), "signback": sign}
+        out = {"params": params, "missing": missing, "signback": sign}
     return out

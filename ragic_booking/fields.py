@@ -187,7 +187,7 @@ class CustomerWriteF:
 
 
 # 客戶表受控選項（供下拉；找不到可自由輸入）
-CUSTOMER_CATEGORY_OPTIONS = ["直客", "代理商"]
+CUSTOMER_CATEGORY_OPTIONS = ["直客", "廣代", "廣代-商品", "廣代-建案"]   # Ragic 實際用值（2026-10-21 讀客戶主檔／訂檔）
 PAYMENT_TERM_OPTIONS = ["播畢付款", "月結30天", "月結60天", "起播付現", "其他"]
 PAYMENT_METHOD_OPTIONS = ["匯款", "支票", "現金", "其他"]
 
@@ -875,6 +875,45 @@ def order_defaults_for_customer(客戶編號: str, scan: int = 200) -> dict[str,
         val = g(best, name)
         if val:
             out[name] = val
+    return out
+
+
+# 通知部門／通知個人／平台2 依「平台含企頻與否」完全連動（2026-10-21 讀訂檔 300 筆無例外）。
+# 名單以最近訂檔為準（notify_defaults），讀不到時用這份當時的名單。
+NOTIFY_FALLBACK = {
+    False: {"平台2": "", "通知部門": "財務處+媒體處",
+            "通知個人": ["陳秀鈴", "潘鈺今", "蔡宜歆", "李佳陵", "俞楹琦"]},
+    True: {"平台2": "企頻", "通知部門": "財務處+媒體處+企頻小組",
+           "通知個人": ["陳秀鈴", "潘鈺今", "蔡宜歆", "李佳陵", "俞楹琦", "leah@swd.com.tw", "何玉琳"]},
+}
+QP_PLATFORMS = ("全家企頻", "家樂福企頻")
+
+
+def has_qp(平台: list[str]) -> bool:
+    """訂檔平台是否含企頻（全家企頻／家樂福企頻）。"""
+    return any(p in QP_PLATFORMS for p in 平台 or [])
+
+
+def notify_defaults(limit: int = 60) -> dict[bool, dict[str, Any]]:
+    """最近訂檔中「含企頻／不含企頻」各取最新一筆的 平台2／通知部門／通知個人；缺的類別用 NOTIFY_FALLBACK。"""
+    out = {k: dict(v) for k, v in NOTIFY_FALLBACK.items()}
+    try:
+        data = _get_json(f"{form_url(FORM_ORDER)}?api&v=3&limit={max(1, limit)}")
+    except Exception:  # noqa: BLE001
+        return out
+    best: dict[bool, float] = {}
+    for rec in data.values():
+        if not isinstance(rec, dict) or not rec.get("通知個人") or not rec.get("通知部門"):
+            continue
+        plats = rec.get("平台") or []
+        qp = has_qp(plats if isinstance(plats, list) else [plats])
+        ts = float(rec.get("_dataTimestamp") or 0)
+        if ts < best.get(qp, -1):
+            continue
+        best[qp] = ts
+        ppl = rec["通知個人"]
+        out[qp] = {"平台2": str(rec.get("平台2") or ""), "通知部門": str(rec["通知部門"]),
+                   "通知個人": [str(x) for x in (ppl if isinstance(ppl, list) else [ppl])]}
     return out
 
 

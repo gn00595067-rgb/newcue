@@ -644,6 +644,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
         pdf_bytes, _, _ = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
         import cue_store as _cst
         _aq_out.append({"label": f"波段{i+1}", "start": start_d, "end": end_d,
+                        "payment_date": w.get("payment_date") or _last_day_of_month_after(w["end"]),
                         "rows": _cst.scale_net(_cst.norm_general_rows(rows), budget_wave),
                         "xlsx": (f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.xlsx", xlsx_bytes),
                         "pdf": (f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.pdf", pdf_bytes)})
@@ -662,7 +663,7 @@ def _aq_save_panel(format_type, waves_out, client_name, client_tax_id, product_n
         {"client": client_name, "tax_id": client_tax_id, "product": product_name, "format": format_type,
          "sales": (sales_map or {}).get(sales_person, sales_person), "start": min(w["start"] for w in waves_out),
          "end": max(w["end"] for w in waves_out), "budget": budget, "final": budget, "prod_cost": 0},
-        [{k: w[k] for k in ("label", "start", "end", "rows")} for w in waves_out],
+        [{k: w[k] for k in ("label", "start", "end", "rows", "payment_date") if k in w} for w in waves_out],
         restore={**ragic_ui.capture(["aq_combos", "aq_waves", "aq_format", "aq_client", "aq_tax", "aq_product",
                                      "aq_sales", "aq_ag_campaign", "aq_ag_uni",
                                      "aq_ag_ac", "aq_ag_ac_free"] + bonus_keys("aq_") + bonus_keys("aqag_")),
@@ -760,7 +761,7 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
         "專案CUE",
         {"client": client_name, "tax_id": client_tax_id, "product": product_name, "format": format_type,
          "sales": _nick, "start": p["start"], "end": p["end"], "budget": budget, "final": budget,
-         "prod_cost": prod_cost, "project": project_name},
+         "prod_cost": prod_cost, "project": project_name, "payment_date": payment_date},
         [{"label": p["short"], "start": p["start"], "end": p["end"], "rows": _rows_n}],
         restore={**ragic_ui.capture(["cue_fixed_project", "fp_client", "fp_tax", "fp_product", "fp_prod_cost",
                                      "fp_sales", "fp_sign_deadline", "fp_billing_month", "fp_payment_date"]
@@ -1846,6 +1847,12 @@ def main():
             _norm = _cst.scale_net(_cst.norm_general_rows(rows), int(final_budget_val))
             _waves = (_cst.split_waves(_norm, start_date, segments) if use_date_segments and segments and len(segments) > 1
                       else [{"label": "", "start": start_date, "end": end_date, "rows": _norm}])
+            # 付款兌現日 → 訂檔「收款日期」預設（分波段時各波各自）
+            _segrem = st.session_state.get("cue_seg_remarks") or {}
+            for _i, _w in enumerate(_waves):
+                _pd = (_segrem.get(_i) or _segrem.get(str(_i)) or {}).get("payment_date") if len(_waves) > 1 else st.session_state.get("cue_payment_date")
+                if _pd:
+                    _w["payment_date"] = _pd.date() if isinstance(_pd, datetime) else _pd
             _snap = _cst.make_snapshot(
                 "一般CUE",
                 {"client": client_name, "tax_id": client_tax_id, "product": product_name, "format": format_type,
