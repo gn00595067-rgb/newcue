@@ -114,6 +114,9 @@ class OrderF:
     收入_實收金額未稅 = "1015392"  # 🟢 CUE amount÷1.05
     收入_除佣實收未稅 = "1015393"  # ⚪ 公式
     收入_公司 = "1015679"
+    收入_配音員費用 = "1016103"   # 成本端；新建列送 0（實際資料 0 居多），更新時不動
+    收入_成本 = "1015546"        # 營運填（成本確認），程式不送
+    收入_其他成本 = "1015547"    # 新建列送 0，更新時不動
 
     # 子表：訂檔素材及需求資訊
     SUB_MATERIAL = "1015387"
@@ -122,6 +125,7 @@ class OrderF:
     素材_文案 = "1015382"        # 📎
     SUB_NEED = "1015388"
     需求_說明 = "1015383"
+    需求_建立時間 = "1015384"     # 實際 436/436 有值 → 明送 yyyy/MM/dd HH:mm:ss
 
 
 # ------------------------------------------------------------------ CUE申請 forms13/4
@@ -225,6 +229,8 @@ REQUIRED_ORDER_HARD = [
     ("CUE表總檔數", "CUE 帶入"),
     ("電台播證開立名稱", "可自動組＝廣告主+產品，或人工改"),
     ("收款日期", "依付款條件填"),
+    ("現折pct", "小數，無現折填 0"),
+    ("退佣", "小數，無退佣填 0"),
 ]
 REQUIRED_ORDER_LINK = ["業務(開發客戶)", "業務主管", "客戶名稱"]
 REQUIRED_ORDER_ATTACH = [
@@ -324,6 +330,9 @@ class OrderDraft:
     現折pct: str = ""           # 🔗 客戶主檔帶（*必填）
     退佣: str = ""             # 🔗 客戶主檔帶（*必填）
     收款日期: str = ""          # 🟠*必填 依付款條件
+    統一編號: str = ""          # 連動欄；API 建檔 doLinkLoad 不一定帶 → 有就明送
+    付款條件: str = ""          # 同上
+    需求建立時間: str = ""       # 需求或狀況說明子表的建立時間
     # --- C 類：截圖有、原本 UI 缺的欄位（多為連動/勾選/次要，非送出硬必填）---
     業務開發客戶: str = ""       # 👤 使用者選單（🔗 亦可由客戶主檔連動）
     業務主管: str = ""          # 👤/🔗
@@ -395,6 +404,8 @@ def build_order_payload(d: OrderDraft) -> dict[str, str]:
     put(OrderF.現折pct, d.現折pct)          # 若客戶主檔沒自動帶，這裡補送
     put(OrderF.退佣, d.退佣)
     put(OrderF.收款日期, d.收款日期)
+    put(OrderF.統一編號, d.統一編號)
+    put(OrderF.付款條件, d.付款條件)
     # C 類欄位（截圖有、原缺）：只在有值時送
     put(OrderF.業務開發客戶, d.業務開發客戶)
     put(OrderF.業務主管, d.業務主管)
@@ -426,6 +437,8 @@ def build_order_payload(d: OrderDraft) -> dict[str, str]:
         put(f"{OrderF.收入_平台檔數}_-{n}", row.get("平台檔數"))
         put(f"{OrderF.收入_秒數}_-{n}", row.get("秒數"))
         put(f"{OrderF.收入_製作成本}_-{n}", row.get("製作成本"))
+        put(f"{OrderF.收入_配音員費用}_-{n}", row.get("配音員費用"))
+        put(f"{OrderF.收入_其他成本}_-{n}", row.get("其他成本"))
         put(f"{OrderF.收入_實收金額未稅}_-{n}", row.get("實收金額未稅"))
         put(f"{OrderF.收入_業績年月}_-{n}", row.get("業績年月"))
         put(f"{OrderF.收入_公司}_-{n}", row.get("公司") or d.公司)
@@ -437,6 +450,7 @@ def build_order_payload(d: OrderDraft) -> dict[str, str]:
         # 素材_音檔 是檔案上傳欄，走附件流程，不放 form-encoded payload
     if d.需求說明:
         put(f"{OrderF.需求_說明}_-1", d.需求說明)
+        put(f"{OrderF.需求_建立時間}_-1", d.需求建立時間)
     return p
 
 
@@ -484,6 +498,8 @@ def order_payload_json(d: OrderDraft) -> dict[str, Any]:
     put(OrderF.現折pct, d.現折pct)
     put(OrderF.退佣, d.退佣)
     put(OrderF.收款日期, d.收款日期)
+    put(OrderF.統一編號, d.統一編號)
+    put(OrderF.付款條件, d.付款條件)
     # C 類欄位
     put(OrderF.業務開發客戶, d.業務開發客戶)
     put(OrderF.業務主管, d.業務主管)
@@ -510,7 +526,7 @@ def order_payload_json(d: OrderDraft) -> dict[str, Any]:
     inc = _subrows(d.收入明細, {
         OrderF.收入_類別: "類別", OrderF.收入_平台細項: "平台細項",
         OrderF.收入_平台檔數: "平台檔數", OrderF.收入_秒數: "秒數",
-        OrderF.收入_製作成本: "製作成本",
+        OrderF.收入_製作成本: "製作成本", OrderF.收入_配音員費用: "配音員費用", OrderF.收入_其他成本: "其他成本",
         OrderF.收入_實收金額未稅: "實收金額未稅", OrderF.收入_業績年月: "業績年月",
         OrderF.收入_公司: "公司",
     }, fallbacks={OrderF.收入_公司: d.公司})
@@ -525,7 +541,10 @@ def order_payload_json(d: OrderDraft) -> dict[str, Any]:
         p[f"_subtable_{OrderF.SUB_MATERIAL}"] = mat
 
     if d.需求說明:
-        p[f"_subtable_{OrderF.SUB_NEED}"] = {"-1": {OrderF.需求_說明: str(d.需求說明)}}
+        need = {OrderF.需求_說明: str(d.需求說明)}
+        if d.需求建立時間:
+            need[OrderF.需求_建立時間] = d.需求建立時間
+        p[f"_subtable_{OrderF.SUB_NEED}"] = {"-1": need}
     return p
 
 

@@ -868,7 +868,8 @@ def _notify_defaults():
 def _order_extra(p):
     """送出參數 → build_orders 的訂檔補充欄位。"""
     return {"客戶類別": p.get("客戶類別", ""), "客服": p.get("客服") or None, "播證名稱": p.get("播證名稱") or None,
-            "需求說明": p.get("需求說明", ""), "notify": _notify_defaults()}
+            "需求說明": p.get("需求說明", ""), "notify": _notify_defaults(),
+            "現折": p.get("現折"), "退佣": p.get("退佣"), "文案": p.get("文案") or None, "素材走法": p.get("素材走法", "")}
 
 
 def _order_customer(snap, key_prefix, last, bind_session):
@@ -943,6 +944,12 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
                             key=f"{key_prefix}_od_pay",
                             help="填了就各波都用這天；空白則各波用 CUE 上的付款兌現日。打完日期請按 Enter 或點選日曆。")
         inv = c4.date_input("發票開立日（選填）", value=last.get("發票開立日"), key=f"{key_prefix}_od_inv")
+        cust = snap.get("customer") or {}
+        d1, d2, _sp = st.columns([1, 1, 2])
+        disc = d1.text_input("現折（小數，2% 填 0.02）", value=str(last.get("現折") or oc.pct(cust.get("現折")) or "0"),
+                             key=f"{key_prefix}_od_disc", help="訂檔必填；客戶主檔多半空白，沒有現折就是 0。")
+        rebate = d2.text_input("退佣（小數，20% 填 0.2）", value=str(last.get("退佣") or oc.pct(cust.get("退佣")) or "0"),
+                               key=f"{key_prefix}_od_rebate", help="訂檔必填；預設帶客戶主檔的退佣%。")
         if not pay and any(pays):
             st.caption("收款日期依 CUE 付款兌現日：" + "；".join(
                 (f"第{i}波 " if len(pays) > 1 else "") + (d or "（無）") for i, d in enumerate(pays, 1)))
@@ -972,12 +979,20 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
         need_def = f"{_date.today():%m/%d} " + ("更新 CUE 表" if update else "提供訂檔CUE表+回簽")
         need = st.text_input("需求或狀況說明（新增一列；可留白）", value=need_def, key=f"{key_prefix}_od_need",
                              help="寫進訂檔「需求或狀況說明」子表；更新訂檔時是往下加一列，不會蓋掉營運寫的。")
+        m1, m2 = st.columns(2)
+        mat = m1.text_input("素材走法（選填）", value=str(last.get("素材走法") or ""), key=f"{key_prefix}_od_mat",
+                            placeholder="例：單支素材無走法／兩支素材平均輪播")
+        cw_def = list(last.get("文案") or ["無"])
+        cw = m2.multiselect("文案人員", list(dict.fromkeys(["無"] + cw_def)), default=cw_def, key=f"{key_prefix}_od_cw",
+                            accept_new_options=True, help="有請文案寫稿就選／輸入文案人員，沒有就是「無」。")
         sign = st.file_uploader("客戶回簽檔（送出必附）", type=["pdf", "jpg", "jpeg", "png"], key=f"{key_prefix}_od_sign",
                                 help="客戶回簽後的 CUE（PDF 或照片）；已送出過可不重傳，沿用上次的檔案。")
         if (prev_review or {}).get("signback") and not sign:
             st.caption(f"已附客戶回簽檔：{prev_review['signback']}")
         params = {"公司": company, "類別": category, "收款日期": pay, "發票開立日": inv,
-                  "客戶類別": ccat, "客服": cserv, "播證名稱": cert, "需求說明": need.strip()}
+                  "客戶類別": ccat, "客服": cserv, "播證名稱": cert, "需求說明": need.strip(),
+                  "現折": disc.strip(), "退佣": rebate.strip(), "文案": [x for x in cw if x] or ["無"],
+                  "素材走法": mat.strip()}
         fmt = lambda d: d.strftime("%Y/%m/%d") if d else ""   # noqa: E731
         orders = oc.build_orders(snap, applicant=u.get("name", ""), company=company, category=category,
                                  收款日期=fmt(pay), 發票開立日=fmt(inv), **_order_extra(params))

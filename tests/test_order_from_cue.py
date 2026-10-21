@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """CUE 快照 → CUE號申請／訂檔草稿（第 4 期資料轉換）。"""
 import importlib
+import re
 from datetime import date
 
 import pytest
@@ -232,10 +233,12 @@ def test_need_row_created_and_appended_on_update():
     snap = _snap(prod_cost=0)
     o = oc.build_orders(snap, 需求說明="10/21 提供訂檔CUE表+回簽")
     need_key = f"_subtable_{rf.OrderF.SUB_NEED}"
-    assert rf.order_payload_json(o[0])[need_key] == {"-1": {rf.OrderF.需求_說明: "10/21 提供訂檔CUE表+回簽"}}
+    row = rf.order_payload_json(o[0])[need_key]["-1"]
+    assert row[rf.OrderF.需求_說明] == "10/21 提供訂檔CUE表+回簽"
+    assert re.fullmatch(r"\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}", row[rf.OrderF.需求_建立時間])   # 實際資料 436/436 有建立時間
     rec = {need_key: {"700": {"需求或狀況說明": "營運寫的"}}}
     p = oc.update_payload(o[0], rec)
-    assert p[need_key] == {"-1": {rf.OrderF.需求_說明: "10/21 提供訂檔CUE表+回簽"}}    # 新增一列，700 不動
+    assert set(p[need_key]) == {"-1"}                                                # 新增一列，700 不動
     assert need_key not in oc.update_payload(oc.build_orders(snap)[0], rec)            # 留白不送
 
 
@@ -277,3 +280,39 @@ def test_submit_full_order_reports_leaked_cue_apply(monkeypatch):
     res = rw.submit_full_order(d, apply_cue=True, 起走日期="2027/01/04", 模擬編號="20261021-001")
     assert not res["ok"] and res["leaked_rid"] == "88" and "#88" in res["error"]
     assert sent[rf.FORM_CUE_APPLY][rf.CueApplyF.Cue表模擬編號] == "20261021-001"
+
+
+
+def test_discount_rebate_default_zero_and_required():
+    """訂檔表現折／退佣紅星必填；客戶主檔現折 481/500 空白 → 預設 0，畫面可改（小數，2%＝0.02）。"""
+    snap = _snap(customer={"編號": "C1", "名稱": "甲", "主管": "李", "類別": "直客", "客服": ["陳"],
+                           "現折": "", "退佣": "0.15", "統編": "12345678", "付款條件": "播畢付款"})
+    o = oc.build_orders(snap, applicant="王", 收款日期="2027/02/28")[0]
+    assert (o.現折pct, o.退佣) == ("0", "0.15")
+    p = rf.order_payload_json(o)
+    assert p[rf.OrderF.現折pct] == "0" and p[rf.OrderF.統一編號] == "12345678" and p[rf.OrderF.付款條件] == "播畢付款"
+    assert oc.build_orders(snap, 現折="2%", 退佣="20")[0].現折pct == "0.02"
+    assert [oc.pct(x) for x in ("0.02", "2%", "2", "", "0", "10％")] == ["0.02", "0.02", "0.02", "", "0", "0.1"]
+    o.現折pct = ""
+    assert "現折" in rf.missing_required_order(o)["blocking"][0]
+
+
+def test_income_cost_columns_zero_on_create_untouched_on_update():
+    snap = _snap(prod_cost=5000)
+    o = oc.build_orders(snap)[0]
+    rows = rf.order_payload_json(o)[f"_subtable_{rf.OrderF.SUB_INCOME}"]
+    for r in rows.values():
+        assert r[rf.OrderF.收入_製作成本] == r[rf.OrderF.收入_配音員費用] == r[rf.OrderF.收入_其他成本] == "0"
+        assert rf.OrderF.收入_成本 not in r                                   # 成本由營運填
+    rec = {"_subtable_1015394": {"901": {"平台細項": "全家企頻", "秒數": "15"}}}
+    sub = oc.update_payload(o, rec)["_subtable_1015394"]
+    assert rf.OrderF.收入_製作成本 not in sub["901"] and rf.OrderF.收入_配音員費用 not in sub["901"]
+    new = [v for k, v in sub.items() if k.startswith("-")]
+    assert new and all(v[rf.OrderF.收入_其他成本] == "0" for v in new)       # 新加的列照送 0
+
+
+def test_copywriter_and_material_note():
+    o = oc.build_orders(_snap(), 文案=["玉琳"], 素材走法="兩支素材平均輪播")[0]
+    p = rf.order_payload_json(o)
+    assert p[rf.OrderF.文案] == ["玉琳"] and p[rf.OrderF.素材走法] == "兩支素材平均輪播"
+    assert rf.order_payload_json(oc.build_orders(_snap())[0])[rf.OrderF.文案] == ["無"]

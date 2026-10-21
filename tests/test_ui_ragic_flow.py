@@ -402,7 +402,8 @@ def test_manage_submit_saved_record():
     assert not btn.disabled, btn.help
     btn.click().run()
     _after_rerun(at, adm_od_company="", adm_od_cat="商品", adm_od_pay=None, adm_od_inv=None, adm_od_ccat="",
-                 adm_od_cs=[], adm_od_cert="", adm_od_need="")
+                 adm_od_cs=[], adm_od_cert="", adm_od_need="", adm_od_disc="0", adm_od_rebate="0", adm_od_mat="",
+                 adm_od_cw=["無"])
     _ok(at)
     rid = next(iter(at.session_state["_fake_db"]))
     import cue_store as cs
