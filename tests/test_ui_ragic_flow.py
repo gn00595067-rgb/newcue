@@ -307,8 +307,9 @@ def test_order_panel_inline_customer_and_fields():
     assert at.session_state["ragic_customer"]["編號"] == "C01399"
     assert at.session_state["simple_client"] == "客戶甲股份有限公司"            # 上方空白的客戶名稱回填
     btn = at.button(key="simple_save_submit")
-    assert "客戶類別（① 客戶）" in btn.help and "客戶編號" not in btn.help
-    at.selectbox(key="simple_save_od_ccat").set_value("廣代").run()
+    assert "客戶類別（請到 Ragic 客戶主檔補" in btn.help and "客戶編號" not in btn.help   # 連動欄：去主檔補
+    at.session_state["ragic_customer"] = dict(CUSTOMER, 類別="廣代")                   # 主檔補好後重新帶入
+    at.run()
     assert "素材後補" in at.text_input(key="simple_save_od_need").value                # 沒放素材 → 預設寫素材後補
     at.text_area(key="simple_save_od_mat_names").input("B篇.30秒").run()             # 只有篇名、素材後補
     at.toggle(key="simple_save_od_preview").set_value(True).run()                  # 仿 Ragic 預覽

@@ -11,6 +11,9 @@ from html import escape
 from ragic_booking.fields import OrderDraft
 
 AUTO = "（Ragic 自動）"
+LINK = "link"   # Ragic 依客戶編號／CUE號連動帶入：顯示預期值＋🔗（程式也明送同值保險）
+# 連動欄（10-21 比對 300 筆訂檔：與客戶主檔／CUE號申請表 95～100% 相同）
+LINK_FIELDS = {"業務(開發客戶)", "業務主管", "客戶", "統一編號", "產業別", "客戶類別", "付款條件", "CUE", "總波段"}
 
 # 主表四欄排列（照 Ragic 版面）：(欄名, 取值, 必填, 底色群組)
 # 取值：OrderDraft 屬性名、callable(d)、或 AUTO
@@ -21,11 +24,12 @@ _MAIN = [
      ("業務主管", "業務主管", False, "o"), ("公司", "公司", True, "o")],
     [("CUE號", lambda d: d.CUE號 or "（送出時申請）", True, "p"), ("波段", "波段", True, "p"),
      ("客服", "客服", True, "o"), ("文案", "文案", True, "o")],
-    [("CUE", AUTO, False, "p"), ("總波段", AUTO, False, "p"),
+    [("CUE", lambda d: f"{d.CUE號 or '(CUE號)'}-{d.波段}-{d.__dict__.get('_total', '')}", False, "p"),
+     ("總波段", lambda d: d.__dict__.get("_total", ""), False, "p"),
      ("訂檔人", "訂檔人", True, "o"), ("節配", "節配", False, "o")],
     [("客戶編號", "客戶編號", True, "c"), ("統一編號", "統一編號", False, "c"),
      ("結三單", "結三單", False, "r"), ("回簽", "回簽", False, "r")],
-    [("客戶", "客戶名稱", False, "c"), ("產業別", AUTO, False, "c"),
+    [("客戶", "客戶名稱", False, "c"), ("產業別", lambda d: d.__dict__.get("_link", {}).get("產業別", ""), False, "c"),
      ("個案分配", "個案分配", False, "r"), ("停檔", "停檔", False, "r")],
     [("客戶類別", "客戶類別", True, "c"), ("產品名稱", "產品名稱", False, "c"),
      ("通知部門", "通知部門", False, "v"), ("通知個人", "通知個人", False, "v")],
@@ -59,6 +63,8 @@ _CSS = """
 .rg td.v{background:#fff;width:14%}
 .rg .req{color:#d00}
 .rg .auto{color:#999}
+.rg .lk{color:#555;background:#f6f6f6}
+.rg .lk:after{content:" 🔗";font-size:11px}
 .rg td.miss{background:#ffe5e5}
 .rg th{background:#ffd9a8;font-weight:600;text-align:left}
 .rg td.n{text-align:right}
@@ -95,11 +101,16 @@ def _value(d, src):
     return src(d) if callable(src) else getattr(d, src, "")
 
 
-def order_html(d: OrderDraft, *, title="訂檔(業務填寫)-V3", attachments=None, materials=None) -> str:
-    """一張訂檔 → 仿 Ragic HTML。attachments：{"cue": 檔名, "sign": 檔名}；materials：[{"廣告篇名","音檔","文案"}] 檔名字串。"""
+def order_html(d: OrderDraft, *, title="訂檔(業務填寫)-V3", attachments=None, materials=None,
+               total_waves=None, link=None) -> str:
+    """一張訂檔 → 仿 Ragic HTML。attachments：{"cue": 檔名, "sign": 檔名}；materials：[{"廣告篇名","音檔","文案"}] 檔名字串；
+    total_waves：總波段；link：連動欄預期值（如 {"產業別": ...}）。連動欄灰底＋🔗。"""
+    d.__dict__["_total"] = str(total_waves or "")
+    d.__dict__["_link"] = dict(link or {})
     d.__dict__["_att_cue"] = (attachments or {}).get("cue", "")
     d.__dict__["_att_sign"] = (attachments or {}).get("sign", "")
-    out = [_CSS, f'<div class="rg"><div class="note">{escape(title)}　第 {escape(str(d.波段))} 波預覽（送出後 Ragic 實際畫面以 Ragic 為準）</div>',
+    out = [_CSS, f'<div class="rg"><div class="note">{escape(title)}　第 {escape(str(d.波段))} 波預覽'
+           f'（🔗＝Ragic 依客戶編號／CUE號連動帶入；灰字＝Ragic 自動產生；送出後以 Ragic 實際畫面為準）</div>',
            "<h4>訂檔資訊</h4><table>"]
     for row in _MAIN:
         out.append("<tr>")
@@ -112,7 +123,8 @@ def order_html(d: OrderDraft, *, title="訂檔(業務填寫)-V3", attachments=No
             else:
                 txt = _fmt(v)
                 miss = " miss" if req and not txt else ""
-                out.append(f'<td class="v{miss}">{escape(txt)}</td>')
+                lk = " lk" if name in LINK_FIELDS else ""
+                out.append(f'<td class="v{miss}{lk}">{escape(txt)}</td>')
         out.append("</tr>")
     out.append("</table>")
 

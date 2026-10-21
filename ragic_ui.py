@@ -846,8 +846,8 @@ def _income_editor(base_orders, key_prefix):
     return out
 
 
-def _ragic_preview(orders, signback, materials):
-    """仿 Ragic 表單畫出每一波會寫入的內容。"""
+def _ragic_preview(orders, signback, materials, link=None):
+    """仿 Ragic 表單畫出每一波會寫入的內容。link：連動欄的預期值（如產業別，取自客戶主檔）。"""
     import ragic_order_preview as rp
     sign_name = getattr(signback, "name", signback) or ""
     mats = [{"廣告篇名": m.get("廣告篇名", ""), "音檔": getattr(m.get("音檔"), "name", ""),
@@ -856,7 +856,7 @@ def _ragic_preview(orders, signback, materials):
     for d, tab in zip(orders, tabs):
         with tab:
             st.html(rp.order_html(d, attachments={"cue": "（存檔時產生的 CUE Excel）", "sign": sign_name},
-                                  materials=mats))
+                                  materials=mats, total_waves=len(orders), link=link))
 
 
 def clear_loaded():
@@ -978,7 +978,7 @@ def _order_extra(p):
 
 
 def _order_customer(snap, key_prefix, last, bind_session):
-    """① 客戶：沒帶客戶時就地搜尋；客戶類別、客服可補（主檔空白很常見）。回傳 (客戶類別, 客服)。"""
+    """① 客戶：沒帶客戶時就地搜尋；連動欄（客戶類別、付款條件…）只顯示；客服每張訂檔可調。回傳 (客戶類別, 客服)。"""
     cust = snap.get("customer") or {}
     st.markdown("**① 客戶**")
     if cust.get("編號"):
@@ -1004,12 +1004,13 @@ def _order_customer(snap, key_prefix, last, bind_session):
             elif found is not None:
                 st.info("查無此客戶，請到頁面最上方「➕ 新增客戶到 Ragic」。")
     c1, c2 = st.columns(2)
-    cats = [""] + rf.CUSTOMER_CATEGORY_OPTIONS
-    dcat = last.get("客戶類別") or cust.get("類別") or ""
-    if dcat not in cats:
-        cats.append(dcat)
-    cat = c1.selectbox("客戶類別" + ("" if cust.get("類別") else "（客戶主檔空白，請選）"), cats, index=cats.index(dcat),
-                       key=f"{key_prefix}_od_ccat")
+    cat = cust.get("類別") or ""
+    if cust.get("編號"):
+        c1.caption("🔗 以下由 Ragic 依客戶編號連動帶入（不在這裡改，要改請改客戶主檔）")
+        c1.caption(f"客戶類別：{cat or '⚠️ 主檔空白'}｜付款條件：{cust.get('付款條件') or '—'}｜"
+                   f"產業別：{cust.get('產業別') or '—'}｜統編：{cust.get('統編') or '—'}")
+        if not cat:
+            c1.warning(f"客戶主檔 {cust['編號']} 的「客戶類別」空白：請到 Ragic 客戶表補上（直客／廣代…），再重新帶入客戶。")
     base = list(cust.get("客服") or [])
     dcs = list(last.get("客服") or base)
     opts = list(dict.fromkeys(dcs + base + _options("客服")))
@@ -1142,7 +1143,8 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
             st.caption(f"通知（依平台自動）：{orders[0].通知部門}｜{'、'.join(orders[0].通知個人)}")
         _order_lines(orders)
         if st.toggle("👀 預覽送出 Ragic 畫面", key=f"{key_prefix}_od_preview"):
-            _ragic_preview(orders, sign or (prev_review or {}).get("signback"), materials)
+            _ragic_preview(orders, sign or (prev_review or {}).get("signback"), materials,
+                           link={"產業別": (snap.get("customer") or {}).get("產業別", "")})
         miss = oc.missing(snap, orders)
         missing = list(dict.fromkeys(miss["CUE號申請"] + miss["訂檔"]))
         if missing:

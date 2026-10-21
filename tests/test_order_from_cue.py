@@ -188,7 +188,7 @@ def test_missing_says_where_to_fill():
     m = oc.missing(snap, oc.build_orders(snap))
     items = m["CUE號申請"] + m["訂檔"]
     assert "客戶編號（① 客戶：搜尋帶入）" in items
-    assert "客戶類別（① 客戶）" in items and "電台播證開立名稱（③ 播證）" in items
+    assert "客戶類別（請到 Ragic 客戶主檔補，訂檔會連動帶入）" in items and "電台播證開立名稱（③ 播證）" in items
     assert "收款日期（② 開票收款）" in items and "客服（① 客戶）" in items
 
 
@@ -408,5 +408,8 @@ def test_ragic_like_preview_html():
     for s in ("訂檔資訊", "訂檔收入相關資訊", "訂檔素材及需求資訊", "客戶甲-產品乙", "全家企頻", "a.mp3",
               "10/21 提供CUE", "平台檔數總計 2,414", "（Ragic 自動）", "回簽.pdf"):
         assert s in html, s
+    html = rp.order_html(o, total_waves=2, link={"產業別": "公家機關"})
+    assert 'class="v lk">公家機關' in html and 'class="v lk">直客' in html            # 連動欄顯示預期值＋🔗
+    assert "(CUE號)-1-2" in html
     o.電台播證開立名稱 = ""
     assert 'class="v miss"' in rp.order_html(o)                                    # 空白必填標紅
