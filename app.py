@@ -944,7 +944,7 @@ def main():
         
         # 修改：處理格式的預設選擇 (東吳/聲活/鉑霖)
         loaded_fmt = st.session_state.get('temp_format_type', '東吳')
-        fmt_options = ["東吳", "聲活", "鉑霖"]
+        fmt_options = ["東吳", "聲活", "鉑霖", "元朗"]   # 元朗＝交換合約用，版面同聲活（宜歆 10/21 #4）
         try:
             fmt_idx = fmt_options.index(loaded_fmt)
         except:

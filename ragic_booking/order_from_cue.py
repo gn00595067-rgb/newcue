@@ -18,7 +18,7 @@ PROD_LABEL = "製作收入"
 # 收入子表成本欄：新建列送 0（訂檔表紅星、實際資料 0 居多），更新原訂檔時不送（營運可能已填）
 COST_ZERO = {"製作成本": "0", "配音員費用": "0", "其他成本": "0"}
 INCOME_CATEGORIES = ["商品", "公家", "交換", "統一"]
-COMPANY_FROM_FORMAT = {"東吳": "東吳", "聲活": "聲活", "鉑霖": "鉑霖", "2008傳媒": "聲活", "凱絡": "聲活"}
+COMPANY_FROM_FORMAT = {"東吳": "東吳", "聲活": "聲活", "鉑霖": "鉑霖", "2008傳媒": "聲活", "凱絡": "聲活", "元朗": "聲活"}
 AGENCY_MODES = ("代理商CUE", "代理商一鍵")
 REGIONS6 = {"北區", "桃竹苗", "中區", "雲嘉南", "高屏", "東區"}
 
@@ -128,6 +128,8 @@ def derive_from_income(d):
 def default_category(snap):
     """收入類別預設（10-21 讀訂檔 300 筆）：產業別公家機關→公家（31/31）；客戶／產品含「統一」→統一；其餘商品。可改。"""
     h, cust = snap.get("header", {}), snap.get("customer") or {}
+    if h.get("format") == "元朗":   # 元朗抬頭＝交換合約
+        return "交換"
     if "公家" in str(cust.get("產業別") or "") or "公家" in str(cust.get("類別") or ""):
         return "公家"
     if "統一" in f"{h.get('client') or ''}{h.get('product') or ''}{cust.get('名稱') or ''}{cust.get('產品') or ''}":

@@ -413,3 +413,8 @@ def test_ragic_like_preview_html():
     assert "(CUE號)-1-2" in html
     o.電台播證開立名稱 = ""
     assert 'class="v miss"' in rp.order_html(o)                                    # 空白必填標紅
+
+
+def test_yuanlang_defaults_exchange_and_shenghuo_company():
+    snap = cs.make_snapshot("一般CUE", {"format": "元朗", "client": "冰點空調"}, [])
+    assert oc.default_category(snap) == "交換" and oc.default_company(snap) == "聲活"

@@ -158,11 +158,28 @@ def cue_station(r, default=""):
     return default
 
 
+# 同版面、不同抬頭的公司格式（宜歆 10/21 #4：交換合約固定用「元朗有限公司」抬頭，版面同聲活）
+FORMAT_ALIASES = {
+    "元朗": {"base": "聲活", "title": "元朗-媒體計劃排程表", "company": "元朗有限公司 統編 60455991"},
+}
+
+
+def base_format(fmt):
+    """格式 → 實際版面（元朗＝聲活版面）。"""
+    return FORMAT_ALIASES.get(fmt, {}).get("base", fmt)
+
+
+# 東吳／聲活／鉑霖 CUE 的播出地區寫法（宜歆 10/21 #5，比照實際送客戶的 CUE）；
+# 只改顯示，rows 的 region 仍是 北區／中區／東區（定價、回饋、Ragic 靠它）
+CUE_REGION_NAMES = {"北區": "北北基", "中區": "中彰投", "東區": "宜花東"}
+
+
 def cue_location(r):
-    """CUE 表 Location／播出地區欄顯示文字：家樂福列顯示「量販店／超市」，其餘照 region。"""
+    """CUE 表 Location／播出地區欄顯示文字：家樂福列顯示「量販店／超市」，其餘地區改實際寫法（北區→北北基…）。"""
     if r.get("media") == "家樂福":
         return "超市" if "超市" in str(r.get("region", "")) else "量販店"
-    return r.get("region", "")
+    reg = r.get("region", "")
+    return CUE_REGION_NAMES.get(reg, reg)
 
 
 def remark_color(text, blue_payment=False):

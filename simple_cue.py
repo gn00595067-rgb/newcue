@@ -94,7 +94,7 @@ def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
 
 
 # 一鍵CUE 公司格式：東吳＝簡易模式原版面（宜歆範本）；聲活／鉑霖＝一般CUE 同款版面（simple_general）
-FORMAT_OPTIONS = ["東吳", "聲活", "鉑霖"]
+FORMAT_OPTIONS = ["東吳", "聲活", "鉑霖", "元朗"]   # 元朗＝交換合約用，版面同聲活
 
 
 @st.cache_data(ttl=600, show_spinner=False)

@@ -108,6 +108,8 @@ def _render_one_month_table(rows, days_in_month, month_start, month_end, full_to
 
 def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_display, format_type, remarks, total_list, grand_total, budget, prod, medium_label=None):
     # medium_label：Medium 覆寫文字（固定專案用），None 時依平台自動組
+    from utils import base_format
+    format_type = base_format(format_type)   # 元朗＝聲活版面（預覽無公司抬頭）
     eff_days = days_cnt
     total_days = (end_dt - start_dt).days + 1
     month_ranges = split_period_by_months(start_dt, end_dt)

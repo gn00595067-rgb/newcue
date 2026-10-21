@@ -263,11 +263,12 @@ def render_agency_cue(sales_map=None):
         if fam_on:
             fam_sec = st.selectbox("全家 秒數", SEC_OPTIONS, index=SEC_OPTIONS.index(15), key="ag_fam_sec")
             fam_auto_reb = st.checkbox(
-                "自帶專案回饋（凌晨時數轉換）", value=st.session_state.get("ag_fam_auto_reb", True),
+                "自帶專案回饋（主時段、凌晨補償各 ×40%）", value=st.session_state.get("ag_fam_auto_reb", True),
                 key="ag_fam_auto_reb",
-                help="非主時段時數(24−主時段)×30檔×30/秒，自動另立一列「專案回饋」。"
-                     "例：主時段07-23→8時、15秒=8×30×2=480檔。三家共用。")
-            fam_reb = st.number_input("全家 專案回饋 %（手動另計）", 0, 100, st.session_state.get("ag_fam_reb", 0), key="ag_fam_reb")
+                help="主時段檔次 × 40% 一列、凌晨補償檔次 × 40% 一列（同統一贈檔規則）。"
+                     "例：主時段 384、方案一補償 58 → 154＋23 檔。三家共用。")
+            fam_reb = st.number_input("全家 額外專案回饋 %（另計，一般填 0）", 0, 100, st.session_state.get("ag_fam_reb", 0),
+                                      key="ag_fam_reb", help="自帶回饋之外再加的回饋；方案一的 15% 已在凌晨補償，這裡不用再填。")
             fam_ovr = st.number_input("全家 檔次覆寫（0=自動）", 0, value=st.session_state.get("ag_fam_ovr", 0), key="ag_fam_ovr")
             fam_cfg = {"enabled": True, "seconds": int(fam_sec), "share": 100,
                        "rebate_pct": float(fam_reb), "spots_override": int(fam_ovr),

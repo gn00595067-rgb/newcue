@@ -76,6 +76,10 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
     """
     if total_list_accum is None:
         total_list_accum = final_budget_val
+    # 元朗等同版面格式：抬頭換掉，其餘走原格式（utils.FORMAT_ALIASES）
+    from utils import FORMAT_ALIASES, base_format
+    brand = FORMAT_ALIASES.get(format_type, {})
+    format_type = base_format(format_type)
     
     # 定義 Excel 通用樣式 (邊框、字體、對齊)
     SIDE_THIN, SIDE_MEDIUM, SIDE_HAIR = Side(style=BS_THIN), Side(style=BS_MEDIUM), Side(style=BS_HAIR)
@@ -371,9 +375,9 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
         ROW_H_MAP = {1:30, 2:30, 3:46, 4:46, 5:40, 6:40, 7:35, 8:35}; 
         for r, h in ROW_H_MAP.items(): ws.row_dimensions[r].height = h
         
-        ws.merge_cells(f"A1:{get_column_letter(total_cols)}1"); c1 = ws['A1']; c1.value = "聲活數位-媒體計劃排程表"; c1.font = Font(name=FONT_MAIN, size=24, bold=True); c1.alignment = ALIGN_CENTER
+        ws.merge_cells(f"A1:{get_column_letter(total_cols)}1"); c1 = ws['A1']; c1.value = brand.get("title", "聲活數位-媒體計劃排程表"); c1.font = Font(name=FONT_MAIN, size=24, bold=True); c1.alignment = ALIGN_CENTER
         ws.merge_cells(f"A2:{get_column_letter(total_cols)}2"); c2 = ws['A2']; c2.value = "Media Schedule"; c2.font = Font(name=FONT_MAIN, size=18, bold=True); c2.alignment = ALIGN_CENTER
-        FONT_16 = Font(name=FONT_MAIN, size=16); ws.merge_cells(f"A3:{get_column_letter(total_cols)}3"); ws['A3'].value = "聲活數位科技股份有限公司 統編 28710100"; ws['A3'].font = FONT_16; ws['A3'].alignment = ALIGN_LEFT
+        FONT_16 = Font(name=FONT_MAIN, size=16); ws.merge_cells(f"A3:{get_column_letter(total_cols)}3"); ws['A3'].value = brand.get("company", "聲活數位科技股份有限公司 統編 28710100"); ws['A3'].font = FONT_16; ws['A3'].alignment = ALIGN_LEFT
         ws.merge_cells(f"A4:{get_column_letter(total_cols)}4"); ws['A4'].value = sales_person; ws['A4'].font = FONT_16; ws['A4'].alignment = ALIGN_LEFT
         
         unique_secs = sorted(list(set([r['seconds'] for r in rows]))); sec_str = " ".join([f"{s}秒廣告" for s in unique_secs]); period_str = f"執行期間：{start_dt.strftime('%Y.%m.%d')} - {end_dt.strftime('%Y.%m.%d')}"
