@@ -201,7 +201,7 @@ def _search(query):
 
 def _cust_dict(c):
     return {"rid": c.rid, "編號": c.編號, "名稱": c.名稱, "統編": c.統編, "產品": c.產品,
-            "類別": c.類別, "業務": c.業務, "主管": c.主管, "客服": list(c.客服), "付款條件": c.付款條件,
+            "類別": c.類別, "業務": c.業務, "主管": c.主管, "客服": list(c.客服), "付款條件": c.付款條件, "產業別": c.產業別,
             "現折": c.現折pct, "退佣": c.退佣pct}
 
 
@@ -678,6 +678,15 @@ def _book(snap, od, files_d, rid=None, signback_bytes=None, serial=""):
             with open(path, "wb") as f:
                 f.write(sb_data)
             att[rf.OrderF.客戶回簽檔] = path
+        for n, m in enumerate(od.get("materials") or [], 1):   # 列號與 build_orders 的 素材明細 同序
+            for fkey, up in zip(rf.material_file_keys(n), (m.get("音檔"), m.get("文案"))):
+                if up:
+                    mdir = os.path.join(td, f"m{n}")
+                    os.makedirs(mdir, exist_ok=True)
+                    path = os.path.join(mdir, up.name)
+                    with open(path, "wb") as f:
+                        f.write(up.getvalue())
+                    att[fkey] = path
         applicant = reg_owner_name(snap) or (current_user() or {}).get("name", "")
         if snap.get("booking"):
             return oc.update_booking(snap, orders, booking=snap["booking"], attachments={"all": att}, applicant=applicant)
@@ -869,7 +878,8 @@ def _order_extra(p):
     """送出參數 → build_orders 的訂檔補充欄位。"""
     return {"客戶類別": p.get("客戶類別", ""), "客服": p.get("客服") or None, "播證名稱": p.get("播證名稱") or None,
             "需求說明": p.get("需求說明", ""), "notify": _notify_defaults(),
-            "現折": p.get("現折"), "退佣": p.get("退佣"), "文案": p.get("文案") or None, "素材走法": p.get("素材走法", "")}
+            "現折": p.get("現折"), "退佣": p.get("退佣"), "文案": p.get("文案") or None, "素材走法": p.get("素材走法", ""),
+            "素材": [{"廣告篇名": n} for n in p.get("素材") or []]}
 
 
 def _order_customer(snap, key_prefix, last, bind_session):
@@ -912,6 +922,23 @@ def _order_customer(snap, key_prefix, last, bind_session):
     return cat, cserv
 
 
+def _material_inputs(key_prefix, update=False):
+    """素材子表（選填，一支一列）：音檔可多選、篇名預設檔名、文案檔選填；素材後補可只寫篇名。
+    回傳 [{"廣告篇名", "音檔": UploadedFile|None, "文案": UploadedFile|None}]（列序＝送出的子表列號）。"""
+    st.caption("素材（選填，可多支；還沒拿到素材可先不放，之後再送出更新" + ("，本次放的會往下新增列）" if update else "）"))
+    auds = st.file_uploader("素材音檔（可多選，一檔一列）", accept_multiple_files=True, key=f"{key_prefix}_od_aud") or []
+    rows = []
+    for i, f in enumerate(auds):
+        c1, c2 = st.columns([3, 2])
+        stem = os.path.splitext(f.name)[0]
+        name = c1.text_input(f"第{i + 1}支 廣告篇名", value=stem, key=f"{key_prefix}_od_aud_name_{i}").strip() or stem
+        cp = c2.file_uploader(f"第{i + 1}支 文案（選填）", key=f"{key_prefix}_od_aud_cp_{i}")
+        rows.append({"廣告篇名": name, "音檔": f, "文案": cp})
+    names = st.text_area("只有篇名、素材後補（一行一支，選填）", key=f"{key_prefix}_od_mat_names", height=68)
+    rows += [{"廣告篇名": x.strip(), "音檔": None, "文案": None} for x in names.splitlines() if x.strip()]
+    return rows
+
+
 def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_session=True):
     """訂檔資料（宜歆 10/21：缺欄要能就地補、寫清楚去哪填；spec docs/specs/訂檔資料補齊.md）。
     ① 客戶（搜尋帶入、客戶類別、客服）② 開票收款 ③ 播證／通知 ④ 子表格（收入、需求說明）＋回簽檔。
@@ -929,6 +956,8 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
     title = "🧾 訂檔資料（送出即更新原訂檔）" if update else "🧾 訂檔資料（送出即申請 CUE號、建立訂檔＝成交）"
     with st.expander(title, expanded=False):
         u = current_user() or {}
+        st.caption("🔄 自動取自 CUE（不用填）：平台、CUE表秒數、CUE表總檔數、執行起迄、產品名稱、波段數、"
+                   "收入子表（每平台＋秒數一列：檔數、實收未稅、業績年月、製作費）；通知部門／個人依平台。")
         ccat, cserv = _order_customer(snap, key_prefix, last, bind_session)
 
         st.markdown("**② 開票收款**")
@@ -937,8 +966,9 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
         dflt = last.get("公司") or oc.default_company(snap)
         company = c1.selectbox("公司", opts, index=opts.index(dflt) if dflt in opts else 0, key=f"{key_prefix}_od_company")
         cats = oc.INCOME_CATEGORIES
-        category = c2.selectbox("收入類別", cats, index=cats.index(last["類別"]) if last.get("類別") in cats else 0,
-                                key=f"{key_prefix}_od_cat")
+        dcat2 = last.get("類別") if last.get("類別") in cats else oc.default_category(snap)
+        category = c2.selectbox("收入類別", cats, index=cats.index(dcat2), key=f"{key_prefix}_od_cat",
+                                help="預設：公家機關客戶＝公家、統一相關＝統一、其餘商品；交換合約請改「交換」。")
         pays = oc.wave_pay_dates(snap)
         pay = c3.date_input("收款日期" + ("（空白＝付款兌現日）" if any(pays) else ""), value=last.get("收款日期"),
                             key=f"{key_prefix}_od_pay",
@@ -976,12 +1006,19 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
             st.caption(f"電台播證開立名稱留空＝{cert_default}")
 
         st.markdown("**④ 子表格**")
-        need_def = f"{_date.today():%m/%d} " + ("更新 CUE 表" if update else "提供訂檔CUE表+回簽")
+        materials = _material_inputs(key_prefix, update)
+        has_audio = any(m.get("音檔") for m in materials)
+        need_def = f"{_date.today():%m/%d} " + ("更新 CUE 表" if update else "提供訂檔CUE表+回簽") + (
+            f"及素材{sum(1 for m in materials if m.get('音檔'))}支" if has_audio else ("" if update else "，素材後補"))
         need = st.text_input("需求或狀況說明（新增一列；可留白）", value=need_def, key=f"{key_prefix}_od_need",
                              help="寫進訂檔「需求或狀況說明」子表；更新訂檔時是往下加一列，不會蓋掉營運寫的。")
         m1, m2 = st.columns(2)
+        n_audio = sum(1 for m in materials if m.get("音檔"))
+        auto_note = oc.default_material_note(n_audio)
         mat = m1.text_input("素材走法（選填）", value=str(last.get("素材走法") or ""), key=f"{key_prefix}_od_mat",
-                            placeholder="例：單支素材無走法／兩支素材平均輪播")
+                            placeholder=auto_note or "例：單支素材無走法／兩支素材平均輪播",
+                            help="留空＝依素材支數自動（1 支＝單支素材無走法、多支＝N支素材平均輪播）。")
+        mat = mat.strip() or auto_note
         cw_def = list(last.get("文案") or ["無"])
         cw = m2.multiselect("文案人員", list(dict.fromkeys(["無"] + cw_def)), default=cw_def, key=f"{key_prefix}_od_cw",
                             accept_new_options=True, help="有請文案寫稿就選／輸入文案人員，沒有就是「無」。")
@@ -992,7 +1029,7 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
         params = {"公司": company, "類別": category, "收款日期": pay, "發票開立日": inv,
                   "客戶類別": ccat, "客服": cserv, "播證名稱": cert, "需求說明": need.strip(),
                   "現折": disc.strip(), "退佣": rebate.strip(), "文案": [x for x in cw if x] or ["無"],
-                  "素材走法": mat.strip()}
+                  "素材走法": mat.strip(), "素材": [m["廣告篇名"] for m in materials]}
         fmt = lambda d: d.strftime("%Y/%m/%d") if d else ""   # noqa: E731
         orders = oc.build_orders(snap, applicant=u.get("name", ""), company=company, category=category,
                                  收款日期=fmt(pay), 發票開立日=fmt(inv), **_order_extra(params))
@@ -1008,5 +1045,5 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
         with st.popover("檢視將寫入 Ragic 的欄位"):
             st.json({"CUE號申請（forms13/4）": oc.cue_apply_payload(snap, u.get("name", "")),
                      "訂檔（forms12/17）": [rf.order_payload_json(d) for d in orders]})
-        out = {"params": params, "missing": missing, "signback": sign}
+        out = {"params": params, "missing": missing, "signback": sign, "materials": materials}
     return out

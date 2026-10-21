@@ -316,3 +316,69 @@ def test_copywriter_and_material_note():
     p = rf.order_payload_json(o)
     assert p[rf.OrderF.文案] == ["玉琳"] and p[rf.OrderF.素材走法] == "兩支素材平均輪播"
     assert rf.order_payload_json(oc.build_orders(_snap())[0])[rf.OrderF.文案] == ["無"]
+
+
+# ---------------------------------------------------------------- 素材子表（Jonathan 10-21：業務送訂檔時上傳，選填）
+def test_material_rows_payload_and_file_keys():
+    o = oc.build_orders(_snap(), 素材=[{"廣告篇名": "A篇.30秒"}, {"廣告篇名": "B篇(後補)"}])
+    assert len(o) == 2 and all(x.素材明細 == [{"廣告篇名": "A篇.30秒"}, {"廣告篇名": "B篇(後補)"}] for x in o)
+    t = dict(rf.order_form_tuples(o[0]))
+    assert t[f"{rf.OrderF.素材_廣告篇名}_-1"] == "A篇.30秒" and t[f"{rf.OrderF.素材_廣告篇名}_-2"] == "B篇(後補)"
+    assert f"{rf.OrderF.素材_文案}_-1" not in t                                     # 文案是檔案欄，不送文字
+    assert rf.material_file_keys(2) == (f"{rf.OrderF.素材_音檔}_-2", f"{rf.OrderF.素材_文案}_-2")
+    assert not oc.build_orders(_snap())[0].素材明細                                  # 選填：沒放就沒有素材列
+
+
+def test_submit_full_order_sends_material_files(monkeypatch):
+    from ragic_booking import write as rw
+    got = {}
+
+    def fake_files(form, tuples, files_map, flags=None):
+        got.update(tuples=tuples, files=files_map)
+        return rw.WriteResult(ok=True, form=form, rid="70")
+
+    monkeypatch.setattr(rw, "create_record_with_files", fake_files)
+    d = oc.build_orders(_snap(), 素材=[{"廣告篇名": "A篇"}])[0]
+    d.CUE號 = "1160101"
+    aud, cp = rf.material_file_keys(1)
+    res = rw.submit_full_order(d, apply_cue=False, attachments={rf.OrderF.訂檔CUE表: "c.xlsx", aud: "a.mp3", cp: "c.docx"})
+    assert res["ok"] and got["files"] == {rf.OrderF.訂檔CUE表: "c.xlsx", aud: "a.mp3", cp: "c.docx"}
+    assert (f"{rf.OrderF.素材_廣告篇名}_-1", "A篇") in got["tuples"]
+
+
+def test_update_booking_appends_material_rows():
+    snap = _snap(prod_cost=0)
+    orders = oc.build_orders(snap, 素材=[{"廣告篇名": "新篇"}])
+    aud, _cp = rf.material_file_keys(1)
+    added = []
+
+    class R:
+        ok, error = True, ""
+
+    res = oc.update_booking(
+        snap, orders, booking={"cue_id": "1160101", "orders": [{"wave": 1, "rid": "55"}, {"wave": 2, "rid": "56"}]},
+        attachments={"all": {rf.OrderF.訂檔CUE表: "cue.xlsx", aud: "new.mp3"}},
+        reader=lambda f, r: {}, updater=lambda f, r, p: R(), uploader=lambda *a: R(),
+        adder=lambda form, rid, tuples, files: (added.append((rid, tuples, files)), R())[1])
+    assert res["ok"]
+    assert added == [(rid, [(f"{rf.OrderF.素材_廣告篇名}_-1", "新篇")], {aud: "new.mp3"}) for rid in ("55", "56")]
+    # 沒放素材 → 不追加
+    added.clear()
+    oc.update_booking(snap, oc.build_orders(snap), booking={"cue_id": "1", "orders": [{"wave": 1, "rid": "55"}]},
+                      reader=lambda f, r: {}, updater=lambda f, r, p: R(), uploader=lambda *a: R(),
+                      submit=lambda d, **k: {"ok": True, "order_rid": "9"},
+                      adder=lambda *a: (added.append(a), R())[1])
+    assert added == []
+
+
+def test_defaults_derived_from_cue_and_customer():
+    """Jonathan 10-21：能從 CUE／客戶判斷的就自動帶。"""
+    snap = _snap()
+    o = oc.build_orders(snap)
+    assert (o[0].平台, o[0].CUE表秒數, o[0].CUE表總檔數) == (["全家企頻", "家樂福企頻"], [15, 20], 1600 + 814)
+    assert (o[1].平台, o[1].CUE表秒數, o[1].執行結束日期) == (["新鮮視"], [15], "2027/03/31")
+    assert oc.default_category(snap) == "商品"
+    snap["customer"]["產業別"] = "公家機關"
+    assert oc.default_category(snap) == "公家"
+    assert oc.default_category(_snap(customer={"名稱": "二零零八傳媒", "產品": "統一陽光"})) == "統一"
+    assert [oc.default_material_note(n) for n in (0, 1, 2, 4)] == ["", "單支素材無走法", "兩支素材平均輪播", "四支素材平均輪播"]

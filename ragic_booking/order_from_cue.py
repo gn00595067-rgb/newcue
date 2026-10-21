@@ -106,6 +106,26 @@ def pct(v):
     return f"{x:.4f}".rstrip("0").rstrip(".") or "0"
 
 
+def default_category(snap):
+    """收入類別預設（10-21 讀訂檔 300 筆）：產業別公家機關→公家（31/31）；客戶／產品含「統一」→統一；其餘商品。可改。"""
+    h, cust = snap.get("header", {}), snap.get("customer") or {}
+    if "公家" in str(cust.get("產業別") or "") or "公家" in str(cust.get("類別") or ""):
+        return "公家"
+    if "統一" in f"{h.get('client') or ''}{h.get('product') or ''}{cust.get('名稱') or ''}{cust.get('產品') or ''}":
+        return "統一"
+    return "商品"
+
+
+_CN = {1: "單", 2: "兩", 3: "三", 4: "四", 5: "五", 6: "六", 7: "七", 8: "八", 9: "九", 10: "十"}
+
+
+def default_material_note(n_audio):
+    """素材走法預設：1 支＝單支素材無走法；多支＝N支素材平均輪播（訂檔表最常見寫法）；沒素材＝空。"""
+    if n_audio <= 0:
+        return ""
+    return "單支素材無走法" if n_audio == 1 else f"{_CN.get(n_audio, n_audio)}支素材平均輪播"
+
+
 def default_cert_name(snap):
     """電台播證開立名稱預設＝「廣告主-產品」（訂檔表實際寫法，廣代案用廣告主不是代理商）。"""
     h = snap.get("header", {})
@@ -121,7 +141,7 @@ def wave_pay_dates(snap):
 
 def build_orders(snap, *, applicant="", company="", category="商品", 收款日期="", 發票開立日="", cue_no="",
                  客戶類別="", 客服=None, 播證名稱=None, 需求說明="", notify=None,
-                 現折=None, 退佣=None, 文案=None, 素材走法=""):
+                 現折=None, 退佣=None, 文案=None, 素材走法="", 素材=None):
     """快照各波 → OrderDraft 清單（製作費只算在第 1 波）。客戶相關欄位取快照 customer。
     收款日期：有給＝各波相同；空白＝各波 CUE 上的付款兌現日。
     客戶類別／客服：有給就覆蓋客戶主檔（主檔空白時在訂檔區補）。
@@ -129,7 +149,8 @@ def build_orders(snap, *, applicant="", company="", category="商品", 收款日
     需求說明：建立「需求或狀況說明」子表一列（更新訂檔時為追加一列）。
     notify：rf.notify_defaults() 的結果，依平台含企頻與否帶 平台2／通知部門／通知個人；None 用 rf.NOTIFY_FALLBACK。
     現折／退佣：小數字串（0.02＝2%）；None＝客戶主檔，主檔空白＝0（主檔現折 96% 空白，訂檔必填）。
-    文案：文案人員清單，None／空＝["無"]；素材走法：文字，可空。"""
+    文案：文案人員清單，None／空＝["無"]；素材走法：文字，可空。
+    素材：[{"廣告篇名": str}]，每支一列（音檔／文案附件由呼叫端以 rf.material_file_keys 對應列號上傳）；各波相同。"""
     from datetime import datetime
     h = snap.get("header", {})
     cust = snap.get("customer") or {}
@@ -165,6 +186,7 @@ def build_orders(snap, *, applicant="", company="", category="商品", 收款日
         d.付款條件 = cust.get("付款條件", "")
         d.文案 = list(文案) if 文案 else ["無"]
         d.素材走法 = (素材走法 or "").strip()
+        d.素材明細 = [{"廣告篇名": str(m.get("廣告篇名") or "").strip()} for m in (素材 or [])]
         d.收款日期 = 收款日期 or (pays[i] if i < len(pays) else "")
         d.發票開立日業務 = 發票開立日
         nt = notify[rf.has_qp(d.平台)]
@@ -293,14 +315,16 @@ def update_payload(d, record):
 
 
 def update_booking(snap, orders, *, booking, attachments=None, applicant="",
-                   reader=None, updater=None, uploader=None, submit=None):
+                   reader=None, updater=None, uploader=None, submit=None, adder=None):
     """已訂檔 CUE 調整後更新原訂檔（Jonathan 2026-10-14：不另開異動訂檔）。
-    已有訂檔的波段：更新該筆（CUE 欄位＋收入子表）並重傳訂檔CUE表；新增的波段：以原 CUE號建新訂檔。
+    已有訂檔的波段：更新該筆（CUE 欄位＋收入子表）並重傳訂檔CUE表；本次有放素材則追加素材列（既有列不動）；
+    新增的波段：以原 CUE號建新訂檔。
     回傳 {ok, cue_id, orders:[{wave, rid, action}], error}。"""
     from ragic_booking import write as rw
     reader = reader or rw.read_record
     updater = updater or rw.update_record
     uploader = uploader or rw.upload_file
+    adder = adder or rw.add_rows_with_files
     if submit is None:
         submit = rw.submit_full_order
     attachments = attachments or {}
@@ -322,6 +346,12 @@ def update_booking(snap, orders, *, booking, attachments=None, applicant="",
                 if not up.ok:
                     return {"ok": False, "cue_id": cue_id, "orders": out,
                             "error": f"第 {i + 1} 波訂檔CUE表上傳失敗：{up.error}"}
+            if d.素材明細:
+                mfiles = {k: v for k, v in files.items() if k.startswith((rf.OrderF.素材_音檔 + "_", rf.OrderF.素材_文案 + "_"))}
+                ad = adder(rf.FORM_ORDER, rid, rf.material_rows_tuples(d.素材明細), mfiles)
+                if not ad.ok:
+                    return {"ok": False, "cue_id": cue_id, "orders": out,
+                            "error": f"第 {i + 1} 波素材上傳失敗：{ad.error}"}
             out.append({"wave": i + 1, "rid": rid, "action": "更新"})
         else:
             r = submit(d, apply_cue=False, 起走日期=start, 總波段=str(len(orders)), 申請人=applicant,

@@ -390,6 +390,31 @@ def submit_full_order(order: OrderDraft, *, apply_cue: bool,
             "order_rid": order_res.rid, "leaked_rid": "", "error": ""}
 
 
+def add_rows_with_files(form: str, rid: str, form_fields: list[tuple[str, str]],
+                        files_map: dict[str, str]) -> WriteResult:
+    """既有紀錄以 multipart 追加子表列（文字欄＋附件，鍵＝欄位ID_-列號）。供更新訂檔時加素材列。"""
+    import os
+    from contextlib import ExitStack
+    if not str(rid).strip().isdigit():
+        return WriteResult(ok=False, form=form, error=f"追加子表缺有效 rid：{rid!r}")
+    url = f"{form_url(form, str(rid))}?api&v=3"
+    try:
+        with ExitStack() as stack:
+            files = {k: (os.path.basename(p), stack.enter_context(open(p, "rb"))) for k, p in (files_map or {}).items() if p}
+            resp = requests.post(url, data=list(form_fields) + [("api", ""), ("v", "3")], files=files or None,
+                                 headers=_headers(), timeout=_TIMEOUT)
+    except (requests.RequestException, OSError) as e:
+        return WriteResult(ok=False, form=form, rid=str(rid), error=f"追加子表連線失敗：{e}")
+    if resp.status_code != 200:
+        return WriteResult(ok=False, form=form, rid=str(rid), error=f"HTTP {resp.status_code}：{resp.text[:300]}")
+    try:
+        raw = resp.json()
+    except ValueError:
+        return WriteResult(ok=False, form=form, rid=str(rid), error=f"回傳非 JSON：{resp.text[:300]}")
+    ok, _rid, err = _parse_create_response(raw)
+    return WriteResult(ok=ok, form=form, rid=str(rid), raw=raw if isinstance(raw, dict) else {}, error=err)
+
+
 def update_record(form: str, rid: str, payload_json: dict[str, Any],
                   flags: dict[str, str] | None = None) -> WriteResult:
     """更新既有紀錄（JSON body；子表既有列用 row id 為鍵、新列用負數）。newcue 新增，供已訂檔 CUE 調整後更新原訂檔。"""

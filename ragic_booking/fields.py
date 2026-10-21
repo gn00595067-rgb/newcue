@@ -446,8 +446,7 @@ def build_order_payload(d: OrderDraft) -> dict[str, str]:
     # 子表：訂檔素材及需求資訊（CUE 解析出的篇名逐支一列）
     for n, row in enumerate(d.素材明細, 1):
         put(f"{OrderF.素材_廣告篇名}_-{n}", row.get("廣告篇名"))
-        put(f"{OrderF.素材_文案}_-{n}", row.get("文案"))
-        # 素材_音檔 是檔案上傳欄，走附件流程，不放 form-encoded payload
+        # 素材音檔／文案 是檔案欄，走附件流程（material_file_keys），不放 form-encoded payload
     if d.需求說明:
         put(f"{OrderF.需求_說明}_-1", d.需求說明)
         put(f"{OrderF.需求_建立時間}_-1", d.需求建立時間)
@@ -534,9 +533,7 @@ def order_payload_json(d: OrderDraft) -> dict[str, Any]:
         p[f"_subtable_{OrderF.SUB_INCOME}"] = inc
 
     # 子表：訂檔素材（CUE 解析出的篇名逐支一列；素材_音檔走附件流程，不放這）
-    mat = _subrows(d.素材明細, {
-        OrderF.素材_廣告篇名: "廣告篇名", OrderF.素材_文案: "文案",
-    })
+    mat = _subrows(d.素材明細, {OrderF.素材_廣告篇名: "廣告篇名"})   # 音檔／文案是檔案欄，走附件
     if mat:
         p[f"_subtable_{OrderF.SUB_MATERIAL}"] = mat
 
@@ -546,6 +543,18 @@ def order_payload_json(d: OrderDraft) -> dict[str, Any]:
             need[OrderF.需求_建立時間] = d.需求建立時間
         p[f"_subtable_{OrderF.SUB_NEED}"] = {"-1": need}
     return p
+
+
+def material_file_keys(n: int) -> tuple[str, str]:
+    """素材子表第 n 列（新增列，負號）的附件鍵：(素材音檔, 文案)。
+    Ragic 子表欄位的 multipart 鍵＝「欄位ID_-列號」，與文字欄同一列號才會落在同一列。
+    ⚠️ 子表附件以此鍵上傳尚未在真 Ragic 驗證（2026-10-21），第一次實測要確認。"""
+    return f"{OrderF.素材_音檔}_-{n}", f"{OrderF.素材_文案}_-{n}"
+
+
+def material_rows_tuples(rows: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """更新既有訂檔時追加素材列的文字欄（multipart）。"""
+    return [(f"{OrderF.素材_廣告篇名}_-{n}", str(r["廣告篇名"])) for n, r in enumerate(rows, 1) if r.get("廣告篇名")]
 
 
 def _subrows(rows: list[dict[str, Any]], colmap: dict[str, str],

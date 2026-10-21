@@ -309,6 +309,8 @@ def test_order_panel_inline_customer_and_fields():
     btn = at.button(key="simple_save_submit")
     assert "客戶類別（① 客戶）" in btn.help and "客戶編號" not in btn.help
     at.selectbox(key="simple_save_od_ccat").set_value("廣代").run()
+    assert "素材後補" in at.text_input(key="simple_save_od_need").value                # 沒放素材 → 預設寫素材後補
+    at.text_area(key="simple_save_od_mat_names").input("B篇.30秒").run()             # 只有篇名、素材後補
     at.text_input(key="simple_save_od_need").input("10/21 提供CUE+回簽").run()
     btn = at.button(key="simple_save_submit")
     assert not btn.disabled, btn.help                                          # 收款日期取付款兌現日 115.12.31
@@ -318,6 +320,7 @@ def test_order_panel_inline_customer_and_fields():
     import cue_store as cs
     p = cs.from_jsonable(_rec(at)["snap"]["review"]["params"])
     assert p["客戶類別"] == "廣代" and p["需求說明"] == "10/21 提供CUE+回簽" and p["客服"] == ["陳客服"]
+    assert p["素材"] == ["B篇.30秒"] and p["現折"] == "0.05" and p["文案"] == ["無"]
 
 
 def test_ops_bonus_mark_and_audit_reject():
@@ -403,7 +406,7 @@ def test_manage_submit_saved_record():
     btn.click().run()
     _after_rerun(at, adm_od_company="", adm_od_cat="商品", adm_od_pay=None, adm_od_inv=None, adm_od_ccat="",
                  adm_od_cs=[], adm_od_cert="", adm_od_need="", adm_od_disc="0", adm_od_rebate="0", adm_od_mat="",
-                 adm_od_cw=["無"])
+                 adm_od_cw=["無"], adm_od_mat_names="")
     _ok(at)
     rid = next(iter(at.session_state["_fake_db"]))
     import cue_store as cs
