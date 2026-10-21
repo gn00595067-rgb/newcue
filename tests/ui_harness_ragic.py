@@ -83,8 +83,9 @@ from ragic_booking import order_from_cue as oc  # noqa: E402
 ragic_ui.booking_enabled = lambda: bool(st.session_state.get("_fake_booking_on", True))
 
 
-def _fake_submit_booking(snap, orders, *, applicant="", attachments=None, submit=None):
+def _fake_submit_booking(snap, orders, *, applicant="", attachments=None, submit=None, serial=""):
     st.session_state.setdefault("_fake_booking_calls", []).append(("submit", len(orders), sorted((attachments or {}).get("all", {}))))
+    st.session_state["_fake_booking_serial"] = serial
     return {"ok": True, "cue_id": "1160101", "results": [], "error": "",
             "orders": [{"wave": i + 1, "rid": str(500 + i), "action": "新增"} for i in range(len(orders))]}
 

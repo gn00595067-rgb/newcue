@@ -140,6 +140,8 @@ class CueApplyF:
     總波段 = "1002662"
     序號依據 = "1002667"         # ⚪ 公式 = 民國年+月 不設
     CUE號 = "1002664"           # ⚪ 公式/預設 = 序號依據+2位流水 不設
+    Cue表模擬編號 = "1016043"     # 🟠 來源 CUE 存檔（cue/2）的模擬編號，如 20261021-001。Ragic「更新成交CUE」
+                                 #    靠它把 CUE號回寫存檔；空白時整筆回 ERROR（2026-10-21 實測，但申請紀錄仍會建立）
 
 
 # ------------------------------------------------------------------ 客戶 forms13/3（讀＋寫）
@@ -603,7 +605,7 @@ def missing_required_cue_apply(payload: dict[str, str], 客戶編號: str) -> di
 
 def build_cue_apply_payload(客戶編號: str, 起走日期: str, 總波段: str,
                             申請人: str, 產品名稱: str = "", *, 客戶名稱: str = "",
-                            主管: str = "", 業務: str = "") -> dict[str, Any]:
+                            主管: str = "", 業務: str = "", 模擬編號: str = "") -> dict[str, Any]:
     """CUE號申請表 create 參數。序號依據/CUE號 交給 Ragic 公式產生。
 
     2026-10-16 實測：只送客戶編號時 Ragic 回 INVALID「客戶名稱、主管為必填」——API 建檔的
@@ -616,6 +618,8 @@ def build_cue_apply_payload(客戶編號: str, 起走日期: str, 總波段: str
     p[CueApplyF.客戶編號成交] = 客戶編號
     p[CueApplyF.起走日期] = 起走日期
     p[CueApplyF.總波段] = 總波段
+    if 模擬編號:
+        p[CueApplyF.Cue表模擬編號] = 模擬編號
     for fids, val in (((CueApplyF.產品名稱成交, CueApplyF.產品名稱), 產品名稱),
                       ((CueApplyF.客戶名稱成交, CueApplyF.客戶名稱), 客戶名稱),
                       ((CueApplyF.主管成交, CueApplyF.主管), 主管)):

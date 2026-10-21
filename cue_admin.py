@@ -200,7 +200,8 @@ def _submit_box(rec, snap):
     files_d = {"xlsx": (val.split("@", 1)[-1], xl)}
     u = ragic_ui.current_user() or {}
     final = ragic_ui.json_copy(snap)
-    res = ragic_ui._book(final, od, files_d, rid=rec["_ragicId"])
+    from config import RAGIC_FIELD_SERIAL
+    res = ragic_ui._book(final, od, files_d, rid=rec["_ragicId"], serial=str(rec.get(RAGIC_FIELD_SERIAL) or ""))
     if not res.get("ok"):
         st.error(f"送出訂檔失敗：{res.get('error')}")
         return

@@ -591,8 +591,25 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
         final["owner"] = {"name": u["name"], "email": u.get("email", ""), "code": my_code(u)}
     url, key = _ragic_conn()
     files_d, up = _upload_dict(files, style)
+    save_rid = None if as_new else linked["rid"]
     if do_book:
-        res = _book(final, od, files_d, rid=None if as_new else linked["rid"])
+        # CUE號申請要帶這份存檔的「Cue表模擬編號」：新的一筆（或舊紀錄讀不到編號）先存檔拿編號
+        serial = "" if as_new else str(linked.get("serial") or "")
+        if not serial:
+            fields0 = cs.ragic_fields(final, RAGIC_MAP, extra_fields)
+            fields0[RAGIC_MAP["details"]] = cs.details_text(final, legacy_details)
+            with st.spinner("存檔中…"):
+                r0 = cue2.save_record(url, key, fields0, up, rid=save_rid)
+            if not r0.ok:
+                st.error(f"存檔失敗：{r0.error}")
+                return
+            save_rid, serial = r0.rid, r0.serial
+            # 之後失敗重送時更新同一筆，不再另開新存檔
+            st.session_state[SS_RECORD] = {"rid": r0.rid, "serial": r0.serial, "mode": snap.get("mode"), "snap": final}
+            if not serial:
+                st.error("已存檔，但讀不到 Ragic 的 Cue表模擬編號，CUE號無法申請；請稍候再按一次送出。")
+                return
+        res = _book(final, od, files_d, rid=save_rid, serial=serial)
         if not res.get("ok"):
             st.error(f"送出訂檔失敗：{res.get('error')}")
             return
@@ -606,7 +623,7 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     fields = cs.ragic_fields(final, RAGIC_MAP, extra_fields)
     fields[RAGIC_MAP["details"]] = cs.details_text(final, legacy_details)
     with st.spinner("存檔中…"):
-        res = cue2.save_record(url, key, fields, up, rid=None if as_new else linked["rid"])
+        res = cue2.save_record(url, key, fields, up, rid=save_rid)
     if not res.ok:
         extra = f"（訂檔已建立：CUE號 {final['booking'].get('cue_id')}，請記下並通知 Jonathan）" if do_book else ""
         st.error(f"存檔失敗：{res.error}{extra}")
@@ -625,7 +642,7 @@ def datetime_now():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-def _book(snap, od, files_d, rid=None, signback_bytes=None):
+def _book(snap, od, files_d, rid=None, signback_bytes=None, serial=""):
     """申請 CUE號＋建立各波訂檔（已訂檔過則更新原訂檔）。附件＝本 CUE Excel＋客戶回簽檔。"""
     import os
     import tempfile
@@ -664,7 +681,7 @@ def _book(snap, od, files_d, rid=None, signback_bytes=None):
         applicant = reg_owner_name(snap) or (current_user() or {}).get("name", "")
         if snap.get("booking"):
             return oc.update_booking(snap, orders, booking=snap["booking"], attachments={"all": att}, applicant=applicant)
-        return oc.submit_booking(snap, orders, applicant=applicant, attachments={"all": att})
+        return oc.submit_booking(snap, orders, applicant=applicant, attachments={"all": att}, serial=serial)
 
 
 def reg_owner_name(snap):

@@ -329,7 +329,7 @@ def _find_leaked_order_rid(order: OrderDraft, within_sec: int = 300) -> str:
 def submit_full_order(order: OrderDraft, *, apply_cue: bool,
                       起走日期: str = "", 總波段: str = "1",
                       申請人: str = "", 產品名稱: str = "",
-                      attachments: dict[str, str] | None = None) -> dict[str, Any]:
+                      attachments: dict[str, str] | None = None, 模擬編號: str = "") -> dict[str, Any]:
     """端到端送出：（申請 CUE 號 →）建立訂檔 → 上傳附件。
 
     任一步失敗即停，回傳已完成步驟與已建立 rid（含孤兒 CUE 申請 rid），
@@ -351,12 +351,14 @@ def submit_full_order(order: OrderDraft, *, apply_cue: bool,
             FORM_CUE_APPLY,
             cue_apply_payload_json(order.客戶編號, 起走日期, 總波段, 申請人, 產品名稱,
                                    客戶名稱=order.客戶名稱, 主管=order.業務主管,
-                                   業務=order.業務開發客戶),
+                                   業務=order.業務開發客戶, 模擬編號=模擬編號),
         )
         record("申請CUE號", cr)
         if not cr.ok:
+            # Ragic 回 ERROR 時申請紀錄可能已建立（10-21 實測：缺 Cue表模擬編號仍建了 1150181）→ 告知去刪
+            left = f"（Ragic 仍建立了 CUE號申請紀錄 #{cr.rid}，請到「新增CUE號申請表」刪除再重送）" if cr.rid else ""
             return {"ok": False, "steps": steps, "cue_id": "", "order_rid": "",
-                    "leaked_rid": "", "error": f"CUE 號申請失敗：{cr.error}"}
+                    "leaked_rid": cr.rid or "", "error": f"CUE 號申請失敗：{cr.error}{left}"}
         cue_id = _extract_cue_id(FORM_CUE_APPLY, cr.rid, cr.raw)
         steps[-1]["cue_id"] = cue_id
         order.CUE號 = cue_id

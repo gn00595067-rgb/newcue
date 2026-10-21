@@ -271,6 +271,8 @@ def test_book_is_deal_then_adjust_updates_booking():
     snap = _rec(at)["snap"]
     assert snap["status"] == "已訂檔" and snap["booking"]["cue_id"] == "1160101"
     assert at.session_state["_fake_booking_calls"][-1][0] == "submit"
+    assert at.session_state["_fake_booking_serial"] == "S" + _rec(at)["rid"]   # 新存檔先存拿模擬編號再申請 CUE號
+    assert len(at.session_state["_fake_db"]) == 1                              # 先存＋送出後再存＝同一筆
     assert len(at.session_state["_fake_booking_calls"][-1][2]) == 2          # 訂檔CUE表＋客戶回簽檔
     assert at.session_state["_fake_files"][_rec(at)["rid"]]["1015884"][0] == "回簽.pdf"
     _enable_bonus(at, "simple_")

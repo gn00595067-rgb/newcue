@@ -148,14 +148,14 @@ def build_orders(snap, *, applicant="", company="", category="商品", 收款日
     return out
 
 
-def cue_apply_payload(snap, applicant=""):
-    """CUE號申請表（forms13/4）建立內容：起走日＝第 1 波開始日、總波段＝波段數。"""
+def cue_apply_payload(snap, applicant="", serial=""):
+    """CUE號申請表（forms13/4）建立內容：起走日＝第 1 波開始日、總波段＝波段數、Cue表模擬編號＝存檔模擬編號。"""
     cust = snap.get("customer") or {}
     waves = snap.get("waves", [])
     start = _d(waves[0].get("start")) if waves else ""
     return rf.cue_apply_payload_json(cust.get("編號", ""), start, str(len(waves)), applicant,
                                      snap.get("header", {}).get("product", ""), 客戶名稱=cust.get("名稱", ""),
-                                     主管=cust.get("主管", ""), 業務=cust.get("業務", ""))
+                                     主管=cust.get("主管", ""), 業務=cust.get("業務", ""), 模擬編號=serial)
 
 
 def missing(snap, orders):
@@ -190,10 +190,11 @@ def missing(snap, orders):
     return out
 
 
-def submit_booking(snap, orders, *, applicant="", attachments=None, submit=None):
+def submit_booking(snap, orders, *, applicant="", attachments=None, submit=None, serial=""):
     """依序送出各波訂檔（寫入正式 Ragic，呼叫端須先確認已開放寫入）。
     第 1 波：申請 CUE號 → 建訂檔；之後各波沿用同一 CUE號、各自建訂檔（波段 = 2, 3 …）。
     attachments：{波段索引 或 "all": {欄位ID: 檔案路徑}}，如 訂檔CUE表、客戶回簽檔。
+    serial：來源 CUE 存檔（cue/2）的模擬編號，CUE號申請必帶（見 rf.CueApplyF.Cue表模擬編號）。
     任一波失敗即停，回傳已完成結果（含 cueupload 的殘留 rid 偵測）。"""
     if submit is None:
         from ragic_booking.write import submit_full_order as submit
@@ -206,7 +207,7 @@ def submit_booking(snap, orders, *, applicant="", attachments=None, submit=None)
             d.CUE號 = cue_id
         files = {**attachments.get("all", {}), **attachments.get(i, {})}
         r = submit(d, apply_cue=not d.CUE號, 起走日期=start, 總波段=str(len(orders)),
-                   申請人=applicant, 產品名稱=d.產品名稱, attachments=files)
+                   申請人=applicant, 產品名稱=d.產品名稱, attachments=files, 模擬編號=serial)
         results.append(r)
         cue_id = r.get("cue_id") or cue_id
         if not r.get("ok"):

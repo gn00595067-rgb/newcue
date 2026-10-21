@@ -252,3 +252,28 @@ def test_update_zeroes_income_rows_removed_from_cue():
 
 def test_customer_category_options_match_ragic():
     assert rf.CUSTOMER_CATEGORY_OPTIONS == ["直客", "廣代", "廣代-商品", "廣代-建案"]
+
+
+def test_cue_apply_carries_save_serial():
+    """10-21 實測：CUE號申請表「Cue表模擬編號」空白 → Ragic ERROR（更新成交CUE 靠它回寫存檔）。"""
+    snap = _snap()
+    assert oc.cue_apply_payload(snap, "王小明", serial="20261021-001")[rf.CueApplyF.Cue表模擬編號] == "20261021-001"
+    got = []
+    oc.submit_booking(snap, oc.build_orders(snap), serial="20261021-001",
+                      submit=lambda d, **kw: (got.append(kw["模擬編號"]), {"ok": True, "cue_id": "1", "order_rid": "9"})[1])
+    assert got == ["20261021-001", "20261021-001"]
+
+
+def test_submit_full_order_reports_leaked_cue_apply(monkeypatch):
+    from ragic_booking import write as rw
+    sent = {}
+
+    def fake_create(form, payload, flags=None):
+        sent[form] = payload
+        return rw.WriteResult(ok=False, form=form, rid="88", error="Ragic 拒絕（status=ERROR）：條件欄位值不可為空")
+
+    monkeypatch.setattr(rw, "create_record", fake_create)
+    d = oc.build_orders(_snap())[0]
+    res = rw.submit_full_order(d, apply_cue=True, 起走日期="2027/01/04", 模擬編號="20261021-001")
+    assert not res["ok"] and res["leaked_rid"] == "88" and "#88" in res["error"]
+    assert sent[rf.FORM_CUE_APPLY][rf.CueApplyF.Cue表模擬編號] == "20261021-001"
