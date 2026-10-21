@@ -1,10 +1,20 @@
 # -*- coding: utf-8 -*-
 """CUE 快照 → CUE號申請／訂檔草稿（第 4 期資料轉換）。"""
+import importlib
 from datetime import date
+
+import pytest
 
 import cue_store as cs
 from ragic_booking import fields as rf
 from ragic_booking import order_from_cue as oc
+
+
+@pytest.fixture(autouse=True)
+def _real_oc():
+    """畫面測試外殼（ui_harness_ragic）會把 submit_booking／update_booking 換成假的且不還原；
+    先跑畫面測試時本檔會測到假函式 → 每個測試前重新載入模組。"""
+    importlib.reload(oc)
 
 
 def _snap(prod_cost=5000, customer=None):
