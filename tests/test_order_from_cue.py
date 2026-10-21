@@ -418,3 +418,11 @@ def test_ragic_like_preview_html():
 def test_yuanlang_defaults_exchange_and_shenghuo_company():
     snap = cs.make_snapshot("一般CUE", {"format": "元朗", "client": "冰點空調"}, [])
     assert oc.default_category(snap) == "交換" and oc.default_company(snap) == "聲活"
+
+
+def test_cue2_ragic_like_preview():
+    import ragic_order_preview as rp
+    html = rp.cue2_html({"1015309": "客戶甲", "1015307": "聲活", "1015931": 2414}, files=["a.xlsx"], action="新建")
+    for s in ("CUE 存檔", "客戶名稱", "客戶甲", "格式類型", "2,414", "a.xlsx", "（Ragic 自動）"):
+        assert s in html, s
+    assert "20261021-001" in rp.cue2_html({}, serial="20261021-001", action="更新")

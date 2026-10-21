@@ -561,12 +561,23 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
                               update=booked_before)
     if not live:
         st.info("目前為**乾跑模式**：只預覽、不會寫入 Ragic。")
-    with st.popover("👀 預覽將寫入 Ragic 的內容"):
-        st.json({"動作": "新建（存檔時給編號）" if as_new else f"更新紀錄 {linked['rid']}",
-                 "欄位": cs.ragic_fields(final, RAGIC_MAP, extra_fields),
-                 "附件": (["（存檔時產生 Excel／PDF）"] if callable(files) else
-                        [f[0] for k, f in (files or {}).items() if f and k != "extra"]) + ([style.name] if style else []),
-                 "異動紀錄": final["history"][-1], "狀態": cs.status_of(final)})
+    with st.expander("👀 預覽將寫入 Ragic 的內容（仿 Ragic 畫面）", expanded=False):
+        import ragic_order_preview as rp
+        att = (["（存檔時產生 Excel／PDF）"] if callable(files) else
+               [f[0] for k, f in (files or {}).items() if f and k != "extra"]) + ([style.name] if style else [])
+        t_cue, t_order = st.tabs(["CUE 存檔", "訂檔（送出訂檔時）"])
+        with t_cue:
+            st.caption(f"動作：{'新建（存檔時給編號）' if as_new else '更新紀錄 #' + str(linked['rid'])}｜"
+                       f"狀態：{cs.status_of(final)}｜本次異動：{'；'.join(final['history'][-1].get('changes', []))}")
+            st.html(rp.cue2_html(cs.ragic_fields(final, RAGIC_MAP, extra_fields), files=att,
+                                 serial="" if as_new else str(linked.get("serial") or ""),
+                                 action="新建" if as_new else "更新"))
+        with t_order:
+            if od.get("orders"):
+                _ragic_preview(od["orders"], od.get("signback") or ((prev or {}).get("review") or {}).get("signback"),
+                               od.get("materials"), link={"產業別": (final.get("customer") or {}).get("產業別", "")})
+            else:
+                st.caption("尚無訂檔內容（請先在上方「🧾 訂檔資料」帶入客戶）。")
 
     has_sign = bool(od["signback"] or ((prev or {}).get("review") or {}).get("signback"))
     block = ([] if live else ["乾跑模式"]) + ([] if booking_enabled() else ["訂檔寫入未開放（RAGIC_BOOKING_ENABLED）"]) \
@@ -1154,5 +1165,5 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
         with st.popover("檢視將寫入 Ragic 的欄位"):
             st.json({"CUE號申請（forms13/4）": oc.cue_apply_payload(snap, u.get("name", "")),
                      "訂檔（forms12/17）": [rf.order_payload_json(d) for d in orders]})
-        out = {"params": params, "missing": missing, "signback": sign, "materials": materials}
+        out = {"params": params, "missing": missing, "signback": sign, "materials": materials, "orders": orders}
     return out

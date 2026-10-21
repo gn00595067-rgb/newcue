@@ -175,3 +175,39 @@ def order_html(d: OrderDraft, *, title="訂檔(業務填寫)-V3", attachments=No
         out.append('<tr><td colspan="2" class="auto">（本次不新增）</td></tr>')
     out.append("</table></div>")
     return "".join(out)
+
+
+# CUE 存檔表（cue/2）欄位 ID → 欄名（2026-10-21 以 API 中文欄名／EID 對照），依 Ragic 表單順序
+CUE2_FIELDS = [
+    ("1015306", "Cue表模擬編號（自動編號）"), ("1015307", "格式類型"), ("1015308", "業務人員"), ("1015309", "客戶名稱"),
+    ("1015764", "統一編號"), ("1015310", "產品名稱"), ("1015311", "總預算(原始/Net)"), ("1015312", "優惠總價(成交價)"),
+    ("1015313", "製作費"), ("1015314", "走期-開始日"), ("1015315", "走期-結束日"), ("1015316", "回簽截止日"),
+    ("1015317", "付款兌現日"), ("1015318", "請款月份"), ("1015934", "平台"), ("1015892", "平台細項"),
+    ("1015930", "秒數"), ("1015931", "總檔數"), ("1015933", "總波段"), ("1016046", "平台實收總計"),
+    ("1016047", "原CUE表成交價"), ("1015919", "客戶編號(成交)"),
+]
+_CUE2_AUTO = {"1015306"}   # Ragic 自動編號
+
+
+def cue2_html(fields, *, files=None, serial="", action="新建"):
+    """CUE 存檔表（cue/2）要寫入的欄位 → 仿 Ragic 表單 HTML（四欄、藍色標題列）。
+    fields：{欄位ID: 值}；files：附件檔名清單；serial：已存檔的模擬編號（新建時 Ragic 自動給）。"""
+    vals = dict(fields or {})
+    cells = []
+    for fid, name in CUE2_FIELDS:
+        if fid in _CUE2_AUTO:
+            v, cls = (serial or AUTO), ("v" if serial else "v auto")
+        else:
+            v, cls = _fmt(vals.get(fid, "")), "v"
+        cells.append((name, v, cls))
+    out = [_CSS, f'<div class="rg"><div class="note">CUE表（cue/2）　{escape(action)}預覽（灰字＝Ragic 自動產生）</div>',
+           "<h4>CUE 存檔</h4><table>"]
+    for i in range(0, len(cells), 4):
+        out.append("<tr>")
+        for name, v, cls in cells[i:i + 4]:
+            out.append(f'<td class="l" style="background:{_BG["o"]}">{escape(name)}</td><td class="{cls}">{escape(str(v))}</td>')
+        out.append("</tr>")
+    out.append("</table><h4>附件</h4><table><tr><td>" + (escape("、".join(files)) if files else
+               '<span class="auto">（存檔時產生 Excel／PDF）</span>') + "</td></tr></table>")
+    out.append('<div class="note">投放參數詳情：存 CUE 快照（版本、異動紀錄、訂檔參數），開啟存檔時還原用，不在此列出。</div></div>')
+    return "".join(out)
