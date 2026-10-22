@@ -23,6 +23,30 @@ import simple_preview  # noqa: E402
 simple_preview.has_soffice = lambda: False
 pdf_converter.xlsx_bytes_to_pdf_bytes = lambda b, *a, **k: (b"%PDF-fake", "fake", "")
 
+import data_loader  # noqa: E402
+
+# Google 設定表讀取常逾時（10-21／22 多次整批 skip）→ 測試專用磁碟快取：讀到就存，讀不到就用快取（正式 app 不受影響）
+_GS_CACHE = os.path.join(ROOT, "tests", "_gsheet_cache")
+_orig_read_csv_url = data_loader._read_csv_url
+
+
+def _cached_read_csv_url(url, timeout=20):
+    import hashlib
+
+    import pandas as pd
+    path = os.path.join(_GS_CACHE, hashlib.md5(url.encode()).hexdigest() + ".pkl")
+    try:
+        df = _orig_read_csv_url(url, timeout=timeout)
+        os.makedirs(_GS_CACHE, exist_ok=True)
+        df.to_pickle(path)
+        return df
+    except Exception:
+        if os.path.exists(path):
+            return pd.read_pickle(path)
+        raise
+
+
+data_loader._read_csv_url = _cached_read_csv_url
 import cue_store  # noqa: E402
 import ragic_ui  # noqa: E402
 from ragic_booking import cue2  # noqa: E402
@@ -86,7 +110,6 @@ ragic_ui.booking_enabled = lambda: bool(st.session_state.get("_fake_booking_on",
 
 def _fake_submit_booking(snap, orders, *, applicant="", attachments=None, submit=None, serial=""):
     st.session_state.setdefault("_fake_booking_calls", []).append(("submit", len(orders), sorted((attachments or {}).get("all", {}))))
-    st.session_state["_fake_booking_serial"] = serial
     return {"ok": True, "cue_id": "1160101", "results": [], "error": "",
             "orders": [{"wave": i + 1, "rid": str(500 + i), "action": "新增"} for i in range(len(orders))]}
 
@@ -97,6 +120,16 @@ def _fake_update_booking(snap, orders, *, booking, attachments=None, applicant="
             "orders": [{"wave": o["wave"], "rid": o["rid"], "action": "更新"} for o in booking["orders"]]}
 
 
+def _fake_apply_cue(snap, *, applicant="", serial="", **k):
+    st.session_state["_fake_booking_serial"] = serial
+    st.session_state.setdefault("_fake_booking_calls", []).append(("apply", serial))
+    cust = snap.get("customer") or {}
+    return {"ok": True, "error": "", "warning": "",
+            "cue_apply": {"cue_id": "1160101", "rid": "9", "客戶編號": cust.get("編號", ""), "客戶名稱": cust.get("名稱", ""),
+                          "產品名稱": "產品乙", "業務": cust.get("業務", ""), "主管": cust.get("主管", "")}}
+
+
+oc.apply_cue = _fake_apply_cue
 oc.submit_booking = _fake_submit_booking
 oc.update_booking = _fake_update_booking
 ragic_ui._list_saved = lambda url, key, kw: [(r, cue_store.parse_snapshot(cue2.details_of(r))) for r in _fake_list(url, key)]

@@ -32,6 +32,11 @@ def _snap(prod_cost=5000, customer=None):
                              "客服": ["陳客服"], "現折": "5", "退佣": "0", "名稱": "客戶甲股份有限公司"})
 
 
+def _cued(snap):
+    """已申請 CUE號 的快照（兩段式：送出訂檔前要先有 CUE號）。"""
+    return dict(snap, cue_apply={"cue_id": "1160101", "客戶編號": (snap.get("customer") or {}).get("編號", "")})
+
+
 def test_income_rows_grouped_by_platform():
     snap = _snap()
     orders = oc.build_orders(snap, applicant="王小明")
@@ -55,7 +60,7 @@ def test_payloads_and_missing():
     assert len(p[f"_subtable_{rf.OrderF.SUB_INCOME}"]) == 3
     ap = oc.cue_apply_payload(snap, "王小明")
     assert ap[rf.CueApplyF.起走日期] == "2027/01/04" and ap[rf.CueApplyF.總波段] == "2"
-    assert oc.missing(snap, orders) == {"CUE號申請": [], "訂檔": []}
+    assert oc.missing(_cued(snap), orders) == {"CUE號申請": [], "訂檔": []}
 
 
 def test_cue_apply_sends_customer_name_and_supervisor():
@@ -198,14 +203,14 @@ def test_payment_date_defaults_from_cue_per_wave():
     snap["header"]["payment_date"] = {"__date__": "2027-04-30"}
     orders = oc.build_orders(snap, applicant="王小明")
     assert [o.收款日期 for o in orders] == ["2027/02/28", "2027/04/30"]       # 波段自己的優先，沒有用 header
-    assert oc.missing(snap, orders)["訂檔"] == []
+    assert oc.missing(_cued(snap), orders)["訂檔"] == []
     assert [o.收款日期 for o in oc.build_orders(snap, 收款日期="2027/05/31")] == ["2027/05/31"] * 2   # 手填覆蓋
 
 
 def test_partial_wave_missing_marks_wave():
     snap = _snap()
     snap["waves"][0]["payment_date"] = {"__date__": "2027-02-28"}
-    assert oc.missing(snap, oc.build_orders(snap, applicant="王小明"))["訂檔"] == ["第2波 收款日期（② 開票收款）"]
+    assert oc.missing(_cued(snap), oc.build_orders(snap, applicant="王小明"))["訂檔"] == ["第2波 收款日期（② 開票收款）"]
 
 
 def test_overrides_category_service_and_cert_name():
@@ -216,7 +221,7 @@ def test_overrides_category_service_and_cert_name():
     assert o[0].客戶類別 == "廣代-商品" and o[0].客服 == ["豐季妍"]
     assert o[0].電台播證開立名稱 == "統一企業股份有限公司-產品乙"            # 廣告主，不是代理商
     assert o[1].電台播證開立名稱 == "統一企業股份有限公司-第二波"
-    assert oc.missing(snap, o)["訂檔"] == []
+    assert oc.missing(_cued(snap), o)["訂檔"] == []
     assert {x.電台播證開立名稱 for x in oc.build_orders(snap, 播證名稱="同名")} == {"同名"}
 
 
@@ -426,3 +431,75 @@ def test_cue2_ragic_like_preview():
     for s in ("CUE 存檔", "客戶名稱", "客戶甲", "格式類型", "2,414", "a.xlsx", "（Ragic 自動）"):
         assert s in html, s
     assert "20261021-001" in rp.cue2_html({}, serial="20261021-001", action="更新")
+
+
+
+# ---------------------------------------------------------------- 兩段式：先申請 CUE號，再送出訂檔（10-22）
+class _R:
+    def __init__(self, ok=True, rid="9", error=""):
+        self.ok, self.rid, self.error = ok, rid, error
+
+
+_APPLY_REC = {"CUE號": "1151109", "客戶編號(成交)": "C01399", "客戶名稱": "客戶甲股份有限公司", "產品名稱": "產品乙",
+              "業務(成交)": ["王小明"], "主管": "李主管", "起走日期": "2027/01/04", "總波段": "2"}
+
+
+def test_apply_cue_reads_back_record():
+    sent = {}
+    r = oc.apply_cue(_snap(), applicant="王小明", serial="20261022-001",
+                     creator=lambda form, p: (sent.update(p), _R())[1], reader=lambda form, rid: _APPLY_REC)
+    assert r["ok"] and r["cue_apply"]["cue_id"] == "1151109" and r["cue_apply"]["業務"] == "王小明"
+    assert sent[rf.CueApplyF.Cue表模擬編號] == "20261022-001" and not r["warning"]
+
+
+def test_apply_cue_error_but_created_is_adopted():
+    """10/21 實測：Ragic 回 ERROR 但紀錄已建立且有 CUE號 → 沿用，不再當失敗（避免重申請吃流水號）。"""
+    r = oc.apply_cue(_snap(), creator=lambda f, p: _R(ok=False, rid="88", error="條件欄位值不可為空"),
+                     reader=lambda f, rid: _APPLY_REC)
+    assert r["ok"] and r["cue_apply"]["rid"] == "88" and "已沿用" in r["warning"]
+    r = oc.apply_cue(_snap(), creator=lambda f, p: _R(ok=False, rid="88", error="X"), reader=lambda f, rid: {"CUE號": ""})
+    assert not r["ok"] and "#88" in r["error"]
+    r = oc.apply_cue(_snap(), creator=lambda f, p: _R(ok=False, rid="", error="INVALID"), reader=lambda f, rid: {})
+    assert not r["ok"] and r["error"].startswith("INVALID")
+
+
+def test_use_existing_cue_checks_customer():
+    summ = rf.cue_apply_summary(_APPLY_REC, "7")
+    assert oc.use_existing_cue(_snap(), "1151109", finder=lambda c: summ)["ok"]
+    bad = oc.use_existing_cue(_snap(customer={"編號": "C99999"}), "1151109", finder=lambda c: summ)
+    assert not bad["ok"] and "C01399" in bad["error"]
+    assert not oc.use_existing_cue(_snap(), "999", finder=lambda c: None)["ok"]
+
+
+def test_orders_take_customer_fields_from_cue_apply():
+    snap = dict(_snap(), cue_apply=dict(rf.cue_apply_summary(_APPLY_REC, "7"), 產品名稱="申請表產品", 主管="申請表主管"))
+    o = oc.build_orders(snap)
+    assert all(d.CUE號 == "1151109" for d in o)
+    assert (o[0].產品名稱, o[0].業務主管, o[0].客戶名稱) == ("申請表產品", "申請表主管", "客戶甲股份有限公司")
+    calls = []
+    oc.submit_booking(snap, o, submit=lambda d, **kw: (calls.append(kw["apply_cue"]), {"ok": True, "order_rid": "1"})[1])
+    assert calls == [False, False]                                          # 已有 CUE號：送出不再申請
+
+
+def test_missing_requires_cue_and_same_customer():
+    snap = _snap()
+    assert oc.missing(snap, oc.build_orders(snap))["訂檔"][0].startswith("CUE號（在 ⓪")
+    other = dict(snap, cue_apply={"cue_id": "1151109", "客戶編號": "C99999"})
+    assert "C99999" in oc.missing(other, oc.build_orders(other))["訂檔"][0]
+
+
+def test_partial_failure_returns_done_waves():
+    snap = _cued(_snap())
+    o = oc.build_orders(snap)
+    seq = iter([{"ok": True, "order_rid": "501", "cue_id": "1160101"}, {"ok": False, "error": "附件必填"}])
+    res = oc.submit_booking(snap, o, submit=lambda d, **kw: next(seq))
+    assert not res["ok"] and res["orders"] == [{"wave": 1, "rid": "501", "action": "新增"}] and "第 2 波" in res["error"]
+    # 重送走更新：第 1 波更新、第 2 波才新增（不重建第 1 波）
+    created = []
+
+    class R:
+        ok, error = True, ""
+    oc.update_booking(snap, o, booking={"cue_id": "1160101", "orders": res["orders"]},
+                      reader=lambda f, r: {}, updater=lambda f, r, p: R(), uploader=lambda *a: R(),
+                      submit=lambda d, **kw: (created.append(d.波段), {"ok": True, "order_rid": "502"})[1])
+    assert created == ["2"]

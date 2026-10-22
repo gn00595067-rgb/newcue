@@ -557,8 +557,14 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     _render_downloads(files, key_prefix, saved_ok)
 
     booked_before = bool(final.get("booking"))
+    saver = None
+    if linked and not dirty and not as_new:
+        def saver(fn):
+            new = json_copy(lsnap)
+            fn(new)
+            return _save_snapshot_only(linked, new, legacy_details)
     od = render_order_preview(final, key_prefix, prev_review=(prev or {}).get("review"),
-                              update=booked_before)
+                              update=booked_before, cue_saver=saver, serial=str((linked or {}).get("serial") or ""))
     if not live:
         st.info("目前為**乾跑模式**：只預覽、不會寫入 Ragic。")
     with st.expander("👀 預覽將寫入 Ragic 的內容（仿 Ragic 畫面）", expanded=False):
@@ -591,7 +597,7 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     do_book = b2.button("📨 存檔並" + ("送出更新訂檔" if booked_before else "送出訂檔（成交）"),
                         key=f"{key_prefix}_submit", disabled=bool(block),
                         help=("尚缺：" + "、".join(block)) if block else
-                        "送出即申請 CUE號並建立各波訂檔（已訂檔則更新原訂檔），算成交；之後由主管審核。")
+                        "以 ⓪ 的 CUE號 建立各波訂檔（已訂檔則更新原訂檔），算成交；之後由主管審核。")
     if linked and is_reviewer() and cs.audit_of(lsnap) == cs.AUDIT_PENDING and not dirty:
         _render_audit(linked, legacy_details, key_prefix)
     if not (do_save or do_book):
@@ -603,29 +609,21 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     url, key = _ragic_conn()
     files_d, up = _upload_dict(files, style)
     save_rid = None if as_new else linked["rid"]
+    fail_msg = ""
     if do_book:
-        # CUE號申請要帶這份存檔的「Cue表模擬編號」：新的一筆（或舊紀錄讀不到編號）先存檔拿編號
-        serial = "" if as_new else str(linked.get("serial") or "")
-        if not serial:
-            fields0 = cs.ragic_fields(final, RAGIC_MAP, extra_fields)
-            fields0[RAGIC_MAP["details"]] = cs.details_text(final, legacy_details)
-            with st.spinner("存檔中…"):
-                r0 = cue2.save_record(url, key, fields0, up, rid=save_rid)
-            if not r0.ok:
-                st.error(f"存檔失敗：{r0.error}")
-                return
-            save_rid, serial = r0.rid, r0.serial
-            # 之後失敗重送時更新同一筆，不再另開新存檔
-            st.session_state[SS_RECORD] = {"rid": r0.rid, "serial": r0.serial, "mode": snap.get("mode"), "snap": final}
-            if not serial:
-                st.error("已存檔，但讀不到 Ragic 的 Cue表模擬編號，CUE號無法申請；請稍候再按一次送出。")
-                return
-        res = _book(final, od, files_d, rid=save_rid, serial=serial)
+        res = _book(final, od, files_d, rid=save_rid)
         if not res.get("ok"):
-            st.error(f"送出訂檔失敗：{res.get('error')}")
-            return
-        cs.mark_booked(final, u["name"], od["params"], {"cue_id": res.get("cue_id", ""), "orders": res.get("orders", []),
-                                                        "at": datetime_now(), "by": u["name"]})
+            if not res.get("orders"):
+                st.error(f"送出訂檔失敗：{res.get('error')}")
+                return
+            # 部分波段已建立：記進快照，修正後重送只補沒完成的（不重建、不重申請 CUE號）
+            final["booking"] = {"cue_id": res.get("cue_id") or oc_current(final), "orders": res["orders"],
+                                "partial": True, "at": datetime_now(), "by": u["name"]}
+            fail_msg = (f"⚠️ 送出訂檔未完成：{res.get('error')}。已建立的 {len(res['orders'])} 波已記錄，"
+                        "修正後再按送出只會補沒完成的波段。")
+        else:
+            cs.mark_booked(final, u["name"], od["params"], {"cue_id": res.get("cue_id", ""), "orders": res.get("orders", []),
+                                                            "at": datetime_now(), "by": u["name"]})
         if od["signback"]:
             final["review"]["signback"] = od["signback"].name
             up[SIGNBACK_FIELD] = (od["signback"].name, od["signback"].getvalue(), "application/octet-stream")
@@ -641,11 +639,17 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
         return
     st.session_state[SS_RECORD] = {"rid": res.rid, "serial": res.serial, "mode": snap.get("mode"), "snap": final}
     st.session_state[f"{key_prefix}_dl_files"] = files_d   # 存檔時產生的檔案直接給下載用，免再按「產生下載檔」
-    st.session_state[msg_key] = (f"✅ 已存檔 {reg.display_no(final)}（v{final['version']}）"
-                                 + (f"，已送出訂檔：CUE號 {final['booking'].get('cue_id')}，待主管審核" if do_book else "，可下載"))
+    st.session_state[msg_key] = fail_msg or (f"✅ 已存檔 {reg.display_no(final)}（v{final['version']}）"
+                                             + (f"，已送出訂檔：CUE號 {final['booking'].get('cue_id')}，待主管審核"
+                                                if do_book else "，可下載"))
     all_saved.clear()
     st.cache_data.clear()
     st.rerun()
+
+
+def oc_current(snap):
+    from ragic_booking import order_from_cue as oc
+    return oc.current_cue(snap).get("cue_id", "")
 
 
 def datetime_now():
@@ -663,11 +667,9 @@ def _book(snap, od, files_d, rid=None, signback_bytes=None, serial=""):
     from ragic_booking import order_from_cue as oc
 
     p = od["params"]
-    fmt = lambda d: d.strftime("%Y/%m/%d") if d else ""   # noqa: E731
-    orders = oc.build_orders(snap, applicant=(reg_owner_name(snap) or (current_user() or {}).get("name", "")),
-                             company=p.get("公司", ""), category=p.get("類別", "商品"),
-                             收款日期=fmt(p.get("收款日期")), 發票開立日=fmt(p.get("發票開立日")),
-                             **_order_extra(p))
+    if not oc.current_cue(snap).get("cue_id"):
+        return {"ok": False, "error": "尚未申請 CUE號（請先在 ⓪ 申請，或輸入已申請的 CUE號）"}
+    orders = _orders(snap, p, reg_owner_name(snap) or (current_user() or {}).get("name", ""))
     url, key = _ragic_conn()
     with st.spinner("申請 CUE號、建立／更新訂檔中…"), tempfile.TemporaryDirectory() as td:
         att = {}
@@ -988,6 +990,15 @@ def _order_extra(p):
             "收入": p.get("收入") or None, "電台": p.get("電台") or None}
 
 
+def _orders(snap, p, applicant):
+    """送出參數 → 各波 OrderDraft（帶目前的 CUE號 摘要）。"""
+    from ragic_booking import order_from_cue as oc
+    fmt = lambda d: d.strftime("%Y/%m/%d") if d else ""   # noqa: E731
+    return oc.build_orders(snap, applicant=applicant, company=p.get("公司", ""), category=p.get("類別", "商品"),
+                           收款日期=fmt(p.get("收款日期")), 發票開立日=fmt(p.get("發票開立日")),
+                           cue_apply=oc.current_cue(snap), **_order_extra(p))
+
+
 def _order_customer(snap, key_prefix, last, bind_session):
     """① 客戶：沒帶客戶時就地搜尋；連動欄（客戶類別、付款條件…）只顯示；客服每張訂檔可調。回傳 (客戶類別, 客服)。"""
     cust = snap.get("customer") or {}
@@ -1046,7 +1057,60 @@ def _material_inputs(key_prefix, update=False):
     return rows
 
 
-def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_session=True):
+def _cue_box(snap, key_prefix, cue_saver, serial=""):
+    """⓪ CUE號：先申請（或沿用已申請的）CUE號，再送出訂檔（spec docs/specs/訂檔流程_兩段式.md）。
+    cue_saver(fn)：把 fn(快照副本) 改過的快照寫回 cue/2，回傳有 ok／error 的結果；None＝尚未存檔或有未存修改。"""
+    from ragic_booking import order_from_cue as oc
+    st.markdown("**⓪ CUE號**（先申請 CUE號，再送出訂檔）")
+    ca = oc.current_cue(snap)
+    if ca.get("cue_id"):
+        info = "｜".join(f"{k} {ca[k]}" for k in ("客戶名稱", "產品名稱", "業務", "主管") if ca.get(k))
+        st.success(f"✅ CUE號 **{ca['cue_id']}**" + (f"｜{info}（Ragic 申請表讀回，訂檔以此為準）" if info else ""))
+        if oc.cue_mismatch(snap):
+            st.error(oc.cue_mismatch(snap))
+        if cue_saver and not snap.get("booking") and st.button("放棄這個 CUE號（改申請新的）", key=f"{key_prefix}_cue_drop",
+                                                              help="只解除這份 CUE 與該 CUE號 的關聯；Ragic 申請表的紀錄請自己刪除。"):
+            _cue_save(cue_saver, lambda s: s.pop("cue_apply", None), f"已放棄 CUE號 {ca['cue_id']}，請到 Ragic 申請表刪除該筆。")
+        return
+    if not cue_saver:
+        st.caption("先按下方「💾 存檔到 Ragic」（且沒有未存的修改），才能申請 CUE號。")
+        return
+    cust = snap.get("customer") or {}
+    miss = oc.missing(snap, [])["CUE號申請"]
+    if not write_enabled() or not booking_enabled():
+        miss = miss + ["訂檔寫入未開放"]
+    c1, c2 = st.columns([1, 2])
+    if c1.button("🎫 申請 CUE號", key=f"{key_prefix}_cue_apply", type="primary", disabled=bool(miss),
+                 help=("尚缺：" + "、".join(m.split("（")[0] for m in miss)) if miss else
+                 f"以客戶 {cust.get('編號', '')} 向 Ragic「新增CUE號申請表」申請；申請完才送出訂檔。"):
+        applicant = reg_owner_name(snap) or (current_user() or {}).get("name", "")
+        with st.spinner("申請 CUE號中…"):
+            r = oc.apply_cue(snap, applicant=applicant, serial=serial)
+        if not r["ok"]:
+            st.error(f"CUE號申請失敗：{r['error']}")
+            return
+        _cue_save(cue_saver, lambda s: s.__setitem__("cue_apply", r["cue_apply"]),
+                  f"✅ 已申請 CUE號 {r['cue_apply']['cue_id']}" + (f"（{r['warning']}）" if r["warning"] else ""))
+    with c2.popover("已在 Ragic 申請過 CUE號？"):
+        cid = st.text_input("輸入 CUE號（如 1151108）", key=f"{key_prefix}_cue_exist")
+        if st.button("沿用這個 CUE號", key=f"{key_prefix}_cue_use", disabled=not cid.strip()):
+            r = oc.use_existing_cue(snap, cid.strip())
+            if not r["ok"]:
+                st.error(r["error"])
+                return
+            _cue_save(cue_saver, lambda s: s.__setitem__("cue_apply", r["cue_apply"]), f"✅ 已沿用 CUE號 {cid.strip()}")
+
+
+def _cue_save(cue_saver, fn, msg):
+    res = cue_saver(fn)
+    if not res.ok:
+        st.error(f"CUE號已處理，但寫回存檔失敗：{res.error}（請記下 CUE號並通知 Jonathan）")
+        return
+    st.session_state["_cue_msg"] = msg
+    st.rerun()
+
+
+def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_session=True, cue_saver=None, serial=""):
     """訂檔資料（宜歆 10/21：缺欄要能就地補、寫清楚去哪填；spec docs/specs/訂檔資料補齊.md）。
     ① 客戶（搜尋帶入、客戶類別、客服）② 開票收款 ③ 播證／通知 ④ 子表格（收入、需求說明）＋回簽檔。
     在這裡帶入的客戶會寫進 snap["customer"]（呼叫端送出時用同一份 snap）。
@@ -1061,8 +1125,11 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
         snap["customer"] = cs.to_jsonable(picked)
     out = {"params": {}, "missing": [], "signback": None}
     title = "🧾 訂檔資料（送出即更新原訂檔）" if update else "🧾 訂檔資料（送出即申請 CUE號、建立訂檔＝成交）"
-    with st.expander(title, expanded=False):
+    if st.session_state.get("_cue_msg"):
+        st.info(st.session_state.pop("_cue_msg"))
+    with st.expander(title, expanded=not oc.current_cue(snap).get("cue_id")):
         u = current_user() or {}
+        _cue_box(snap, key_prefix, cue_saver, serial=serial)
         st.caption("🔄 自動取自 CUE（不用填）：平台、CUE表秒數、CUE表總檔數、執行起迄、產品名稱、波段數、"
                    "收入子表（每平台＋秒數一列：檔數、實收未稅、業績年月、製作費）；通知部門／個人依平台。")
         ccat, cserv = _order_customer(snap, key_prefix, last, bind_session)
@@ -1148,8 +1215,7 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
                   "現折": disc.strip(), "退佣": rebate.strip(), "文案": [x for x in cw if x] or ["無"],
                   "素材走法": mat.strip(), "素材": [m["廣告篇名"] for m in materials],
                   "收入": income, "電台": stations}
-        orders = oc.build_orders(snap, applicant=u.get("name", ""), company=company, category=category,
-                                 收款日期=fmt(pay), 發票開立日=fmt(inv), **_order_extra(params))
+        orders = _orders(snap, params, u.get("name", ""))
         if orders:
             st.caption(f"通知（依平台自動）：{orders[0].通知部門}｜{'、'.join(orders[0].通知個人)}")
         _order_lines(orders)

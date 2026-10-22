@@ -30,3 +30,5 @@ cues/
 
 # 視覺驗收輸出
 tests/_visual_out/
+
+tests/_gsheet_cache/

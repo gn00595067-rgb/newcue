@@ -369,7 +369,7 @@ def carry_over(old, new):
     if not old:
         new["status"] = DRAFT
         return new
-    for k in ("booking", "review", "audit", "save_no", "owner", "ops"):   # 編號／存檔人沿用第一次存檔
+    for k in ("booking", "review", "audit", "save_no", "owner", "ops", "cue_apply"):   # 編號／存檔人沿用第一次存檔
         if old.get(k):
             new[k] = old[k]
     st_old = status_of(old)

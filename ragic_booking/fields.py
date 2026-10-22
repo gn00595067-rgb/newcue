@@ -955,6 +955,29 @@ def notify_defaults(limit: int = 60) -> dict[bool, dict[str, Any]]:
     return out
 
 
+def cue_apply_summary(rec: dict[str, Any], rid: str = "") -> dict[str, str]:
+    """CUE號申請紀錄（中文欄名）→ 訂檔要用的摘要（訂檔的客戶／產品／業務／主管以此為準）。"""
+    def g(k: str) -> str:
+        v = rec.get(k, "")
+        return "、".join(str(x) for x in v) if isinstance(v, list) else str(v or "").strip()
+    return {"cue_id": g("CUE號"), "rid": str(rid or rec.get("_ragicId") or ""),
+            "客戶編號": g("客戶編號(成交)") or g("客戶編號(開發)"), "客戶名稱": g("客戶名稱"),
+            "產品名稱": g("產品名稱") or g("產品名稱(成交)"), "業務": g("業務(成交)") or g("業務(開發)"),
+            "主管": g("主管"), "起走日期": g("起走日期"), "總波段": g("總波段"), "申請人": g("申請人")}
+
+
+def find_cue_apply(cue_id: str) -> dict[str, str] | None:
+    """以 CUE號 查「新增CUE號申請表」（where 篩選），回傳摘要；查無回 None。"""
+    cue_id = str(cue_id or "").strip()
+    if not cue_id:
+        return None
+    data = _get_json(f"{form_url(FORM_CUE_APPLY)}?api&v=3&where={CueApplyF.CUE號},eq,{urllib.parse.quote(cue_id)}")
+    for rid, rec in data.items():
+        if isinstance(rec, dict) and str(rec.get("CUE號", "")).strip() == cue_id:
+            return cue_apply_summary(rec, rid)
+    return None
+
+
 def customer_field_options(field_name: str, limit: int = 200) -> list[str]:
     """客戶主檔某欄的不重複值（供新增客戶時下拉：業務/主管/產業別/客服/客戶類別）。"""
     return _distinct_field_values(FORM_CUSTOMER, field_name, limit)

@@ -180,17 +180,28 @@ def _submit_box(rec, snap):
     from config import RAGIC_MAP
     from ragic_booking import cue2
     st.markdown("#### 📨 送出訂檔")
+    from config import RAGIC_FIELD_SERIAL
+    url, key = ragic_ui._ragic_conn()
+    legacy = cs.legacy_part(cue2.details_of(rec))
+
+    def saver(fn):   # ⓪ 申請／沿用 CUE號：改快照後只寫回 details
+        new = ragic_ui.json_copy(snap)
+        fn(new)
+        r = cue2.save_record(url, key, {RAGIC_MAP["details"]: cs.details_text(new, legacy)}, rid=rec["_ragicId"])
+        if r.ok:
+            ragic_ui.all_saved.clear()
+            st.cache_data.clear()
+        return r
     od = ragic_ui.render_order_preview(snap, "adm", prev_review=snap.get("review"), update=bool(snap.get("booking")),
-                                       bind_session=False)
+                                       bind_session=False, cue_saver=saver, serial=str(rec.get(RAGIC_FIELD_SERIAL) or ""))
     has_sign = bool(od["signback"] or (snap.get("review") or {}).get("signback"))
     block = ([] if ragic_ui.write_enabled() else ["乾跑模式"]) \
         + ([] if ragic_ui.booking_enabled() else ["訂檔寫入未開放（RAGIC_BOOKING_ENABLED）"]) \
         + od["missing"] + ([] if has_sign else ["客戶回簽檔"])
     label = "📨 送出更新訂檔" if snap.get("booking") else "📨 送出訂檔（成交）"
     if not st.button(label, key="adm_submit", disabled=bool(block),
-                     help=("尚缺：" + "、".join(block)) if block else "立即申請 CUE號並建立各波訂檔，算成交。"):
+                     help=("尚缺：" + "、".join(block)) if block else "以 ⓪ 的 CUE號 建立各波訂檔，算成交。"):
         return
-    url, key = ragic_ui._ragic_conn()
     val = rec.get(RAGIC_MAP["file_xls"])
     val = val[0] if isinstance(val, list) and val else val
     xl = cue2.download_file(url, key, val) if val else None
@@ -200,10 +211,13 @@ def _submit_box(rec, snap):
     files_d = {"xlsx": (val.split("@", 1)[-1], xl)}
     u = ragic_ui.current_user() or {}
     final = ragic_ui.json_copy(snap)
-    from config import RAGIC_FIELD_SERIAL
-    res = ragic_ui._book(final, od, files_d, rid=rec["_ragicId"], serial=str(rec.get(RAGIC_FIELD_SERIAL) or ""))
+    res = ragic_ui._book(final, od, files_d, rid=rec["_ragicId"])
     if not res.get("ok"):
-        st.error(f"送出訂檔失敗：{res.get('error')}")
+        if res.get("orders"):   # 部分波段已建立：記下，重送只補沒完成的
+            final["booking"] = {"cue_id": res.get("cue_id") or ragic_ui.oc_current(final), "orders": res["orders"],
+                                "partial": True, "at": ragic_ui.datetime_now(), "by": u.get("name", "")}
+            saver(lambda s: s.__setitem__("booking", final["booking"]))
+        st.error(f"送出訂檔失敗：{res.get('error')}" + ("（已建立的波段已記錄，重送只補沒完成的）" if res.get("orders") else ""))
         return
     cs.mark_booked(final, u.get("name", ""), od["params"], {"cue_id": res.get("cue_id", ""),
                                                              "orders": res.get("orders", []),
@@ -212,7 +226,6 @@ def _submit_box(rec, snap):
     if od["signback"]:
         final["review"]["signback"] = od["signback"].name
         up[ragic_ui.SIGNBACK_FIELD] = (od["signback"].name, od["signback"].getvalue(), "application/octet-stream")
-    legacy = cs.legacy_part(cue2.details_of(rec))
     sres = cue2.save_record(url, key, {RAGIC_MAP["details"]: cs.details_text(final, legacy)}, up, rid=rec["_ragicId"])
     if not sres.ok:
         st.error(f"訂檔已建立（CUE號 {final['booking'].get('cue_id')}），但回寫存檔失敗：{sres.error}，請通知 Jonathan。")

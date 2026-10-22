@@ -162,7 +162,7 @@ def wave_pay_dates(snap):
 
 def build_orders(snap, *, applicant="", company="", category="商品", 收款日期="", 發票開立日="", cue_no="",
                  客戶類別="", 客服=None, 播證名稱=None, 需求說明="", notify=None,
-                 現折=None, 退佣=None, 文案=None, 素材走法="", 素材=None, 收入=None, 電台=None):
+                 現折=None, 退佣=None, 文案=None, 素材走法="", 素材=None, 收入=None, 電台=None, cue_apply=None):
     """快照各波 → OrderDraft 清單（製作費只算在第 1 波）。客戶相關欄位取快照 customer。
     收款日期：有給＝各波相同；空白＝各波 CUE 上的付款兌現日。
     客戶類別／客服：有給就覆蓋客戶主檔（主檔空白時在訂檔區補）。
@@ -174,7 +174,9 @@ def build_orders(snap, *, applicant="", company="", category="商品", 收款日
     素材：[{"廣告篇名": str}]，每支一列（音檔／文案附件由呼叫端以 rf.material_file_keys 對應列號上傳）；各波相同。
     收入：逐波的收入子表列（畫面上可改格、加列；None 或該波 None＝依 CUE）。
           平台、CUE表秒數、CUE表總檔數一律由收入列推（實際訂檔：總檔數＝各列檔數加總；製作收入列不算平台）。
-    電台：廣播電台清單（平台含「廣播」才送）。"""
+    電台：廣播電台清單（平台含「廣播」才送）。
+    cue_apply：已申請的 CUE號 摘要（rf.cue_apply_summary；None＝取快照的 current_cue）；有就帶 CUE號，客戶名稱／產品／業務／主管以申請表為準
+              （Ragic 選 CUE號 後由申請表連動，300 筆 95～99% 相同）。"""
     from datetime import datetime
     h = snap.get("header", {})
     cust = snap.get("customer") or {}
@@ -224,6 +226,13 @@ def build_orders(snap, *, applicant="", company="", category="商品", 收款日
             d.收入明細 = [dict(COST_ZERO, **{k: v for k, v in r.items() if v not in (None, "")}) for r in edited]
         derive_from_income(d)
         d.電台 = list(電台 or []) if "廣播" in d.平台 else []
+        ca = cue_apply if cue_apply is not None else current_cue(snap)
+        if ca.get("cue_id"):
+            d.CUE號 = ca["cue_id"]
+            d.客戶名稱 = ca.get("客戶名稱") or d.客戶名稱
+            d.產品名稱 = ca.get("產品名稱") or d.產品名稱
+            d.業務開發客戶 = ca.get("業務") or d.業務開發客戶
+            d.業務主管 = ca.get("主管") or d.業務主管
         out.append(d)
     return out
 
@@ -238,8 +247,19 @@ def cue_apply_payload(snap, applicant="", serial=""):
                                      主管=cust.get("主管", ""), 業務=cust.get("業務", ""), 模擬編號=serial)
 
 
+def cue_mismatch(snap):
+    """已有 CUE號 但客戶換了 → 錯誤訊息；沒問題回空字串。"""
+    ca = current_cue(snap)
+    mine = (snap.get("customer") or {}).get("編號", "")
+    if ca.get("客戶編號") and mine and ca["客戶編號"] != mine:
+        return (f"CUE號 {ca['cue_id']} 是客戶 {ca['客戶編號']} 的，現在帶入的是 {mine}："
+                "改回原客戶，或在 ⓪ 放棄這個 CUE號 重新申請")
+    return ""
+
+
 def missing(snap, orders):
     """送出前必填盤點：{"CUE號申請": [...], "訂檔": [...]}（附件另計）。
+    「CUE號申請」＝按「申請 CUE號」的前提；「訂檔」另含「尚未申請 CUE號」。
     每項寫成「欄名（在哪裡填）」；只有部分波段缺時標出波段。"""
     cust = snap.get("customer") or {}
     out = {"CUE號申請": [], "訂檔": []}
@@ -263,6 +283,10 @@ def missing(snap, orders):
             by_name.setdefault(x.split("（")[0], []).append(wi)
         if not d.客服:
             by_name.setdefault("客服", []).append(wi)
+    if not current_cue(snap).get("cue_id"):
+        out["訂檔"].insert(0, "CUE號（在 ⓪ 先申請，或輸入已申請的 CUE號）")
+    elif cue_mismatch(snap):
+        out["訂檔"].insert(0, cue_mismatch(snap))
     for name, waves in by_name.items():
         where = WHERE.get(name, "")
         part = "" if len(orders) <= 1 or len(waves) == len(orders) else "第" + "、".join(map(str, waves)) + "波 "
@@ -291,9 +315,55 @@ def submit_booking(snap, orders, *, applicant="", attachments=None, submit=None,
         results.append(r)
         cue_id = r.get("cue_id") or cue_id
         if not r.get("ok"):
-            return {"ok": False, "cue_id": cue_id, "results": results, "error": f"第 {i + 1} 波：{r.get('error')}"}
+            # 已完成的波段一併回傳，呼叫端記進快照，重送時只補沒完成的（不重建、不重申請）
+            done = [{"wave": j + 1, "rid": x.get("order_rid", ""), "action": "新增"}
+                    for j, x in enumerate(results[:-1]) if x.get("order_rid")]
+            return {"ok": False, "cue_id": cue_id, "results": results, "orders": done,
+                    "error": f"第 {i + 1} 波：{r.get('error')}"}
     return {"ok": True, "cue_id": cue_id, "results": results, "error": "",
             "orders": [{"wave": i + 1, "rid": r.get("order_rid", ""), "action": "新增"} for i, r in enumerate(results)]}
+
+
+def current_cue(snap):
+    """這份 CUE 目前的 CUE號 摘要：cue_apply；舊資料只有 booking.cue_id 也算。沒有回 {}。"""
+    ca = dict(snap.get("cue_apply") or {})
+    if not ca.get("cue_id") and (snap.get("booking") or {}).get("cue_id"):
+        ca = {"cue_id": snap["booking"]["cue_id"]}
+    return ca
+
+
+def apply_cue(snap, *, applicant="", serial="", creator=None, reader=None):
+    """申請 CUE號（forms13/4）並讀回申請紀錄。回傳 {ok, cue_apply, error, warning}。
+    Ragic 回 ERROR 但紀錄已建立且有 CUE號（10/21 實測）→ 沿用並帶 warning；讀不到 CUE號 → 失敗並報紀錄編號。"""
+    from ragic_booking import write as rw
+    creator = creator or rw.create_record
+    reader = reader or rw.read_record
+    r = creator(rf.FORM_CUE_APPLY, cue_apply_payload(snap, applicant, serial=serial))
+    rec = {}
+    if r.rid:
+        try:
+            rec = reader(rf.FORM_CUE_APPLY, r.rid) or {}
+        except Exception:  # noqa: BLE001
+            rec = {}
+    summ = rf.cue_apply_summary(rec, r.rid) if rec else {}
+    if summ.get("cue_id"):
+        warn = "" if r.ok else f"Ragic 回報：{r.error}；但 CUE號已建立（申請紀錄 #{r.rid}），已沿用。"
+        return {"ok": True, "cue_apply": summ, "error": "", "warning": warn}
+    left = f"（Ragic 已建立申請紀錄 #{r.rid} 但沒有 CUE號，請到「新增CUE號申請表」刪除）" if r.rid else ""
+    return {"ok": False, "cue_apply": {}, "error": (r.error or "讀不到 CUE號") + left, "warning": ""}
+
+
+def use_existing_cue(snap, cue_id, *, finder=None):
+    """沿用業務已在 Ragic 申請的 CUE號：查申請表，客戶編號須與帶入客戶相同。回傳 {ok, cue_apply, error}。"""
+    finder = finder or rf.find_cue_apply
+    summ = finder(cue_id)
+    if not summ:
+        return {"ok": False, "cue_apply": {}, "error": f"Ragic 申請表查無 CUE號 {cue_id}"}
+    mine = (snap.get("customer") or {}).get("編號", "")
+    if mine and summ.get("客戶編號") and summ["客戶編號"] != mine:
+        return {"ok": False, "cue_apply": {},
+                "error": f"CUE號 {cue_id} 是客戶 {summ['客戶編號']} {summ.get('客戶名稱', '')} 的，與這份 CUE 的客戶 {mine} 不同"}
+    return {"ok": True, "cue_apply": summ, "error": ""}
 
 
 # 更新既有訂檔時只改 CUE 帶來的欄位；勾選旗標、申請人、素材等營運端可能改過的欄位不動

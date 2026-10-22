@@ -233,8 +233,23 @@ def _after_rerun(at, *keys, **values):
     at.run()
 
 
-def _book(at, prefix):
+def _has(at, key):
+    return any(b.key == key for b in at.button)
+
+
+def _apply_cue(at, prefix):
+    """兩段式：先存檔（才有模擬編號）→ 🎫 申請 CUE號（已有 CUE號 時跳過）。"""
     at.run()
+    if not _has(at, f"{prefix}_cue_apply") and not _has(at, f"{prefix}_cue_drop") and _has(at, f"{prefix}_btn"):
+        at.button(key=f"{prefix}_btn").click().run()
+        at.run()
+    if _has(at, f"{prefix}_cue_apply"):
+        at.button(key=f"{prefix}_cue_apply").click().run()
+        at.run()
+
+
+def _book(at, prefix):
+    _apply_cue(at, prefix)
     at.date_input(key=f"{prefix}_od_pay").set_value(date(2027, 2, 28)).run()
     btn = at.button(key=f"{prefix}_submit")
     assert not btn.disabled, btn.help
@@ -311,6 +326,10 @@ def test_order_panel_inline_customer_and_fields():
     at.session_state["ragic_customer"] = dict(CUSTOMER, 類別="廣代")                   # 主檔補好後重新帶入
     at.run()
     assert "素材後補" in at.text_input(key="simple_save_od_need").value                # 沒放素材 → 預設寫素材後補
+    btn = at.button(key="simple_save_submit")
+    assert btn.disabled and "CUE號（在 ⓪ 先申請" in btn.help                     # 兩段式：先申請 CUE號
+    _apply_cue(at, "simple_save")                                              # 存檔 → 申請（AppTest 重跑會清欄位，故先做）
+    assert at.session_state["_fake_booking_calls"][0] == ("apply", "S" + _rec(at)["rid"])   # 帶存檔模擬編號
     at.text_area(key="simple_save_od_mat_names").input("B篇.30秒").run()             # 只有篇名、素材後補
     at.toggle(key="simple_save_od_preview").set_value(True).run()                  # 仿 Ragic 預覽
     _ok(at)
@@ -403,6 +422,12 @@ def test_manage_submit_saved_record():
     at.session_state["cue_mode"] = "CUE 管理"
     at.session_state["_fake_sign"] = True
     at.run()
+    at.date_input(key="adm_od_pay").set_value(date(2027, 2, 28)).run()
+    assert at.button(key="adm_submit").disabled                              # 尚未申請 CUE號
+    at.button(key="adm_cue_apply").click().run()
+    _after_rerun(at, adm_od_company="", adm_od_cat="商品", adm_od_pay=None, adm_od_inv=None,
+                 adm_od_cs=[], adm_od_cert="", adm_od_need="", adm_od_disc="0", adm_od_rebate="0", adm_od_mat="",
+                 adm_od_cw=["無"], adm_od_mat_names="", adm_od_preview=False, adm_cue_exist="")
     at.date_input(key="adm_od_pay").set_value(date(2027, 2, 28)).run()
     btn = at.button(key="adm_submit")
     assert not btn.disabled, btn.help
