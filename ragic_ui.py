@@ -624,6 +624,9 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
         else:
             cs.mark_booked(final, u["name"], od["params"], {"cue_id": res.get("cue_id", ""), "orders": res.get("orders", []),
                                                             "at": datetime_now(), "by": u["name"]})
+            if res.get("warning"):
+                fail_msg = (f"✅ 已送出訂檔：CUE號 {res.get('cue_id', '')}，待主管審核。"
+                            f"⚠️ 提醒：{res['warning']}（訂檔已在 Ragic，不用刪）")
         if od["signback"]:
             final["review"]["signback"] = od["signback"].name
             up[SIGNBACK_FIELD] = (od["signback"].name, od["signback"].getvalue(), "application/octet-stream")
@@ -1052,8 +1055,10 @@ def _material_inputs(key_prefix, update=False):
         name = c1.text_input(f"第{i + 1}支 廣告篇名", value=stem, key=f"{key_prefix}_od_aud_name_{i}").strip() or stem
         cp = c2.file_uploader(f"第{i + 1}支 文案（選填）", key=f"{key_prefix}_od_aud_cp_{i}")
         rows.append({"廣告篇名": name, "音檔": f, "文案": cp})
-    names = st.text_area("只有篇名、素材後補（一行一支，選填）", key=f"{key_prefix}_od_mat_names", height=68)
-    rows += [{"廣告篇名": x.strip(), "音檔": None, "文案": None} for x in names.splitlines() if x.strip()]
+    names = st.text_area("素材還沒到？先寫篇名（一行一支，選填；寫進需求說明，音檔到了再送出更新）",
+                         key=f"{key_prefix}_od_mat_names", height=68)
+    # Ragic 素材子表沒有音檔的列會被丟掉（10-22 實測 852），只有篇名的改寫進需求說明
+    rows += [{"廣告篇名": x.strip(), "音檔": None, "文案": None, "後補": True} for x in names.splitlines() if x.strip()]
     return rows
 
 
@@ -1210,10 +1215,14 @@ def render_order_preview(snap, key_prefix, prev_review=None, update=False, bind_
                                 help="客戶回簽後的 CUE（PDF 或照片）；已送出過可不重傳，沿用上次的檔案。")
         if (prev_review or {}).get("signback") and not sign:
             st.caption(f"已附客戶回簽檔：{prev_review['signback']}")
+        later = [m["廣告篇名"] for m in materials if m.get("後補")]
+        if later and need.strip():
+            need = f"{need.strip()}（素材後補：{'、'.join(later)}）"
+        materials = [m for m in materials if not m.get("後補")]
         params = {"公司": company, "類別": category, "收款日期": pay, "發票開立日": inv,
                   "客戶類別": ccat, "客服": cserv, "播證名稱": cert, "需求說明": need.strip(),
                   "現折": disc.strip(), "退佣": rebate.strip(), "文案": [x for x in cw if x] or ["無"],
-                  "素材走法": mat.strip(), "素材": [m["廣告篇名"] for m in materials],
+                  "素材走法": mat.strip(), "素材": [m["廣告篇名"] for m in materials if not m.get("後補")],
                   "收入": income, "電台": stations}
         orders = _orders(snap, params, u.get("name", ""))
         if orders:

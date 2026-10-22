@@ -18,6 +18,12 @@ def _real_oc():
     importlib.reload(oc)
 
 
+@pytest.fixture(autouse=True)
+def _no_ragic_lookup(monkeypatch):
+    """送出前「查既有訂檔」預設查不到（不連 Ragic）；個別測試要用再自己傳 finder。"""
+    monkeypatch.setattr(rf, "find_order", lambda cue_id, wave: None)
+
+
 def _snap(prod_cost=5000, customer=None):
     w1 = [cs._row("全家廣播", r, 15, 800, [800], net=n, lst=1) for r, n in (("北區", 60000), ("中區", 40000))]
     w1.append(cs._row("家樂福", "全省量販", 20, 300, [300], net=90000))
@@ -503,3 +509,31 @@ def test_partial_failure_returns_done_waves():
                       reader=lambda f, r: {}, updater=lambda f, r, p: R(), uploader=lambda *a: R(),
                       submit=lambda d, **kw: (created.append(d.波段), {"ok": True, "order_rid": "502"})[1])
     assert created == ["2"]
+
+
+
+# ---------------------------------------------------------------- Ragic 存檔後腳本錯誤（10-22 實測 851／852）
+def test_post_workflow_error_but_created_is_success(monkeypatch):
+    """訂檔表 Post-workflow 出錯回 ERROR，但紀錄已完整建立 → 讀回有訂檔單號＋CUE號 相符就算成功。"""
+    from ragic_booking import write as rw
+    monkeypatch.setattr(rw, "create_record_with_files", lambda form, t, f, flags=None: rw.WriteResult(
+        ok=False, form=form, rid="852", error="Ragic 拒絕（status=ERROR）：TypeError: entry.reload is not a function in Post-workflow"))
+    monkeypatch.setattr(rw, "read_record", lambda form, rid: {"訂檔單號": "OD20261022010", "CUE號": "1160102"})
+    d = oc.build_orders(_snap())[0]
+    d.CUE號 = "1160102"
+    res = rw.submit_full_order(d, apply_cue=False, attachments={rf.OrderF.訂檔CUE表: "c.xlsx"})
+    assert res["ok"] and res["order_rid"] == "852" and "OD20261022010" in res["warning"]
+    monkeypatch.setattr(rw, "read_record", lambda form, rid: {})
+    bad = rw.submit_full_order(d, apply_cue=False, attachments={rf.OrderF.訂檔CUE表: "c.xlsx"})
+    assert not bad["ok"] and "刪" not in bad["error"]                         # 不再叫人刪掉（可能是好的訂檔）
+
+
+def test_submit_reuses_existing_wave_orders():
+    """前次回 ERROR 但第 1 波其實建好（851）→ 重送時沿用第 1 波，只建第 2 波。"""
+    snap = _cued(_snap())
+    sent = []
+    res = oc.submit_booking(snap, oc.build_orders(snap),
+                            finder=lambda cue, wave: {"rid": "851", "訂檔單號": "OD1"} if wave == 1 else None,
+                            submit=lambda d, **kw: (sent.append(d.波段), {"ok": True, "order_rid": "900"})[1])
+    assert res["ok"] and sent == ["2"]
+    assert res["orders"][0]["rid"] == "851" and "沿用" in res["warning"]

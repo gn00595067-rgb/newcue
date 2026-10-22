@@ -231,7 +231,8 @@ def _submit_box(rec, snap):
         st.error(f"訂檔已建立（CUE號 {final['booking'].get('cue_id')}），但回寫存檔失敗：{sres.error}，請通知 Jonathan。")
         return
     ragic_ui.all_saved.clear()
-    st.session_state["adm_msg"] = f"✅ {reg.display_no(final)} 已送出訂檔：CUE號 {final['booking'].get('cue_id')}"
+    st.session_state["adm_msg"] = (f"✅ {reg.display_no(final)} 已送出訂檔：CUE號 {final['booking'].get('cue_id')}"
+                                   + (f"。⚠️ 提醒：{res['warning']}（訂檔已在 Ragic，不用刪）" if res.get("warning") else ""))
     st.rerun()
 
 

@@ -220,16 +220,17 @@ def test_find_leaked_order_rid_matches_recent_signature(monkeypatch):
 
 
 def test_submit_full_order_surfaces_leaked_rid_on_error(monkeypatch):
-    """建檔失敗且偵測到殘留 → 回傳 leaked_rid 並登記白名單供清除。"""
+    """建檔回 ERROR 且找到疑似紀錄、但讀回不完整 → 失敗並回報 rid 請人確認；
+    10-22 起不再登記白名單、不提示刪除（Post-workflow 錯誤時紀錄常是好的，見 test_order_from_cue）。"""
     monkeypatch.setattr(rw, "create_record",
                         lambda *a, **k: rw.WriteResult(ok=False, form=rf.FORM_ORDER,
                                                        error="status=ERROR post-workflow"))
     monkeypatch.setattr(rw, "_find_leaked_order_rid", lambda order: "678")
+    monkeypatch.setattr(rw, "read_record", lambda form, rid: {})
     order = _full_order()
     out = rw.submit_full_order(order, apply_cue=False, attachments={})
-    assert out["ok"] is False and out["leaked_rid"] == "678"
-    assert (rf.FORM_ORDER, "678") in rw._CREATED_THIS_RUN   # 已登記，delete 安全閘放行
-    rw._CREATED_THIS_RUN.discard((rf.FORM_ORDER, "678"))    # 清理測試副作用
+    assert out["ok"] is False and out["leaked_rid"] == "678" and "#678" in out["error"]
+    assert (rf.FORM_ORDER, "678") not in rw._CREATED_THIS_RUN
 
 
 def test_submit_full_order_stops_on_cue_failure(monkeypatch):

@@ -294,7 +294,7 @@ def missing(snap, orders):
     return out
 
 
-def submit_booking(snap, orders, *, applicant="", attachments=None, submit=None, serial=""):
+def submit_booking(snap, orders, *, applicant="", attachments=None, submit=None, serial="", finder=None):
     """依序送出各波訂檔（寫入正式 Ragic，呼叫端須先確認已開放寫入）。
     第 1 波：申請 CUE號 → 建訂檔；之後各波沿用同一 CUE號、各自建訂檔（波段 = 2, 3 …）。
     attachments：{波段索引 或 "all": {欄位ID: 檔案路徑}}，如 訂檔CUE表、客戶回簽檔。
@@ -302,25 +302,39 @@ def submit_booking(snap, orders, *, applicant="", attachments=None, submit=None,
     任一波失敗即停，回傳已完成結果（含 cueupload 的殘留 rid 偵測）。"""
     if submit is None:
         from ragic_booking.write import submit_full_order as submit
+    if finder is None:
+        finder = rf.find_order
     attachments = attachments or {}
     waves = snap.get("waves", [])
     start = _d(waves[0].get("start")) if waves else ""
-    cue_id, results = "", []
+    cue_id, results, warns = "", [], []
     for i, d in enumerate(orders):
         if cue_id:
             d.CUE號 = cue_id
+        if d.CUE號:   # 已建過（前次回 ERROR 但其實建好、或中途失敗後重送）→ 沿用，不重建
+            try:
+                got = finder(d.CUE號, i + 1)
+            except Exception:  # noqa: BLE001
+                got = None
+            if got:
+                results.append({"ok": True, "cue_id": d.CUE號, "order_rid": got["rid"]})
+                warns.append(f"第 {i + 1} 波 Ragic 已有訂檔 {got.get('訂檔單號') or '#' + got['rid']}，沿用不重建")
+                cue_id = d.CUE號
+                continue
         files = {**attachments.get("all", {}), **attachments.get(i, {})}
         r = submit(d, apply_cue=not d.CUE號, 起走日期=start, 總波段=str(len(orders)),
                    申請人=applicant, 產品名稱=d.產品名稱, attachments=files, 模擬編號=serial)
         results.append(r)
         cue_id = r.get("cue_id") or cue_id
+        if r.get("warning"):
+            warns.append(f"第 {i + 1} 波：{r['warning']}")
         if not r.get("ok"):
             # 已完成的波段一併回傳，呼叫端記進快照，重送時只補沒完成的（不重建、不重申請）
             done = [{"wave": j + 1, "rid": x.get("order_rid", ""), "action": "新增"}
                     for j, x in enumerate(results[:-1]) if x.get("order_rid")]
-            return {"ok": False, "cue_id": cue_id, "results": results, "orders": done,
+            return {"ok": False, "cue_id": cue_id, "results": results, "orders": done, "warning": "；".join(warns),
                     "error": f"第 {i + 1} 波：{r.get('error')}"}
-    return {"ok": True, "cue_id": cue_id, "results": results, "error": "",
+    return {"ok": True, "cue_id": cue_id, "results": results, "error": "", "warning": "；".join(warns),
             "orders": [{"wave": i + 1, "rid": r.get("order_rid", ""), "action": "新增"} for i, r in enumerate(results)]}
 
 
@@ -437,6 +451,8 @@ def update_booking(snap, orders, *, booking, attachments=None, applicant="",
         rid = by_wave.get(i + 1)
         if rid:
             res = updater(rf.FORM_ORDER, rid, update_payload(d, reader(rf.FORM_ORDER, rid)))
+            if not res.ok and "Post-workflow" in str(res.error):   # 存檔後腳本錯誤：資料已寫入（10-22 實測）
+                res.ok = True
             if not res.ok:
                 return {"ok": False, "cue_id": cue_id, "orders": out, "error": f"第 {i + 1} 波更新失敗：{res.error}"}
             cue_file = files.get(rf.OrderF.訂檔CUE表)

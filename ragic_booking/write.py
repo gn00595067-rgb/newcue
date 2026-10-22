@@ -377,15 +377,22 @@ def submit_full_order(order: OrderDraft, *, apply_cue: bool,
         record("建立訂檔", order_res)
 
     if not order_res.ok:
-        # 保險：Ragic 的建檔後 Post-workflow 出錯時，可能「已建好記錄卻回 ERROR、不給 rid」，
-        # 造成半殘記錄留在正式庫。回搜近期同簽名記錄，找到就登記白名單讓 UI 能一鍵清除。
-        leaked = _find_leaked_order_rid(order)
-        if leaked:
-            _CREATED_THIS_RUN.add((FORM_ORDER, leaked))
+        # Ragic 訂檔表的 Post-workflow（存檔後腳本）出錯時回 ERROR，但紀錄其實已完整建立
+        # （2026-10-22 實測 rid 851／852：欄位、附件、子表、簽核流程都在）→ 讀回確認有訂檔單號就算成功。
+        rid = order_res.rid or _find_leaked_order_rid(order)
+        rec = {}
+        if rid:
+            try:
+                rec = read_record(FORM_ORDER, rid) or {}
+            except Exception:  # noqa: BLE001
+                rec = {}
+        if rec.get("訂檔單號") and str(rec.get("CUE號", "")).strip() == str(cue_id).strip():
+            return {"ok": True, "steps": steps, "cue_id": cue_id, "order_rid": str(rid), "leaked_rid": "", "error": "",
+                    "warning": f"Ragic 存檔後腳本回報錯誤（{order_res.error[:80]}），但訂檔已建立 {rec['訂檔單號']}"}
         return {"ok": False, "steps": steps, "cue_id": cue_id, "order_rid": "",
-                "leaked_rid": leaked,
+                "leaked_rid": rid or "",
                 "error": f"訂檔建立失敗：{order_res.error}"
-                + (f"（⚠️ 偵測到可能殘留 rid={leaked}，請用『清除殘留』刪掉）" if leaked else "")}
+                + (f"（Ragic 訂檔 #{rid} 可能已建立但不完整，請到 Ragic 確認後再處理）" if rid else "")}
     return {"ok": True, "steps": steps, "cue_id": cue_id,
             "order_rid": order_res.rid, "leaked_rid": "", "error": ""}
 

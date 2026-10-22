@@ -966,6 +966,20 @@ def cue_apply_summary(rec: dict[str, Any], rid: str = "") -> dict[str, str]:
             "主管": g("主管"), "起走日期": g("起走日期"), "總波段": g("總波段"), "申請人": g("申請人")}
 
 
+def find_order(cue_id: str, wave: str | int) -> dict[str, str] | None:
+    """以 CUE號＋波段 查既有訂檔（where 篩選）→ {"rid", "訂檔單號"}；查無回 None。
+    送出前先查，已建過（含 Ragic 回 ERROR 但其實建好）就沿用，不重建。"""
+    cue_id = str(cue_id or "").strip()
+    if not cue_id:
+        return None
+    data = _get_json(f"{form_url(FORM_ORDER)}?api&v=3&where={OrderF.CUE號},eq,{urllib.parse.quote(cue_id)}")
+    for rid, rec in data.items():
+        if (isinstance(rec, dict) and str(rec.get("CUE號", "")).strip() == cue_id
+                and str(rec.get("波段", "")).strip() == str(wave)):
+            return {"rid": str(rid), "訂檔單號": str(rec.get("訂檔單號", ""))}
+    return None
+
+
 def find_cue_apply(cue_id: str) -> dict[str, str] | None:
     """以 CUE號 查「新增CUE號申請表」（where 篩選），回傳摘要；查無回 None。"""
     cue_id = str(cue_id or "").strip()

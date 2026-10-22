@@ -341,8 +341,10 @@ def test_order_panel_inline_customer_and_fields():
     _ok(at)
     import cue_store as cs
     p = cs.from_jsonable(_rec(at)["snap"]["review"]["params"])
-    assert p["客戶類別"] == "廣代" and p["需求說明"] == "10/21 提供CUE+回簽" and p["客服"] == ["陳客服"]
-    assert p["素材"] == ["B篇.30秒"] and p["現折"] == "0.05" and p["文案"] == ["無"]
+    assert p["客戶類別"] == "廣代" and p["客服"] == ["陳客服"]
+    # 只有篇名的素材 Ragic 會丟（10-22 實測 852）→ 併進需求說明，不建素材列
+    assert p["需求說明"] == "10/21 提供CUE+回簽（素材後補：B篇.30秒）" and p["素材"] == []
+    assert p["現折"] == "0.05" and p["文案"] == ["無"]
 
 
 def test_ops_bonus_mark_and_audit_reject():
