@@ -210,6 +210,7 @@ def _as_general(rows):
 def summarize(snap):
     """供 cue/2 欄位與畫面摘要：平台、平台細項、總檔數、秒數、實收合計、波段數。"""
     from utils import build_platform_detail_text, build_platform_text
+    from ragic_booking.order_from_cue import count_spots
     rows = all_rows(snap)
     cfg = {}
     for m in ("全家廣播", "新鮮視"):
@@ -218,7 +219,8 @@ def summarize(snap):
     return {
         "platform": build_platform_text(_as_general(rows)),
         "platform_detail": build_platform_detail_text(_as_general(rows), cfg),
-        "total_spots": sum(r["spots"] for r in rows),
+        # 全省展開的六區列只計一次（宜歆 10/27 #12：年約 2 波×200 檔顯示成 2,400）
+        "total_spots": sum(count_spots(w.get("rows", [])) for w in snap.get("waves", [])),
         "seconds": "、".join(str(s) for s in sorted({r["seconds"] for r in rows if r["seconds"]})),
         "net_total": sum(r["net"] for r in rows),
         "waves": len(snap.get("waves", [])),

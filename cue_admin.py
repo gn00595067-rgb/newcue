@@ -101,6 +101,13 @@ def render_manage():
                           format_func=lambda n: f"📁 {n}（{len(items) if n == '全部業務' else len(owners[n])}）")
         if folder != "全部業務":
             items = owners[folder]
+        with st.expander("❓ 主管／營運怎麼用（審核、退回、加贈）", expanded=False):
+            st.markdown(
+                "- **審核**：狀態選「待審」→ 下方「選一份」→ 出現「🗂 主管審核」→ 載入附件看 CUE／回簽檔 → 核准或退回（退回要填原因）。\n"
+                "- 業務按「存檔並送出訂檔」後才會出現在「待審」；待審是空的＝目前沒有人送出。\n"
+                "- **營運加贈**：選一份 → 「📂 開啟（編輯／加贈）」→ 在 CUE 的「檔次調整（加贈）」加檔次 → "
+                "存檔（會標記營運加贈）；已訂檔的要再按「存檔並送出更新訂檔」，Ragic 原訂檔才會跟著改。\n"
+                "- 退回的那份不算成交；業務修改後再送出，會重新出現在「待審」。")
     else:
         st.caption("這裡列出你存過的 CUE；營運主管可看到所有業務的資料夾。")
     c1, c2 = st.columns([1, 2])
@@ -115,7 +122,8 @@ def render_manage():
             continue
         rows.append((r, s, row))
     if not rows:
-        st.caption("沒有符合的存檔。")
+        st.caption("沒有符合的存檔。" + ("（「待審」＝業務已送出訂檔、等主管核准；要看全部請把狀態改「全部」）"
+                                          if flt == "待審" else ""))
         return
     st.dataframe([x[2] for x in rows], hide_index=True, use_container_width=True,
                  column_config={"實收": st.column_config.NumberColumn(format="$%d")})

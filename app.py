@@ -1000,7 +1000,13 @@ def main():
                                         help="走期、秒數、檔次與金額皆固定，只需填客戶資料。")
             _render_fixed_project_cue(project_name, format_type, STORE_COUNTS_NUM, SALES_MAP, PRICING_DB, SEC_FACTORS, REGIONS_ORDER)
             return
-        is_barter_contract = st.checkbox("是否為交換合約", value=st.session_state.get("is_barter_contract", False), key="is_barter_contract", help="交換合約：檔次依定價計算，不提供優惠回饋檔次。")
+        # 元朗＝交換合約專用抬頭：自動勾選且鎖定（宜歆 10/22 #4-2：交換依定價核算）
+        if format_type == "元朗":
+            st.session_state["is_barter_contract"] = True
+        st.session_state.setdefault("is_barter_contract", False)
+        is_barter_contract = st.checkbox("是否為交換合約", key="is_barter_contract",
+                                         disabled=(format_type == "元朗"),
+                                         help="交換合約：檔次依定價計算（企頻全省 40 萬、新鮮視全省 15 萬），不提供優惠回饋檔次。元朗格式固定為交換合約。")
 
         c1, c2, c3, c4, c5_sales = st.columns(5)
         # 載入資料後的預設值

@@ -537,3 +537,11 @@ def test_submit_reuses_existing_wave_orders():
                             submit=lambda d, **kw: (sent.append(d.波段), {"ok": True, "order_rid": "900"})[1])
     assert res["ok"] and sent == ["2"]
     assert res["orders"][0]["rid"] == "851" and "沿用" in res["warning"]
+
+
+def test_summarize_national_spots_counted_once():
+    """宜歆 10/27 #12：年約 2 波、全家全省各 200 檔 → cue/2 總檔數 400（不是六區加總 2,400）。"""
+    import cue_store as cs
+    regs = ["北區", "桃竹苗", "中區", "雲嘉南", "高屏", "東區"]
+    wave = {"rows": [cs._row("全家廣播", r, 10, 200, [100, 100]) for r in regs]}
+    assert cs.summarize({"waves": [wave, wave]})["total_spots"] == 400

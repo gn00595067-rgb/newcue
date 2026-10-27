@@ -212,3 +212,24 @@ def test_days_count():
             for r in blk.rows:
                 if r.schedule is not None:
                     assert len(r.schedule) == 14
+
+
+# --------------------------------------------------------------------------- #
+# 交換合約（元朗）：檔次依定價核算（宜歆 10/22 #4-2）
+# --------------------------------------------------------------------------- #
+def test_barter_uses_list_price():
+    d = sheetdata()
+    f = sm.factor("全家廣播", 20, d)
+    assert sm.sub_unit_net("全家廣播", 20, d, barter=True) == pytest.approx(400000 / 480 * f)
+    f = sm.factor("新鮮視", 20, d)
+    assert sm.sub_unit_net("新鮮視", 20, d, barter=True) == pytest.approx(150000 / 504 * f)
+
+
+def test_barter_fewer_spots_than_net():
+    net = sm.build_model("sub_qp_fv", 250000, S, date(2026, 10, 4), data=sheetdata())
+    bar = sm.build_model("sub_qp_fv", 250000, S, date(2026, 10, 4), data=sheetdata(), barter=True)
+    for sn, sb in zip(net.sheets, bar.sheets):
+        pn, pb = _spots_by_platform(sn), _spots_by_platform(sb)
+        for p in pn:
+            assert pb[p] < pn[p]
+        assert sb.hidden_net_total <= 250000

@@ -77,7 +77,7 @@ def _to_sheetdata(store_counts_num, pricing_db, sec_factors):
 @st.cache_data(ttl=600, show_spinner=False)
 def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
               sales, campaign, prod_cost, made_iso, _data, regions=None,
-              party_b="", party_b_tax="", payment_date="", sign_iso="", billing=""):
+              party_b="", party_b_tax="", payment_date="", sign_iso="", billing="", barter=False):
     start = date.fromisoformat(start_iso)
     end = date.fromisoformat(end_iso)
     model = sm.build_model(combo_key, budget, start, end, client=client, tax_id=tax_id,
@@ -86,7 +86,7 @@ def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
                            regions=list(regions) if regions else None,
                            party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date,
                            sign_deadline=date.fromisoformat(sign_iso) if sign_iso else None,
-                           billing_month=billing)
+                           billing_month=billing, barter=barter)
     xlsx = se.render(model, formulas=True)
     xlsx_val = se.render(model, formulas=False)
     htmls = shtml.render_html(model)
@@ -95,17 +95,19 @@ def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
 
 # 一鍵CUE 公司格式：東吳＝簡易模式原版面（宜歆範本）；聲活／鉑霖＝一般CUE 同款版面（simple_general）
 FORMAT_OPTIONS = ["東吳", "聲活", "鉑霖", "元朗"]   # 元朗＝交換合約用，版面同聲活
+BARTER_FORMATS = {"元朗"}   # 交換合約格式：檔次依定價核算（宜歆 10/22 #4-2）
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _render_general(fmt, sales_full, combo_key, budget, start_iso, end_iso, client, tax_id, product,
                     sales, campaign, prod_cost, made_iso, _data, regions=None, payment_date="",
-                    bonus=None, _bonus_data=None, sign_iso="", billing=""):
+                    bonus=None, _bonus_data=None, sign_iso="", billing="", barter=False):
     """聲活／鉑霖（或有加贈的東吳）：同一份簡易模式 model，改用一般 CUE renderer 產 Excel／HTML。
     bonus：檔次調整（加贈）設定；_bonus_data＝(pricing_db, sec_factors, store_counts_num, regions_order)。"""
     model, _x, _xv, _h = _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
                                    sales, campaign, prod_cost, made_iso, _data, regions,
-                                   payment_date=payment_date, sign_iso=sign_iso, billing=billing)
+                                   payment_date=payment_date, sign_iso=sign_iso, billing=billing,
+                                   barter=barter)
     tf = _bonus_transform(model, bonus, _bonus_data)
     return (sg.render_xlsx(model, fmt, sales_person=sales_full, transform=tf),
             sg.render_htmls(model, fmt, transform=tf))
@@ -235,7 +237,10 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     fmt = "東吳"
     if not is_agency:
         fmt = st.radio("選擇格式", FORMAT_OPTIONS, horizontal=True, key="simple_format",
-                       help="東吳：公司範本版面。聲活／鉑霖：與一般CUE 選該格式時的版面相同。")
+                       help="東吳：公司範本版面。聲活／鉑霖：與一般CUE 選該格式時的版面相同。元朗：交換合約，檔次依定價核算。")
+        if fmt in BARTER_FORMATS:
+            st.caption("📌 **交換合約**：檔次依**定價**核算（企頻全省 40 萬、新鮮視全省 15 萬），不依實收價。")
+    barter = fmt in BARTER_FORMATS
 
     # 【2】預算
     st.markdown("**【2】預算（未稅 Net）**")
@@ -350,7 +355,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                 client, tax_id, product, sales, campaign, int(prod_cost),
                 date.today().isoformat(), data, regions,
                 party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date,
-                sign_iso=sign_deadline.isoformat(), billing=billing)
+                sign_iso=sign_deadline.isoformat(), billing=billing, barter=barter)
         # 檔次調整（加贈，不收費）：簡易範本沒有加贈列，有加贈時東吳改用一般CUE 東吳版面
         bonus = {}
         _bonus_data = (pricing_db or {}, sec_factors or {}, store_counts_num or {}, list(regions_order or sc.REGIONS_ORDER))
@@ -371,7 +376,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                     client, tax_id, product, sales, campaign, int(prod_cost),
                     date.today().isoformat(), data, regions, payment_date=payment_date,
                     bonus=bonus or None, _bonus_data=_bonus_data,
-                    sign_iso=sign_deadline.isoformat(), billing=billing)
+                    sign_iso=sign_deadline.isoformat(), billing=billing, barter=barter)
     except Exception as e:  # noqa: BLE001
         st.error(f"產生失敗：{e}")
         st.exception(e)

@@ -195,8 +195,9 @@ def _effective_regions(media, regions):
     return sel
 
 
-def sub_unit_net(media, sec, data, regions=None):
+def sub_unit_net(media, sec, data, regions=None, barter=False):
     """子公司單檔實作價（隱藏）。
+    barter＝交換合約（元朗）：改依定價 List 核算（宜歆 10/22 #4-2：新鮮視全省 15 萬、企頻 40 萬）。
     全省：全省 Net / 全省 Std × factor（§4.3）。
     指定區域（子集）：Σ(各選定區 Net) / 全省 Std × factor
       —— Net 用各區牌價加總，Std 沿用全省實作基準（§4.6 新鮮視 Std=504 設計）。
@@ -204,9 +205,10 @@ def sub_unit_net(media, sec, data, regions=None):
     f = factor(media, sec, data)
     nat = _national(media, data)
     sel = _effective_regions(media, regions)
+    key = "List" if barter else "Net"
     if sel is None:
-        return nat["Net"] / nat["Std"] * f
-    net_sum = sum(data.pricing[media][r]["Net"] for r in sel)
+        return nat[key] / nat["Std"] * f
+    net_sum = sum(data.pricing[media][r][key] for r in sel)
     return net_sum / nat["Std"] * f
 
 
@@ -234,7 +236,7 @@ def _minguo_month(d):
 # =============================================================================
 # 子公司建模（§4.3 / 4.4 / 4.6）
 # =============================================================================
-def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None):
+def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None, barter=False):
     days = _daycols(start, end)
     ndays = len(days)
     sheets = []
@@ -242,14 +244,14 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None):
         # 各區塊預算佔比 → 檔次
         plats = []
         for i, media in enumerate(combo["blocks"]):
-            plats.append((media, combo["split"][i], sub_unit_net(media, sec, data, regions)))
+            plats.append((media, combo["split"][i], sub_unit_net(media, sec, data, regions, barter)))
         alloc = allocate_spots(budget, plats)
 
         blocks = []
         hidden = 0.0
         for media in combo["blocks"]:
             n = alloc[media]
-            unit = sub_unit_net(media, sec, data, regions)
+            unit = sub_unit_net(media, sec, data, regions, barter)
             hidden += n * unit
             sch = distribute(n, ndays)
             rows = []
@@ -466,7 +468,9 @@ def _mmdd(d):
 # =============================================================================
 def build_model(combo_key, budget, start, end, *, client="", tax_id="", product="",
                 sales="", campaign="", prod_cost=0, today=None, data=None, regions=None,
-                party_b="", party_b_tax="", payment_date="", sign_deadline=None, billing_month=""):
+                party_b="", party_b_tax="", payment_date="", sign_deadline=None, billing_month="",
+                barter=False):
+    """barter：交換合約（元朗格式）→ 子公司組合檔次依定價核算。"""
     if combo_key not in sc.COMBOS:
         raise ValueError(f"未知組合：{combo_key}")
     ndays = (end - start).days + 1
@@ -483,7 +487,7 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
 
     fam = combo["family"]
     if fam == "subsidiary":
-        sheets = _build_subsidiary(combo, budget, start, end, int(prod_cost), data, regions)
+        sheets = _build_subsidiary(combo, budget, start, end, int(prod_cost), data, regions, barter)
     elif fam == "2008":
         sheets = _build_2008(combo, budget, start, end, data)
     else:

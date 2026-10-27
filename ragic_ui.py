@@ -598,6 +598,8 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
                         key=f"{key_prefix}_submit", disabled=bool(block),
                         help=("尚缺：" + "、".join(block)) if block else
                         "以 ⓪ 的 CUE號 建立各波訂檔（已訂檔則更新原訂檔），算成交；之後由主管審核。")
+    if block:   # 宜歆 10/27 #13：按鈕變灰只在滑鼠提示寫原因，看不到 → 直接列出
+        b2.caption("⚠️ 還不能送出，尚缺：" + "、".join(block))
     if linked and is_reviewer() and cs.audit_of(lsnap) == cs.AUDIT_PENDING and not dirty:
         _render_audit(linked, legacy_details, key_prefix)
     if not (do_save or do_book):
