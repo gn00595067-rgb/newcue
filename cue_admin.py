@@ -122,8 +122,12 @@ def render_manage():
             continue
         rows.append((r, s, row))
     if not rows:
-        st.caption("沒有符合的存檔。" + ("（「待審」＝業務已送出訂檔、等主管核准；要看全部請把狀態改「全部」）"
-                                          if flt == "待審" else ""))
+        if flt == "待審":
+            # 審完後清單變空是正常的，講清楚審過的去哪裡了（宜歆 #14-2）
+            st.info("✅ 目前沒有待審的 CUE（都審完了，或還沒有業務送出訂檔）。\n\n"
+                    "核准的會移到狀態「成交」、退回的在「退回」；要看所有存檔請把狀態改「全部」。")
+        else:
+            st.caption("沒有符合的存檔。")
         return
     st.dataframe([x[2] for x in rows], hide_index=True, use_container_width=True,
                  column_config={"實收": st.column_config.NumberColumn(format="$%d")})
