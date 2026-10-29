@@ -1007,6 +1007,8 @@ def main():
         is_barter_contract = st.checkbox("是否為交換合約", key="is_barter_contract",
                                          disabled=(format_type == "元朗"),
                                          help="交換合約：檔次依定價計算（企頻全省 40 萬、新鮮視全省 15 萬），不提供優惠回饋檔次。元朗格式固定為交換合約。")
+        if format_type == "元朗":   # 鎖住的勾是灰的、看不出已勾（宜歆 4-3 10/29）
+            st.caption("✅ 元朗格式固定為交換合約，已自動勾選（不用手動勾）；檔次依定價核算。")
 
         c1, c2, c3, c4, c5_sales = st.columns(5)
         # 載入資料後的預設值
