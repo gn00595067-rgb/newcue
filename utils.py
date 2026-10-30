@@ -316,7 +316,7 @@ def build_platform_detail_text(rows, config):
                 if reg in seen["新鮮視"] and reg in region_to_fv:
                     out.append(f"新鮮視{region_to_fv[reg]}")
 
-    if any(r.get("media") == "全民健康視" for r in rows):   # 健康視CUE（Ragic 選項待實測，2026-10-30）
+    if any(r.get("media") == "全民健康視" for r in rows):   # 健康視CUE（Ragic 平台欄可存，2026-10-30 實測）
         out.append("全民健康視")
 
     # 去重並保序，上傳 Ragic 時以逗號隔開
