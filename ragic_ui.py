@@ -410,6 +410,16 @@ def is_reviewer():
     return bool(st.session_state.get("is_supervisor") or (u and u.get("email", "").lower() in reviewers()))
 
 
+def can_book():
+    """可真的申請 CUE號／送出訂檔的人：RAGIC_REVIEWERS 名單的主管信箱，或開發者登入。
+    測試期間開放業務試用，只能存檔／下載，不能動到正式 CUE號與訂檔（主管密碼不算，避免業務知道密碼就能送）。"""
+    u = current_user() or {}
+    return bool(u) and (u.get("email", "").lower() in reviewers() or "開發者" in (u.get("groups") or []))
+
+
+BOOK_DENIED = "限主管／開發者操作（業務請存檔後通知主管送出）"
+
+
 def booking_enabled():
     """送出時是否真的寫入 CUE號申請／訂檔（正式表單，預設關閉）。"""
     return str(_secret("RAGIC_BOOKING_ENABLED", "")).strip().lower() in ("1", "true", "yes")
@@ -587,7 +597,7 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
 
     has_sign = bool(od["signback"] or ((prev or {}).get("review") or {}).get("signback"))
     block = ([] if live else ["乾跑模式"]) + ([] if booking_enabled() else ["訂檔寫入未開放（RAGIC_BOOKING_ENABLED）"]) \
-        + od["missing"] + ([] if has_sign else ["客戶回簽檔"])
+        + ([] if can_book() else [BOOK_DENIED]) + od["missing"] + ([] if has_sign else ["客戶回簽檔"])
     if save_block:   # 呼叫端指定的存檔必填（如簡易模式的請款月份、付款兌現日）
         st.warning("存檔前請先在上方「客戶名稱／業務／產品／付款／甲乙方」填寫：" + "、".join(save_block))
         block = list(save_block) + block
@@ -1086,6 +1096,8 @@ def _cue_box(snap, key_prefix, cue_saver, serial=""):
     miss = oc.missing(snap, [])["CUE號申請"]
     if not write_enabled() or not booking_enabled():
         miss = miss + ["訂檔寫入未開放"]
+    if not can_book():
+        miss = [BOOK_DENIED] + miss
     c1, c2 = st.columns([1, 2])
     if c1.button("🎫 申請 CUE號", key=f"{key_prefix}_cue_apply", type="primary", disabled=bool(miss),
                  help=("尚缺：" + "、".join(m.split("（")[0] for m in miss)) if miss else

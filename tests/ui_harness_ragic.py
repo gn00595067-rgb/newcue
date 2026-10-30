@@ -106,6 +106,7 @@ st.file_uploader = _uploader
 from ragic_booking import order_from_cue as oc  # noqa: E402
 
 ragic_ui.booking_enabled = lambda: bool(st.session_state.get("_fake_booking_on", True))
+ragic_ui.can_book = lambda: bool(st.session_state.get("_fake_can_book", True))   # 權限另有單元測試 test_can_book.py
 
 
 def _fake_submit_booking(snap, orders, *, applicant="", attachments=None, submit=None, serial=""):

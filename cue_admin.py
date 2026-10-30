@@ -209,7 +209,7 @@ def _submit_box(rec, snap):
     has_sign = bool(od["signback"] or (snap.get("review") or {}).get("signback"))
     block = ([] if ragic_ui.write_enabled() else ["乾跑模式"]) \
         + ([] if ragic_ui.booking_enabled() else ["訂檔寫入未開放（RAGIC_BOOKING_ENABLED）"]) \
-        + od["missing"] + ([] if has_sign else ["客戶回簽檔"])
+        + ([] if ragic_ui.can_book() else [ragic_ui.BOOK_DENIED]) + od["missing"] + ([] if has_sign else ["客戶回簽檔"])
     label = "📨 送出更新訂檔" if snap.get("booking") else "📨 送出訂檔（成交）"
     if not st.button(label, key="adm_submit", disabled=bool(block),
                      help=("尚缺：" + "、".join(block)) if block else "以 ⓪ 的 CUE號 建立各波訂檔，算成交。"):

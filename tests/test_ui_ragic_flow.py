@@ -310,6 +310,20 @@ def test_book_blocked_without_customer_signback_or_flag():
     assert btn.disabled and "RAGIC_BOOKING_ENABLED" in btn.help
 
 
+def test_sales_cannot_apply_cue_or_book():
+    """10-30：開放業務測試期間，申請 CUE號／送出訂檔限主管與開發者，業務只能存檔。"""
+    at = _app("簡易模式", ragic_customer=CUSTOMER, simple_client="客戶甲", _fake_sign=True, _fake_can_book=False)
+    at.button(key="simple_save_btn").click().run()
+    at.run()
+    _ok(at)
+    assert _rec(at)["rid"]                                                        # 存檔照常
+    btn = at.button(key="simple_save_cue_apply")
+    assert btn.disabled and "限主管／開發者操作" in btn.help
+    btn = at.button(key="simple_save_submit")
+    assert btn.disabled and "限主管／開發者操作" in btn.help
+    assert "_fake_booking_calls" not in at.session_state                         # 沒有任何 CUE號／訂檔呼叫
+
+
 def test_order_panel_inline_customer_and_fields():
     """宜歆 10/21：缺客戶編號等找不到去哪填 → 訂檔區直接搜尋帶入客戶、補客戶類別，播證名稱預設廣告主-產品。"""
     at = _app("簡易模式", _fake_customers=[dict(CUSTOMER, 類別="")], _fake_sign=True)
