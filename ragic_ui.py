@@ -223,7 +223,7 @@ def _apply(c, targets):
     st.session_state[SS_CUSTOMER] = c
 
 
-def customer_picker(targets, key_prefix):
+def customer_picker(targets, key_prefix, expanded=False):
     """「從 Ragic 帶入客戶」區塊，放在客戶名稱欄位之上。
     targets：{"client": key, "tax": key, "product": key}，值為該模式輸入欄的 session key
     （一般CUE 傳 temp_* 預設值 key）。未登入時只顯示提示。"""
@@ -235,7 +235,7 @@ def customer_picker(targets, key_prefix):
                 st.session_state[key] = vals[f]
     sel = st.session_state.get(SS_CUSTOMER)
     title = f"🔗 Ragic 客戶：{sel['編號']} {sel['名稱']}" if sel else "🔎 從 Ragic 帶入客戶"
-    with st.expander(title, expanded=False):
+    with st.expander(title, expanded=expanded):
         if not current_user():
             st.caption("請先在左側以 Ragic 帳號登入。")
             return
@@ -290,10 +290,10 @@ def _pick(label, opts, key, default=""):
     return st.text_input(label, default, key=key)
 
 
-def render_new_customer(key_prefix="newcust"):
+def render_new_customer(key_prefix="newcust", expanded=False):
     """新增成交客戶（Ragic forms13/3）。必填齊才能送；未開啟寫入時只乾跑顯示內容。"""
     u = current_user()
-    with st.expander("➕ 新增客戶到 Ragic", expanded=False):
+    with st.expander("➕ 新增客戶到 Ragic", expanded=expanded):
         if not u:
             st.caption("請先在左側以 Ragic 帳號登入。")
             return
@@ -376,6 +376,7 @@ MODE_NAV = {
     "一般CUE": ("一般CUE", None),
     "年約季約細CUE": ("年約季約細CUE", None),
     "專案CUE": ("專案CUE", None),
+    "健康視CUE": ("健康視CUE", None),
     "代理商一鍵": ("代理商CUE", "一鍵CUE（模板）"),
     "代理商CUE": ("代理商CUE", "自訂代理商CUE"),
 }
@@ -503,12 +504,13 @@ def _render_downloads(files, key_prefix, saved_ok):
 
 
 def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None, key_prefix="save",
-                      allow_style_excel=True, save_block=None):
+                      allow_style_excel=True, save_block=None, booking=True):
     """存檔到 Ragic（cue/2）＋下載＋送出訂檔＋主管審核（核准／退回）。
     - 第一次存檔給存檔編號（P2610-023）並記存檔人；同一份再存＝更新同一筆、版本 +1、編號不變。
     - 存檔後且內容未再改動才可下載。
     - 送出訂檔＝立即申請 CUE號＋建立各波訂檔＝成交；已訂檔後修改則更新原訂檔。
-    files：{"xlsx": (檔名, bytes), "pdf": (檔名, bytes), "extra": [(按鈕, 檔名, bytes, mime)]}，或回傳該 dict 的函式。"""
+    files：{"xlsx": (檔名, bytes), "pdf": (檔名, bytes), "extra": [(按鈕, 檔名, bytes, mime)]}，或回傳該 dict 的函式。
+    booking=False：只存檔／下載，不顯示訂檔區與送出鈕（健康視CUE：Ragic 訂檔尚無該平台）。"""
     import cue_registry as reg
     import cue_store as cs
     from config import RAGIC_MAP
@@ -542,9 +544,8 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
         as_new = choice.startswith("另存")
         if not as_new:
             st.caption("本次異動：" + "；".join(cs.diff_summary(lsnap, snap)))
-        if st.button("開新的 CUE（不再關聯這筆存檔）", key=f"{key_prefix}_unlink"):
-            clear_loaded()
-            st.rerun()
+        if st.button("🆕 開新的 CUE（清空重來）", key=f"{key_prefix}_unlink"):
+            request_new_cue()
     s = cs.summarize(snap)
     st.caption(f"{s['waves']} 波｜{s['platform_detail'] or s['platform']}｜{s['seconds']}秒｜"
                f"總檔次 {s['total_spots']:,}｜實收合計 ${s['net_total']:,}")
@@ -574,7 +575,7 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
             fn(new)
             return _save_snapshot_only(linked, new, legacy_details)
     od = render_order_preview(final, key_prefix, prev_review=(prev or {}).get("review"),
-                              update=booked_before, cue_saver=saver, serial=str((linked or {}).get("serial") or ""))
+                              update=booked_before, cue_saver=saver, serial=str((linked or {}).get("serial") or ""))         if booking else {"params": {}, "missing": [], "signback": None}
     if not live:
         st.info("目前為**乾跑模式**：只預覽、不會寫入 Ragic。")
     with st.expander("👀 預覽將寫入 Ragic 的內容（仿 Ragic 畫面）", expanded=False):
@@ -604,11 +605,14 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     b1, b2 = st.columns(2)
     do_save = b1.button("💾 存檔到 Ragic", key=f"{key_prefix}_btn", type="primary",
                         disabled=not live or bool(save_block))
-    do_book = b2.button("📨 存檔並" + ("送出更新訂檔" if booked_before else "送出訂檔（成交）"),
+    if not booking:
+        b2.caption("此類 CUE 尚不支援從這裡送出訂檔，請先在 Ragic 手動建立訂檔。")
+        block = ["不支援送出訂檔"]
+    do_book = booking and b2.button("📨 存檔並" + ("送出更新訂檔" if booked_before else "送出訂檔（成交）"),
                         key=f"{key_prefix}_submit", disabled=bool(block),
                         help=("尚缺：" + "、".join(block)) if block else
                         "以 ⓪ 的 CUE號 建立各波訂檔（已訂檔則更新原訂檔），算成交；之後由主管審核。")
-    if block:   # 宜歆 10/27 #13：按鈕變灰只在滑鼠提示寫原因，看不到 → 直接列出
+    if block and booking:   # 宜歆 10/27 #13：按鈕變灰只在滑鼠提示寫原因，看不到 → 直接列出
         b2.caption("⚠️ 還不能送出，尚缺：" + "、".join(block))
     if linked and is_reviewer() and cs.audit_of(lsnap) == cs.AUDIT_PENDING and not dirty:
         _render_audit(linked, legacy_details, key_prefix)
@@ -885,6 +889,86 @@ def _ragic_preview(orders, signback, materials, link=None):
         with tab:
             st.html(rp.order_html(d, attachments={"cue": "（存檔時產生的 CUE Excel）", "sign": sign_name},
                                   materials=mats, total_waves=len(orders), link=link))
+
+
+# =============================================================================
+# ① 這次的客戶（關卡）＋ 🆕 開新的 CUE（宜歆 10/29 #7；spec docs/specs/客戶先確認與開新CUE.md）
+# =============================================================================
+SS_CUST_OK = "_cust_ok"            # 本張 CUE 已過客戶關卡（選了先估價／先手填，或載入舊排程）
+SS_NEW_CUE = "_new_cue_pending"    # 下次執行一開頭清空表單
+CUST_CHOICES = ["Ragic 既有客戶", "新客戶", "先估價，暫不指定"]
+# 開新的 CUE 時保留：登入身分、主管模式與其設定、代理商解鎖、目前製作模式與格式
+NEW_CUE_KEEP = {SS_USER, SS_PENDING, "is_supervisor", "agency_unlocked", "allow_sales_excel_download",
+                "allow_sales_pdf_download", "allow_sales_excel_download_ui", "allow_sales_pdf_download_ui",
+                "ragic_url", "ragic_key", "cue_mode", "temp_format_type", "agency_sub_mode"}
+
+
+def customer_ok():
+    ss = st.session_state
+    return bool(ss.get(SS_CUST_OK) or ss.get(SS_CUSTOMER) or ss.get(SS_RECORD))
+
+
+def customer_gate(targets, key_prefix="cust"):
+    """表單前先選這次的客戶；回傳 True＝可顯示表單。已過關卡時顯示原本的帶入／新增客戶區塊。"""
+    if customer_ok():
+        c1, c2 = st.columns(2)
+        with c1:
+            customer_picker(targets, key_prefix)
+            if not st.session_state.get(SS_CUSTOMER) and not st.session_state.get(SS_RECORD):   # 放欄內，不改變頁面元件順序
+                st.caption("👤 客戶：手填（尚未帶入 Ragic 客戶；送出訂檔前在上方或訂檔區帶入即可）")
+        with c2:
+            render_new_customer()
+        return True
+    st.markdown("#### ① 這次的客戶")
+    choice = st.radio("這次的客戶是？", CUST_CHOICES, index=None, key=f"{key_prefix}_gate", horizontal=True)
+    if choice is None:
+        st.info("請先選這次的客戶（之後訂檔要用 Ragic 客戶編號）。")
+        return False
+    if choice == CUST_CHOICES[0]:
+        customer_picker(targets, key_prefix, expanded=True)   # 帶入後 SS_CUSTOMER 有值即放行
+        return False
+    if choice == CUST_CHOICES[1]:
+        render_new_customer(expanded=True)
+        st.caption("新增完成後改選「Ragic 既有客戶」搜尋帶入；或先手填客戶名稱，訂檔前再建。")
+        if st.button("先手填，訂檔前再建", key=f"{key_prefix}_gate_later"):
+            st.session_state[SS_CUST_OK] = True
+            st.rerun()
+        return False
+    st.session_state[SS_CUST_OK] = True
+    st.rerun()
+
+
+def request_new_cue():
+    st.session_state[SS_NEW_CUE] = True
+    st.rerun()
+
+
+def apply_new_cue_reset():
+    """在畫任何元件之前呼叫：有待清空的要求就清掉保留清單以外的所有 session（欄位回預設、客戶關卡重來）。"""
+    if not st.session_state.pop(SS_NEW_CUE, False):
+        return False
+    for k in list(st.session_state.keys()):
+        if k not in NEW_CUE_KEEP:
+            del st.session_state[k]
+    return True
+
+
+def render_new_cue_button():
+    """標題旁的 🆕 開新的 CUE；有未存檔的修改先確認。"""
+    if st.session_state.get("_new_cue_confirm"):
+        st.warning("目前內容還沒存檔，確定清空？")
+        a, b = st.columns(2)
+        if a.button("清空", key="new_cue_yes", type="primary"):
+            request_new_cue()
+        if b.button("取消", key="new_cue_no"):
+            st.session_state.pop("_new_cue_confirm", None)
+            st.rerun()
+        return
+    if st.button("🆕 開新的 CUE", key="new_cue_btn", help="清空所有欄位重新排一張（保留登入、主管模式）"):
+        if st.session_state.get("_cue_dirty"):
+            st.session_state["_new_cue_confirm"] = True
+            st.rerun()
+        request_new_cue()
 
 
 def clear_loaded():

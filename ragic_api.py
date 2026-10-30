@@ -158,6 +158,7 @@ def restore_state_from_ragic(record):
     try:
         # 1. 基礎欄位還原 (使用 RAGIC_MAP 統一管理欄位 ID)
         st.session_state['temp_client_name'] = record.get(RAGIC_MAP['client'], '') or ''
+        st.session_state['_cust_ok'] = True   # 載入舊排程＝客戶已確認，不再擋客戶關卡
         st.session_state['temp_product_name'] = record.get(RAGIC_MAP['product'], '') or ''
 
         st.session_state['temp_budget'] = _ragic_number(record.get(RAGIC_MAP['budget_raw']), 0)

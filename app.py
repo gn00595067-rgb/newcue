@@ -240,15 +240,11 @@ _CUSTOMER_TARGETS = {
 
 
 def _customer_bar(cue_mode):
-    """Ragic 客戶帶入＋新增客戶（第 1 期，spec：Ragic串接_訂檔流程.md）。"""
+    """① 這次的客戶：先選既有／新客戶／先估價才顯示表單（宜歆 #7-1）；回傳 True＝可顯示表單。"""
     targets = dict(_CUSTOMER_TARGETS.get(cue_mode, {}))
     if cue_mode == "代理商CUE" and str(st.session_state.get("agency_sub_mode", "一鍵")).startswith("一鍵"):
         targets = dict(_CUSTOMER_TARGETS["簡易模式"])
-    cc1, cc2 = st.columns(2)
-    with cc1:
-        ragic_ui.customer_picker(targets, key_prefix="cust")
-    with cc2:
-        ragic_ui.render_new_customer()
+    return ragic_ui.customer_gate(targets, key_prefix="cust")
 
 
 def _agency_unlock_gate(key_prefix="agency"):
@@ -779,6 +775,7 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
 # 主程式邏輯 (Main Execution Block)
 # =============================================================================
 def main():
+    ragic_ui.apply_new_cue_reset()   # 🆕 開新的 CUE：在畫任何元件前清空（保留登入、主管模式）
     _init_session_state()
     try:
         with st.spinner("正在讀取 Google 試算表設定檔..."):
@@ -940,7 +937,10 @@ def main():
                 st.rerun()
 
         # --- Main Content 邏輯 (輸入與報表) ---
-        st.title("📺 媒體 Cue 表生成器")
+        t1, t2 = st.columns([5, 1], vertical_alignment="bottom")
+        t1.title("📺 媒體 Cue 表生成器")
+        with t2:
+            ragic_ui.render_new_cue_button()
         
         # 修改：處理格式的預設選擇 (東吳/聲活/鉑霖)
         loaded_fmt = st.session_state.get('temp_format_type', '東吳')
@@ -951,7 +951,7 @@ def main():
             fmt_idx = 0
         
         # 製作模式（先分流：簡易模式／代理商CUE 與「選擇格式／交換合約」無關，須在其之前分流）
-        mode_options = ["簡易模式", "一般CUE", "年約季約細CUE", "代理商CUE", "專案CUE", "CUE 管理", "統計"]
+        mode_options = ["簡易模式", "一般CUE", "年約季約細CUE", "代理商CUE", "專案CUE", "健康視CUE", "CUE 管理", "統計"]
         if ragic_ui.NAV_KEY in st.session_state:   # 從「我的 CUE」／CUE 管理開啟存檔
             st.session_state["cue_mode"] = st.session_state.pop(ragic_ui.NAV_KEY)
         cur_mode = st.session_state.get("cue_mode", "簡易模式")
@@ -960,7 +960,7 @@ def main():
         except ValueError:
             mode_idx = 0
         cue_mode = st.radio("製作模式", mode_options, index=mode_idx, key="cue_mode", horizontal=True,
-                            help="簡易模式：只選平台組合＋輸入預算，自動產各秒數版 CUE。年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式（需密碼）。專案CUE：走期／檔次／金額固定的專案（如萬家福／樂家康過年、中元限定專案）。CUE 管理：查看／開啟／送出存過的 CUE。統計：每位業務出 CUE 與成交張數。")
+                            help="簡易模式：只選平台組合＋輸入預算，自動產各秒數版 CUE。年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式（需密碼）。專案CUE：走期／檔次／金額固定的專案（如萬家福／樂家康過年、中元限定專案）。健康視CUE：全民健康視（診所螢幕），依預算算曝光次數。CUE 管理：查看／開啟／送出存過的 CUE。統計：每位業務出 CUE 與成交張數。")
 
         if cue_mode == "CUE 管理":
             cue_admin.render_manage()
@@ -968,8 +968,8 @@ def main():
         if cue_mode == "統計":
             cue_admin.render_stats()
             return
-        if cue_mode != "代理商CUE":
-            _customer_bar(cue_mode)
+        if cue_mode in ("簡易模式", "年約季約細CUE") and not _customer_bar(cue_mode):
+            return
 
         if cue_mode == "簡易模式":
             render_simple_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, SALES_MAP)
@@ -982,7 +982,8 @@ def main():
             # 一鍵CUE：原簡易模式中的 2008／凱絡模板（2026-10-08 由簡易模式移入）；自訂：原代理商CUE
             ag_mode = st.radio("代理商CUE 方式", ["一鍵CUE（模板）", "自訂代理商CUE"], key="agency_sub_mode",
                                horizontal=True, help="一鍵CUE：選 2008／凱絡模板＋預算＋開始日即出，用法同簡易模式。自訂：逐項設定平台、秒數、檔次。")
-            _customer_bar(cue_mode)
+            if not _customer_bar(cue_mode):
+                return
             if ag_mode == "一鍵CUE（模板）":
                 render_simple_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, SALES_MAP, family="agency")
             else:
@@ -994,7 +995,15 @@ def main():
             _render_annual_quarter_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, fmt_options, fmt_idx, SALES_MAP)
             return
 
+        if cue_mode == "健康視CUE":   # 宜歆 #6：自帶格式（東吳／聲活／鉑霖）與客戶關卡
+            from data_loader import load_health_pricing_from_cloud
+            from health_cue import render_health_cue
+            render_health_cue(SALES_MAP, load_health_pricing_from_cloud(GSHEET_SHARE_URL))
+            return
+
         format_type = st.radio("選擇格式", fmt_options, index=fmt_idx, horizontal=True)
+        if not _customer_bar(cue_mode):   # 宜歆 #7-1：選完模式、格式先確認客戶
+            return
         if cue_mode == "專案CUE":
             project_name = st.selectbox("專案", list(FIXED_PROJECTS), key="cue_fixed_project",
                                         help="走期、秒數、檔次與金額皆固定，只需填客戶資料。")

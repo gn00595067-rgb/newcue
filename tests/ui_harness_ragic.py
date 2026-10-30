@@ -106,6 +106,7 @@ st.file_uploader = _uploader
 from ragic_booking import order_from_cue as oc  # noqa: E402
 
 ragic_ui.booking_enabled = lambda: bool(st.session_state.get("_fake_booking_on", True))
+ragic_ui.__dict__.setdefault("_orig_can_book", ragic_ui.can_book)   # 同一行程的單元測試要用真的
 ragic_ui.can_book = lambda: bool(st.session_state.get("_fake_can_book", True))   # 權限另有單元測試 test_can_book.py
 
 
@@ -136,6 +137,8 @@ oc.update_booking = _fake_update_booking
 ragic_ui._list_saved = lambda url, key, kw: [(r, cue_store.parse_snapshot(cue2.details_of(r))) for r in _fake_list(url, key)]
 st.session_state.setdefault("ragic_url", "https://example.invalid/cue/2")
 st.session_state.setdefault("ragic_key", "fake")
+if not st.session_state.get("_test_gate"):   # 一般流程測試略過「① 這次的客戶」關卡（關卡另有測試）
+    st.session_state.setdefault("_cust_ok", True)
 
 import app  # noqa: E402
 

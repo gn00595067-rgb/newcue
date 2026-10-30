@@ -324,6 +324,47 @@ def test_sales_cannot_apply_cue_or_book():
     assert "_fake_booking_calls" not in at.session_state                         # 沒有任何 CUE號／訂檔呼叫
 
 
+def test_customer_gate_and_new_cue():
+    """宜歆 #7：表單前先選客戶；🆕 開新的 CUE 清空欄位但保留登入。"""
+    at = _app("一般CUE", _test_gate=True, _fake_customers=[CUSTOMER])
+    _ok(at)
+    assert at.radio(key="cust_gate").value is None
+    assert not any(x.label == "客戶名稱" for x in at.text_input)                  # 表單還沒出現
+    at.radio(key="cust_gate").set_value("Ragic 既有客戶").run()
+    at.text_input(key="cust_cust_q").input("客戶甲").run()
+    at.button(key="cust_cust_apply").click().run()
+    at.run()
+    _ok(at)
+    assert at.session_state["ragic_customer"]["編號"] == "C01399"
+    assert any(x.label == "客戶名稱" and x.value == CUSTOMER["名稱"] for x in at.text_input)   # 帶入並放行
+    at.button(key="new_cue_btn").click().run()                                 # 清空會連 _test_gate 一起清 → 立即檢查
+    _ok(at)
+    at.session_state["_test_gate"] = True
+    assert "ragic_customer" not in at.session_state and at.session_state["ragic_user"] == USER   # 清空但仍登入
+    assert at.session_state["cue_mode"] == "一般CUE" and at.radio(key="cust_gate").value is None
+    at.radio(key="cust_gate").set_value("先估價，暫不指定").run()
+    at.run()
+    _ok(at)
+    assert any(x.label == "客戶名稱" for x in at.text_input)
+
+
+def test_health_cue_save_no_booking():
+    """宜歆 #6：健康視CUE 可存檔（平台寫全民健康視），不提供送出訂檔。"""
+    at = _app("健康視CUE", hc_client="客戶甲", ragic_customer=CUSTOMER)
+    _ok(at)
+    assert [m.value for m in at.metric][:2] == ["460,800", "$450,000"]                # 預設 15秒 30 萬
+    assert not _has(at, "hc_save_submit")
+    at.button(key="hc_save_btn").click().run()
+    at.run()
+    _ok(at)
+    rec = _rec(at)
+    assert rec["mode"] == "健康視CUE" and rec["snap"]["header"]["impressions"] == 460800
+    from config import RAGIC_MAP
+    row = at.session_state["_fake_db"][rec["rid"]]
+    assert row[RAGIC_MAP["platform"]] == "全民健康視"
+    assert at.session_state["_fake_last_files"][RAGIC_MAP["file_xls"]][0].endswith("全民健康視(15秒) 30萬-" + row[RAGIC_MAP["sales"]] + ".xlsx")
+
+
 def test_order_panel_inline_customer_and_fields():
     """宜歆 10/21：缺客戶編號等找不到去哪填 → 訂檔區直接搜尋帶入客戶、補客戶類別，播證名稱預設廣告主-產品。"""
     at = _app("簡易模式", _fake_customers=[dict(CUSTOMER, 類別="")], _fake_sign=True)

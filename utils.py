@@ -316,6 +316,9 @@ def build_platform_detail_text(rows, config):
                 if reg in seen["新鮮視"] and reg in region_to_fv:
                     out.append(f"新鮮視{region_to_fv[reg]}")
 
+    if any(r.get("media") == "全民健康視" for r in rows):   # 健康視CUE（Ragic 選項待實測，2026-10-30）
+        out.append("全民健康視")
+
     # 去重並保序，上傳 Ragic 時以逗號隔開
     dedup = []
     for x in out:
@@ -337,8 +340,9 @@ def build_platform_text(rows):
         "全家廣播": "全家企頻",
         "家樂福": "家樂福企頻",
         "新鮮視": "新鮮視",
+        "全民健康視": "全民健康視",
     }
-    order = ["全家企頻", "家樂福企頻", "新鮮視"]
+    order = ["全家企頻", "家樂福企頻", "新鮮視", "全民健康視"]
     seen = set()
     for r in rows:
         media = r.get("media")
