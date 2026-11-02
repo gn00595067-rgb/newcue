@@ -94,6 +94,32 @@ def _parse_pct(raw):
         return 0.0
 
 
+def _on_region_edit(prefix, region, kind, regions, base):
+    """自訂區域比例：填了某區的 % 或金額 → 其他區自動補剩下的（宜歆 8-2 後續）。
+    手填過的區依序記在 {prefix}region_manual，最多保留「區數−1」個（滿了丟最早填的）；沒手填的區均分差額。"""
+    ss = st.session_state
+    ss[f"{prefix}region_src"] = kind
+    order = [r for r in ss.get(f"{prefix}region_manual", []) if r in regions and r != region] + [region]
+    order = order[-(len(regions) - 1):] if len(regions) > 1 else order
+    ss[f"{prefix}region_manual"] = order
+    auto = [r for r in regions if r not in order]
+    if not auto or (kind == "amt" and base <= 0):
+        return
+    key = (lambda r: f"{prefix}region_amt_{r}") if kind == "amt" else (lambda r: f"{prefix}region_{r}")
+    parse = _parse_amount if kind == "amt" else _parse_pct
+    rest = max(0.0, (base if kind == "amt" else 100.0) - sum(parse(ss.get(key(r))) for r in order))
+    if kind == "amt":
+        each = int(rest // len(auto))
+        vals = [each] * (len(auto) - 1) + [int(round(rest)) - each * (len(auto) - 1)]   # 尾差給最後一區
+        for r, v in zip(auto, vals):
+            ss[key(r)] = f"{v:,}"
+    else:
+        each = round(rest / len(auto), 1)
+        vals = [each] * (len(auto) - 1) + [round(rest - each * (len(auto) - 1), 1)]
+        for r, v in zip(auto, vals):
+            ss[key(r)] = f"{v:.1f}"
+
+
 def _region_share_inputs(prefix, regions, base):
     """自訂區域比例：每區「%」與「金額」擇一填，另一欄自動換算（宜歆 8-2；base＝該平台預算）。
     以最後編輯的那一種為準（{prefix}region_src＝pct／amt），回傳 {區域: %}（金額為準時用精確比例，不受 % 顯示四捨五入影響）。"""
@@ -112,9 +138,9 @@ def _region_share_inputs(prefix, regions, base):
             ss[ak(r)] = f"{int(round(base * v / 100)):,}" if v and base > 0 else ""
     for r in regions:
         c1, c2 = st.columns(2)
-        c1.text_input(f"{r} %", key=pk(r), on_change=lambda: ss.__setitem__(src_key, "pct"))
+        c1.text_input(f"{r} %", key=pk(r), on_change=_on_region_edit, args=(prefix, r, "pct", regions, base))
         c2.text_input(f"{r} 金額", key=ak(r), placeholder="如 150000 或 15萬",
-                      on_change=lambda: ss.__setitem__(src_key, "amt"))
+                      on_change=_on_region_edit, args=(prefix, r, "amt", regions, base))
     if use_amt:
         amts = {r: _parse_amount(ss.get(ak(r))) for r in regions}
         total = sum(amts.values())
@@ -1455,6 +1481,7 @@ def main():
                                     st.session_state[f"rad_region_{r}"] = pending.get(r, "")
                                 del st.session_state[pending_key]
                                 st.session_state["rad_region_src"] = "pct"   # 按鈕改的是 %，以 % 為準
+                                st.session_state.pop("rad_region_manual", None)
                             keys_region = [f"rad_region_{r}" for r in region_share_regions]
                             if any(k not in st.session_state for k in keys_region):
                                 for k in keys_region:
@@ -1528,6 +1555,7 @@ def main():
                                     st.session_state[f"fv_region_{r}"] = pending_fv.get(r, "")
                                 del st.session_state[pending_key_fv]
                                 st.session_state["fv_region_src"] = "pct"   # 按鈕改的是 %，以 % 為準
+                                st.session_state.pop("fv_region_manual", None)
                             keys_region_fv = [f"fv_region_{r}" for r in region_share_regions_fv]
                             if any(k not in st.session_state for k in keys_region_fv):
                                 for k in keys_region_fv:

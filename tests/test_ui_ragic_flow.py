@@ -536,3 +536,21 @@ def test_general_cue_region_amounts_sync_pct():
     _ok(at)
     assert at.text_input(key="rad_region_amt_北區").value == "120,000"
     assert at.text_input(key="rad_region_amt_桃竹苗").value == "80,000"
+
+
+
+def test_region_amount_auto_fills_rest():
+    """填一區金額 → 其他區自動補剩下的；最後填的保留，最早填的吸收差額。"""
+    at = _app("一般CUE", rad_nat=False, rad_reg=["北區", "桃竹苗", "中區"], rad_use_region_share=True)
+    next(n for n in at.number_input if n.label.startswith("總預算")).set_value(1000000.0).run()
+    at.text_input(key="rad_region_amt_北區").input("70萬").run()
+    _ok(at)
+    assert at.text_input(key="rad_region_amt_桃竹苗").value == "150,000"
+    assert at.text_input(key="rad_region_amt_中區").value == "150,000"
+    at.text_input(key="rad_region_amt_桃竹苗").input("200000").run()
+    assert at.text_input(key="rad_region_amt_中區").value == "100,000"
+    at.text_input(key="rad_region_amt_中區").input("50000").run()          # 北區（最早填）吸收差額
+    assert at.text_input(key="rad_region_amt_北區").value == "750,000"
+    assert at.text_input(key="rad_region_北區").value == "75.0"
+    at.text_input(key="rad_region_桃竹苗").input("10").run()               # % 也照同規則
+    assert at.text_input(key="rad_region_北區").value == "85.0"
