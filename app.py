@@ -75,6 +75,57 @@ def _render_region_period_ui(prefix, regs, start_date, end_date):
         return out
 
 
+def _parse_amount(raw):
+    """金額欄文字 → 數字：可填 150000、150,000、15萬；空白或看不懂回 0。"""
+    t = str(raw or "").replace(",", "").replace("，", "").replace(" ", "").replace("$", "")
+    mult = 1
+    if t.endswith("萬"):
+        t, mult = t[:-1], 10000
+    try:
+        return max(0.0, float(t) * mult) if t else 0.0
+    except ValueError:
+        return 0.0
+
+
+def _parse_pct(raw):
+    try:
+        return float(str(raw or "").strip() or 0)
+    except ValueError:
+        return 0.0
+
+
+def _region_share_inputs(prefix, regions, base):
+    """自訂區域比例：每區「%」與「金額」擇一填，另一欄自動換算（宜歆 8-2；base＝該平台預算）。
+    以最後編輯的那一種為準（{prefix}region_src＝pct／amt），回傳 {區域: %}（金額為準時用精確比例，不受 % 顯示四捨五入影響）。"""
+    ss = st.session_state
+    src_key = f"{prefix}region_src"
+    pk = lambda r: f"{prefix}region_{r}"
+    ak = lambda r: f"{prefix}region_amt_{r}"
+    use_amt = ss.get(src_key) == "amt" and base > 0
+    # widget 建立前同步另一欄
+    for r in regions:
+        if use_amt:
+            a = _parse_amount(ss.get(ak(r)))
+            ss[pk(r)] = f"{a / base * 100:.1f}" if a else ""
+        else:
+            v = _parse_pct(ss.get(pk(r)))
+            ss[ak(r)] = f"{int(round(base * v / 100)):,}" if v and base > 0 else ""
+    for r in regions:
+        c1, c2 = st.columns(2)
+        c1.text_input(f"{r} %", key=pk(r), on_change=lambda: ss.__setitem__(src_key, "pct"))
+        c2.text_input(f"{r} 金額", key=ak(r), placeholder="如 150000 或 15萬",
+                      on_change=lambda: ss.__setitem__(src_key, "amt"))
+    if use_amt:
+        amts = {r: _parse_amount(ss.get(ak(r))) for r in regions}
+        total = sum(amts.values())
+        if total and abs(total - base) >= 1:
+            st.warning(f"各區金額合計 {total:,.0f}，與此平台預算 {base:,.0f} 不同；會依各區金額的比例分配。")
+        # 依金額比例換成合計 100%（全省計價不會自動正規化）
+        return {r: a / total * 100 for r, a in amts.items()} if total else {r: 0.0 for r in regions}
+    st.caption(f"此平台預算 {base:,.0f}；% 與金額擇一填，另一欄自動換算。")
+    return {r: _parse_pct(ss.get(pk(r))) for r in regions}
+
+
 def _round_half_up(value):
     return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
@@ -202,7 +253,8 @@ def _get_ragic_extra_state(row_groups):
     for k in ("is_barter_contract", "cue_mode", "temp_format_type", "use_date_segments", "apply_rebate",
               "apply_nat_rad_rebate", "rebate_nat_destination", "apply_nat_cf_rebate",
               "apply_region_rad_rebate", "rebate_region_destination",
-              "bonus_rebate_pct", "cue_live_update_remarks", "rad_use_region_share", "fv_use_region_share"):
+              "bonus_rebate_pct", "cue_live_update_remarks", "rad_use_region_share", "fv_use_region_share",
+              "rad_region_src", "fv_region_src"):
         if k in ss:
             state[k] = ss[k]
     if ss.get("use_date_segments") and "date_segments" in ss and ss["date_segments"]:
@@ -225,15 +277,15 @@ def _get_ragic_extra_state(row_groups):
     if "_rad_region_list" in ss and ss["_rad_region_list"]:
         state["_rad_region_list"] = list(ss["_rad_region_list"])
         for r in ss["_rad_region_list"]:
-            key = f"rad_region_{r}"
-            if key in ss:
-                state[key] = ss[key]
+            for key in (f"rad_region_{r}", f"rad_region_amt_{r}"):
+                if key in ss:
+                    state[key] = ss[key]
     if "_fv_region_list" in ss and ss["_fv_region_list"]:
         state["_fv_region_list"] = list(ss["_fv_region_list"])
         for r in ss["_fv_region_list"]:
-            key = f"fv_region_{r}"
-            if key in ss:
-                state[key] = ss[key]
+            for key in (f"fv_region_{r}", f"fv_region_amt_{r}"):
+                if key in ss:
+                    state[key] = ss[key]
     # 各區不同走期（開關＋各區起訖日）
     for pre in ("rad_", "fv_"):
         if ss.get(f"{pre}use_region_period"):
@@ -1402,26 +1454,13 @@ def main():
                                 for r in region_share_regions:
                                     st.session_state[f"rad_region_{r}"] = pending.get(r, "")
                                 del st.session_state[pending_key]
+                                st.session_state["rad_region_src"] = "pct"   # 按鈕改的是 %，以 % 為準
                             keys_region = [f"rad_region_{r}" for r in region_share_regions]
                             if any(k not in st.session_state for k in keys_region):
                                 for k in keys_region:
                                     st.session_state[k] = ""
                             st.session_state["_rad_region_list"] = region_share_regions
-                            cols_rad = st.columns(len(region_share_regions))
-                            region_shares_rad = {}
-                            for idx, r in enumerate(region_share_regions):
-                                with cols_rad[idx]:
-                                    st.text_input(
-                                        f"{r} %",
-                                        key=f"rad_region_{r}",
-                                        placeholder="",
-                                        label_visibility="visible",
-                                    )
-                                    raw = st.session_state.get(f"rad_region_{r}", "") or ""
-                                    try:
-                                        region_shares_rad[r] = float(raw.strip()) if raw.strip() else 0.0
-                                    except ValueError:
-                                        region_shares_rad[r] = 0.0
+                            region_shares_rad = _region_share_inputs("rad_", region_share_regions, total_budget_input * st.session_state.rad_share / 100.0)
                             btn_col1, btn_col2 = st.columns(2)
                             with btn_col1:
                                 if st.button("填完加重區域，均分剩餘", key="rad_auto_fill_btn", help="已填的區域保留，空欄位均分剩餘比例使加總為 100%"):
@@ -1488,26 +1527,13 @@ def main():
                                 for r in region_share_regions_fv:
                                     st.session_state[f"fv_region_{r}"] = pending_fv.get(r, "")
                                 del st.session_state[pending_key_fv]
+                                st.session_state["fv_region_src"] = "pct"   # 按鈕改的是 %，以 % 為準
                             keys_region_fv = [f"fv_region_{r}" for r in region_share_regions_fv]
                             if any(k not in st.session_state for k in keys_region_fv):
                                 for k in keys_region_fv:
                                     st.session_state[k] = ""
                             st.session_state["_fv_region_list"] = region_share_regions_fv
-                            cols_fv = st.columns(len(region_share_regions_fv))
-                            region_shares_fv = {}
-                            for idx, r in enumerate(region_share_regions_fv):
-                                with cols_fv[idx]:
-                                    st.text_input(
-                                        f"{r} %",
-                                        key=f"fv_region_{r}",
-                                        placeholder="",
-                                        label_visibility="visible",
-                                    )
-                                    raw = st.session_state.get(f"fv_region_{r}", "") or ""
-                                    try:
-                                        region_shares_fv[r] = float(raw.strip()) if raw.strip() else 0.0
-                                    except ValueError:
-                                        region_shares_fv[r] = 0.0
+                            region_shares_fv = _region_share_inputs("fv_", region_share_regions_fv, total_budget_input * st.session_state.fv_share / 100.0)
                             btn_col1_fv, btn_col2_fv = st.columns(2)
                             with btn_col1_fv:
                                 if st.button("填完加重區域，均分剩餘", key="fv_auto_fill_btn", help="已填的區域保留，空欄位均分剩餘比例使加總為 100%"):

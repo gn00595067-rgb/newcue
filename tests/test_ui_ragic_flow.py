@@ -518,3 +518,21 @@ def test_general_cue_region_periods_save_and_reopen():
     _ok(at)
     assert at.session_state["rad_use_region_period"] is True
     assert at.session_state["rad_period_e_桃竹苗"] == date(2026, 1, 15)
+
+
+def test_general_cue_region_amounts_sync_pct():
+    """宜歆 8-2：自訂區域比例可填金額，% 自動換算（預算 20 萬：北區 15 萬＝75%、桃竹苗 5 萬＝25%）；改填 % 時金額跟著變。"""
+    at = _app("一般CUE", rad_nat=False, rad_reg=["北區", "桃竹苗"], rad_use_region_share=True)
+    _ok(at)
+    next(n for n in at.number_input if n.label.startswith("總預算")).set_value(200000.0).run()
+    at.text_input(key="rad_region_amt_北區").input("15萬").run()
+    at.text_input(key="rad_region_amt_桃竹苗").input("50,000").run()
+    _ok(at)
+    assert at.text_input(key="rad_region_北區").value == "75.0"
+    assert at.text_input(key="rad_region_桃竹苗").value == "25.0"
+    assert not at.warning or not any("合計" in w.value for w in at.warning)
+    at.text_input(key="rad_region_北區").input("60").run()
+    at.text_input(key="rad_region_桃竹苗").input("40").run()
+    _ok(at)
+    assert at.text_input(key="rad_region_amt_北區").value == "120,000"
+    assert at.text_input(key="rad_region_amt_桃竹苗").value == "80,000"
