@@ -259,6 +259,12 @@ DEFAULT_STATES = {
     "cue_mode": "簡易模式",
 }
 
+# 一般CUE「3. 媒體投放設定」中預設值來自 DEFAULT_STATES 的元件 key（見畫元件前的同步）
+_GENERAL_MEDIA_WIDGET_KEYS = ("cb_rad", "cb_fv", "cb_cf", "rad_nat", "rad_reg", "rad_sec", "rad_share",
+                              "fv_nat", "fv_reg", "fv_sec", "fv_share", "cf_sec", "cf_share",
+                              "rad_use_region_share", "fv_use_region_share")
+
+
 def _init_session_state():
     """在 main() 內呼叫，避免 import 時 st.session_state 未就緒導致 KeyError。"""
     try:
@@ -1295,6 +1301,11 @@ def main():
                     st.text_area("本波備註", value=_seg_display, height=180, key=f"cue_seg_remarks_{i}", label_visibility="collapsed", disabled=seg_live)
 
         st.markdown("### 3. 媒體投放設定")
+        # 預設值是在前幾次執行（還沒畫這些元件時）放進 session 的，Streamlit 不會同步到畫面
+        # → 畫面顯示沒勾、程式卻當有勾，一操作就整塊消失。畫元件前重新指定一次，強制同步到畫面。
+        for _k in _GENERAL_MEDIA_WIDGET_KEYS:
+            if _k in st.session_state:
+                st.session_state[_k] = st.session_state[_k]
         col_cb1, col_cb2, col_cb3 = st.columns(3)
         
         # Slider 連動邏輯
