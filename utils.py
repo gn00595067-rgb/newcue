@@ -124,6 +124,32 @@ def expand_schedule_to_calendar(schedule_active, segments, start_date, end_date)
     return result
 
 
+def apply_region_periods(rows, region_periods, start_date, end_date):
+    """各區不同走期（spec：各區不同走期.md）：該區的列總檔次不變，重新平均排進該區走期，走期外填 0。
+    region_periods: {media: {region: (start, end)}}；排程已全在該區走期內的列（如加贈自設日期）不動。
+    會就地修改 rows 的 schedule，也回傳 rows。"""
+    total_days = (end_date - start_date).days + 1
+    for row in rows:
+        period = (region_periods.get(row.get("media")) or {}).get(row.get("region"))
+        sch = row.get("schedule")
+        if not period or not isinstance(sch, list) or len(sch) != total_days:
+            continue
+        p0 = max(0, (period[0] - start_date).days)
+        p1 = min(total_days - 1, (period[1] - start_date).days)
+        if p1 < p0:
+            continue
+        if not any(v for i, v in enumerate(sch) if i < p0 or i > p1):
+            continue
+        total, days = sum(sch), p1 - p0 + 1
+        if total % 2 == 0:
+            spread = calculate_schedule(total, days)
+        else:   # 奇數（加贈每日檔次可為奇數）不補成偶數，總檔次維持不變
+            base, rem = divmod(total, days)
+            spread = [base + (1 if i < rem else 0) for i in range(days)]
+        row["schedule"] = [0] * p0 + spread + [0] * (total_days - p1 - 1)
+    return rows
+
+
 def get_remarks_text(sign_deadline, billing_month, payment_date, project_remark=None):
     """生成一般 CUE 合約備註文字（依 116 年度專案版 1~6 點）。
     project_remark：固定專案限定的第 7 點（如中元專案），一般排程不傳。

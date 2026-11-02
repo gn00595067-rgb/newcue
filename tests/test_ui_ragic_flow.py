@@ -497,3 +497,24 @@ def test_manage_submit_saved_record():
     import cue_store as cs
     snap = cs.parse_snapshot(at.session_state["_fake_db"][rid]["1015319"])
     assert snap["status"] == "已訂檔" and snap["booking"]["cue_id"] == "1160101"
+
+
+def test_general_cue_region_periods_save_and_reopen():
+    """各區不同走期（spec：各區不同走期.md）：桃竹苗只走 1/1～1/15，存檔快照 1/16 起為 0，重開可還原。"""
+    at = _app("一般CUE", rad_nat=False, rad_reg=["北區", "桃竹苗"], rad_use_region_period=True,
+              rad_period_s_桃竹苗=date(2026, 1, 1), rad_period_e_桃竹苗=date(2026, 1, 15))
+    _ok(at)
+    at.button(key="gen_save_btn").click().run()
+    _ok(at)
+    rows = _rec(at)["snap"]["waves"][0]["rows"]
+    tao = [r for r in rows if r["region"] == "桃竹苗"]
+    north = [r for r in rows if r["region"] == "北區"]
+    assert tao and north
+    assert all(sum(r["schedule"][15:]) == 0 and sum(r["schedule"]) == r["spots"] for r in tao)
+    assert all(r["schedule"][-1] > 0 for r in north)
+    at.session_state["rad_use_region_period"] = False
+    at.run()
+    at.button(key="mycue_open").click().run()
+    _ok(at)
+    assert at.session_state["rad_use_region_period"] is True
+    assert at.session_state["rad_period_e_桃竹苗"] == date(2026, 1, 15)

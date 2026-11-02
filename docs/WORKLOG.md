@@ -64,3 +64,4 @@
 - 2026-10-30 ｜ [ragic-dev] 實作宜歆 #6 健康視CUE（health_cue.py）：曝光＝384,000×預算÷專案價未稅、定價同比例，版面照參考檔（東吳／聲活／鉑霖抬頭），健康視專用 6 條備註；價格讀 Google 設定表 HealthPricing 分頁（無則內建值）；存檔平台寫「全民健康視」，不提供送出訂檔 ｜ 宜歆 10/29 新增平台 ｜ Jonathan 在設定表新增 HealthPricing 分頁；Reboot 後實測存檔看 Ragic 平台欄是否接受「全民健康視」；請宜歆核對版面
 - 2026-10-30 ｜ 用 cueupload 服務帳號在設定表新增 HealthPricing 分頁（5 個秒數），app 讀取驗證成功 ｜ Jonathan：之前都能幫忙建 ｜ Reboot 測試 app 實測健康視
 - 2026-10-30 ｜ [ragic-dev] Jonathan 實測健康視CUE 存檔：cue/2 平台欄存入「全民健康視」成功 ｜ 確認 Ragic 是否接受新平台值 ｜ 請宜歆重測 #6／#7
+- 2026-11-02 ｜ [ragic-dev] 一般CUE 新增「📅 各區走期不同」（spec docs/specs/各區不同走期.md）：全家廣播／新鮮視選 2 區以上（非全省、未開分段執行）可設各區起訖；檔次照預算算、總數不變，平均排進該區走期，走期外留空；回饋／加贈列一併落在該區走期；存檔 [EXT] 可還原 ｜ Emily／宜歆 11/02：北區 10 萬走 1/1～1/31、桃區 5 萬走 1/1～1/15 要在同一張 CUE ｜ 推版後 Reboot 測試 app（app.py 新 import utils.apply_region_periods），請 Emily 試用；看是否需要各區直接填金額

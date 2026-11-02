@@ -339,6 +339,11 @@ def _apply_ext_state(ext_data):
                     if end_d:
                         ss[f"cb_end_{skey}"] = end_d
             continue
+        if isinstance(k, str) and (k.startswith(("rad_period_", "fv_period_"))) and v:
+            parsed = _parse_iso_date(v)   # 各區不同走期的起訖日
+            if parsed:
+                ss[k] = parsed
+            continue
         if k in date_keys and v:
             parsed = _parse_iso_date(v)
             if parsed:

@@ -50,6 +50,31 @@ def _slice_rows_to_segment(rows, start_date, seg_start, seg_end):
     return out
 
 
+def _render_region_period_ui(prefix, regs, start_date, end_date):
+    """各區不同走期（spec：各區不同走期.md）：回傳 {區域: (開始, 結束)}，只含與整張走期不同的區；未啟用回傳 {}。"""
+    ss = st.session_state
+    with st.expander("📅 各區走期不同", expanded=bool(ss.get(f"{prefix}use_region_period"))):
+        if not st.checkbox("啟用各區走期", key=f"{prefix}use_region_period",
+                           help="例：北區走 1/1～1/31、桃竹苗只走 1/1～1/15。該區檔次會平均排進自己的走期，其他日子 CUE 上留空。各區預算請用上方「自訂區域比例」。"):
+            return {}
+        st.caption(f"每區走期須在 {start_date:%Y/%m/%d}～{end_date:%Y/%m/%d} 內。")
+        out = {}
+        for r in regs:
+            ks, ke = f"{prefix}period_s_{r}", f"{prefix}period_e_{r}"
+            # 整張走期改過時，把超出範圍的舊值夾回走期內（widget 建立前改值）
+            ss[ks] = min(max(ss.get(ks, start_date), start_date), end_date)
+            ss[ke] = min(max(ss.get(ke, end_date), start_date), end_date)
+            c1, c2 = st.columns(2)
+            s = c1.date_input(f"{r} 開始", key=ks, min_value=start_date, max_value=end_date)
+            e = c2.date_input(f"{r} 結束", key=ke, min_value=start_date, max_value=end_date)
+            if e < s:
+                st.warning(f"{r}：結束日早於開始日，此區沿用整張走期。")
+                continue
+            if (s, e) != (start_date, end_date):
+                out[r] = (s, e)
+        return out
+
+
 def _round_half_up(value):
     return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
@@ -92,7 +117,8 @@ from utils import (
     build_ragic_details_full,
     build_platform_detail_text,
     build_platform_text,
-    expand_schedule_to_calendar
+    expand_schedule_to_calendar,
+    apply_region_periods,
 )
 from data_loader import load_config_from_cloud
 from calculator import calculate_plan_data, render_logic_panel
@@ -208,6 +234,13 @@ def _get_ragic_extra_state(row_groups):
             key = f"fv_region_{r}"
             if key in ss:
                 state[key] = ss[key]
+    # 各區不同走期（開關＋各區起訖日）
+    for pre in ("rad_", "fv_"):
+        if ss.get(f"{pre}use_region_period"):
+            state[f"{pre}use_region_period"] = True
+            for k, v in list(ss.items()):
+                if isinstance(k, str) and (k.startswith(f"{pre}period_s_") or k.startswith(f"{pre}period_e_")):
+                    state[k] = v
     # 業務加贈：依 row_groups 的 skey 從 session_state 讀取
     if row_groups:
         custom = []
@@ -1318,6 +1351,7 @@ def main():
 
         m1, m2, m3 = st.columns(3)
         config = {}
+        region_periods = {}   # 各區不同走期 {media: {區域: (開始, 結束)}}
         
         if is_rad:
             with m1:
@@ -1400,6 +1434,10 @@ def main():
                         else:
                             region_shares_rad = None
 
+                    if not is_nat and len(regs) >= 2 and not use_date_segments:
+                        _rp = _render_region_period_ui("rad_", regs, start_date, end_date)
+                        if _rp:
+                            region_periods["全家廣播"] = _rp
                     config["全家廣播"] = {"is_national": is_nat, "regions": regs, "sec_shares": sec_shares, "share": st.session_state.rad_share, "region_shares": region_shares_rad}
 
         if is_fv:
@@ -1482,6 +1520,10 @@ def main():
                         else:
                             region_shares_fv = None
 
+                    if not is_nat and len(regs) >= 2 and not use_date_segments:
+                        _rp = _render_region_period_ui("fv_", regs, start_date, end_date)
+                        if _rp:
+                            region_periods["新鮮視"] = _rp
                     config["新鮮視"] = {"is_national": is_nat, "regions": regs, "sec_shares": sec_shares, "share": st.session_state.fv_share, "region_shares": region_shares_fv}
 
         if is_cf:
@@ -1779,6 +1821,8 @@ def main():
                 for row in rows:
                     if (row.get("is_rebate") or row.get("is_custom_bonus")) and "schedule" in row:
                         row["schedule"] = expand_schedule_to_calendar(row["schedule"], segments, start_date, end_date)
+            if region_periods:
+                apply_region_periods(rows, region_periods, start_date, end_date)
             prod_cost = prod_cost_input 
             vat = _round_half_up(final_budget_val * 0.05)
             grand_total = final_budget_val + vat
