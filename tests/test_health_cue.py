@@ -14,14 +14,15 @@ D = dict(format="鉑霖", client="小檸檬媒體整合行銷有限公司", adve
 
 
 def test_calc_matches_reference():
-    assert h.calc(15, 300000) == {"impressions": 460800, "list": 450000, "net": 300000, "vat": 15000, "gross": 315000}
-    assert h.calc(10, 50000)["impressions"] == 115200          # 宜歆範例：384000/166667*50000
-    for s, (_l, _d, proj_tax) in h.DEFAULT_PRICING.items():   # 一個專案價＝38.4 萬次
-        assert h.calc(s, proj_tax / 1.05)["impressions"] == 384000
+    # 宜歆 11/3 #6-2：基準改 300面直客報價未稅（15秒 30 萬＝38.4 萬次、定價 375,000×30/30）
+    assert h.calc(15, 300000) == {"impressions": 384000, "list": 375000, "net": 300000, "vat": 15000, "gross": 315000}
+    assert h.calc(10, 50000)["impressions"] == 96000           # 384000/200000*50000
+    for s, (_l, direct, _p) in h.DEFAULT_PRICING.items():     # 一個直客報價＝38.4 萬次
+        assert h.calc(s, direct)["impressions"] == 384000
 
 
 def test_calc_uses_given_pricing():
-    p = {15: (393750, 300000, 525000)}
+    p = {15: (393750, 500000, 262500)}
     assert h.calc(15, 250000, p)["impressions"] == 192000
 
 
@@ -38,7 +39,7 @@ def test_excel_values():
     ws = load_workbook(io.BytesIO(h.build_excel(D))).active
     assert ws["B1"].value.startswith("鉑霖行動行銷") and ws["C4"].value == "鉑霖行動行銷 - 蔡宜歆"
     assert ws["G9"].value == "11/23-12/22\n執行週一至週五" and ws["F9"].value.startswith("15秒")
-    assert (ws["H9"].value, ws["I9"].value, ws["J9"].value) == (460800, 450000, 300000)   # 值版，無公式
+    assert (ws["H9"].value, ws["I9"].value, ws["J9"].value) == (384000, 375000, 300000)   # 值版，無公式
     assert (ws["J12"].value, ws["J13"].value) == (15000, 315000)
     assert ws["C11"].value == D["client"] and ws["B20"].value.startswith("6. 若實際曝光次數")
     ws2 = load_workbook(io.BytesIO(h.build_excel(dict(D, format="聲活", advertiser="廣告主乙", days="每日")))).active

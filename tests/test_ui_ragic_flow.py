@@ -352,13 +352,13 @@ def test_health_cue_save_no_booking():
     """宜歆 #6：健康視CUE 可存檔（平台寫全民健康視），不提供送出訂檔。"""
     at = _app("健康視CUE", hc_client="客戶甲", ragic_customer=CUSTOMER)
     _ok(at)
-    assert [m.value for m in at.metric][:2] == ["460,800", "$450,000"]                # 預設 15秒 30 萬
+    assert [m.value for m in at.metric][:2] == ["384,000", "$375,000"]                # 預設 15秒 30 萬
     assert not _has(at, "hc_save_submit")
     at.button(key="hc_save_btn").click().run()
     at.run()
     _ok(at)
     rec = _rec(at)
-    assert rec["mode"] == "健康視CUE" and rec["snap"]["header"]["impressions"] == 460800
+    assert rec["mode"] == "健康視CUE" and rec["snap"]["header"]["impressions"] == 384000
     from config import RAGIC_MAP
     row = at.session_state["_fake_db"][rec["rid"]]
     assert row[RAGIC_MAP["platform"]] == "全民健康視"

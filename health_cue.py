@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """健康視CUE（全民健康視，診所螢幕）：單列、走期區間、無每日檔次（spec：docs/specs/健康視CUE.md）。
-曝光次數＝384,000 × 預算 ÷ 該秒數專案價未稅；定價欄＝定價未稅 × 預算 ÷ 專案價未稅。
+曝光次數＝384,000 × 預算 ÷ 該秒數 300面直客報價未稅；定價欄＝定價未稅 × 預算 ÷ 直客報價未稅（宜歆 11/3 #6-2）。
 價格表讀 Google 設定表「HealthPricing」分頁，讀不到用下方內建值。"""
 import io
 from datetime import date, timedelta
@@ -10,9 +10,10 @@ from openpyxl.drawing.image import Image as OpenpyxlImage
 from openpyxl.styles import Alignment, Border, Font, Side
 
 PLATFORM = "全民健康視"
-BASE_IMPRESSIONS = 384000   # 每一個「專案價未稅」的曝光次數（各秒數相同）
+BASE_IMPRESSIONS = 384000   # 每一個「300面直客報價未稅」的曝光次數（各秒數相同；11/3 起由專案價改直客報價）
 VAT = 0.05
 # 秒數 → (定價含稅, 300面直客報價未稅, 專案價含稅)；未稅＝含稅 ÷ 1.05（宜歆 10/29 #6）
+# 計算基準＝300面直客報價未稅（宜歆 11/3 #6-2：改 300 面後賣價異動）；專案價含稅只留著參考
 DEFAULT_PRICING = {
     10: (262500, 200000, 175000),
     15: (393750, 300000, 262500),
@@ -35,13 +36,12 @@ def _rnd(x):
 
 def calc(seconds, budget, pricing=None):
     """回傳 {"impressions","list","net","vat","gross"}（皆整數）。"""
-    list_tax, _direct, proj_tax = (pricing or DEFAULT_PRICING)[int(seconds)]
-    proj_net = proj_tax / (1 + VAT)
+    list_tax, direct, _proj_tax = (pricing or DEFAULT_PRICING)[int(seconds)]
     budget = float(budget or 0)
     net = _rnd(budget)
     vat = _rnd(budget * VAT)
-    return {"impressions": _rnd(BASE_IMPRESSIONS * budget / proj_net),
-            "list": _rnd(list_tax / (1 + VAT) * budget / proj_net),
+    return {"impressions": _rnd(BASE_IMPRESSIONS * budget / direct),
+            "list": _rnd(list_tax / (1 + VAT) * budget / direct),
             "net": net, "vat": vat, "gross": net + vat}
 
 
@@ -292,7 +292,7 @@ def render_health_cue(sales_map, pricing=None):
     m2.metric("定價", f"${r['list']:,}")
     m3.metric("專案價（未稅）", f"${r['net']:,}")
     m4.metric("專案含稅價", f"${r['gross']:,}")
-    st.caption(f"曝光次數 ＝ 384,000 × 預算 ÷ {seconds}秒專案價未稅 {pricing[seconds][2] / 1.05:,.0f}")
+    st.caption(f"曝光次數 ＝ 384,000 × 預算 ÷ {seconds}秒 300面直客報價未稅 {pricing[seconds][1]:,.0f}")
     st.markdown("---")
     st.subheader("📥 檔案下載區")
     st.components.v1.html(preview_html(d, pricing), height=480, scrolling=True)
