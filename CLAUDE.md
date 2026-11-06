@@ -35,6 +35,7 @@
 - 測試：`tests/`（含 fidelity／visual_check／各模式 smoke）
 
 ## 下次續做
+- 11-04 宜歆 #9／#10：健康視CUE 可加「加贈／其他列」、每列可自行填入曝光（🧮 檔次試算）、專案價欄紅字自填（公益贈檔等）；spec `docs/specs/健康視CUE.md` §6-1。待 Reboot 後請宜歆重測，並回覆 #10 定價應以 750,000 算（281,250）。
 （2026-10-16 停在這裡；ragic-dev 最新 `47fcb5d`，完整測試 615 綠；main 最新 `44867dd`）
 - 11-02 一般CUE 新增「📅 各區走期不同」（spec `docs/specs/各區不同走期.md`；Emily／宜歆：北區走整月、桃區只走半月同一張 CUE）。同日依宜歆 8-2 加「自訂區域比例」每區 % ｜ 金額擇一填、自動換算。待 Reboot 後請 Emily／宜歆試用。
 - 10-30 宜歆 10/29 #6／#7：新增「健康視CUE」模式（`health_cue.py`，spec `docs/specs/健康視CUE.md`；價格讀設定表 HealthPricing 分頁、不提供訂檔）、表單前「① 這次的客戶」關卡＋「🆕 開新的 CUE」（spec `docs/specs/客戶先確認與開新CUE.md`）；另：申請 CUE號／送出訂檔限 RAGIC_REVIEWERS 與開發者（業務測試期只能存檔）。健康視存檔已實測：Ragic 平台欄可存「全民健康視」（10-30）。待宜歆重測 #6／#7。
