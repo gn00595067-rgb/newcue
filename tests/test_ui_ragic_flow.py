@@ -290,6 +290,8 @@ def test_book_is_deal_then_adjust_updates_booking():
     assert len(at.session_state["_fake_db"]) == 1                              # 先存＋送出後再存＝同一筆
     assert len(at.session_state["_fake_booking_calls"][-1][2]) == 2          # 訂檔CUE表＋客戶回簽檔
     assert at.session_state["_fake_files"][_rec(at)["rid"]]["1015884"][0] == "回簽.pdf"
+    assert at.session_state["_fake_booking_calls"][-1][3][0].startswith("【newcue 系統測試】")   # 測試期標記
+    assert at.session_state["_fake_test_log"] == [("cue", "1160101"), ("orders", "1160101", ["OD500"])]
     _enable_bonus(at, "simple_")
     at.button(key="simple_save_btn").click().run()
     at.run()
@@ -322,6 +324,16 @@ def test_sales_cannot_apply_cue_or_book():
     btn = at.button(key="simple_save_submit")
     assert btn.disabled and "限主管／開發者操作" in btn.help
     assert "_fake_booking_calls" not in at.session_state                         # 沒有任何 CUE號／訂檔呼叫
+
+
+def test_test_period_cue_quota():
+    """測試期：本月 cue/6 已滿 15 筆 → 申請 CUE號 鈕擋住並說明。"""
+    at = _app("簡易模式", ragic_customer=CUSTOMER, simple_client="客戶甲", _fake_test_count=15)
+    at.button(key="simple_save_btn").click().run()
+    at.run()
+    btn = at.button(key="simple_save_cue_apply")
+    assert btn.disabled and "15 筆上限" in btn.help
+    assert any("15／15" in c.value for c in at.caption)
 
 
 def test_customer_gate_and_new_cue():
@@ -363,6 +375,36 @@ def test_health_cue_save_no_booking():
     row = at.session_state["_fake_db"][rec["rid"]]
     assert row[RAGIC_MAP["platform"]] == "全民健康視"
     assert at.session_state["_fake_last_files"][RAGIC_MAP["file_xls"]][0].endswith("全民健康視(15秒) 30萬-" + row[RAGIC_MAP["sales"]] + ".xlsx")
+
+
+def test_health_cue_gift_row_and_manual_impressions():
+    """宜歆 11/4 #9／#10：加贈列自填曝光、專案價欄紅字；主列也可自行填入曝光、實收 0。"""
+    at = _app("健康視CUE", hc_client="客戶甲", ragic_customer=CUSTOMER, hc_seconds=30, hc_budget=100000)
+    _ok(at)
+    at.number_input(key="hc_extra_n").set_value(1).run()
+    _ok(at)
+    assert at.text_input(key="hc_x0_label").value == "贈檔" and at.radio(key="hc_x0_mode").value == "自行填入"
+    assert any("第 2 列：請填曝光次數" in i.value for i in at.info)
+    at.number_input(key="hc_x0_imp").set_value(80000).run()
+    at.text_input(key="hc_x0_label").input("公益贈檔").run()
+    _ok(at)
+    met = lambda: [m.value for m in at.metric if m.label != "試算曝光"]   # noqa: E731（排除檔次試算）
+    assert met()[:3] == ["144,000", "$281,250", "$100,000"]
+    at.button(key="hc_save_btn").click().run()
+    at.run()
+    _ok(at)
+    snap = _rec(at)["snap"]
+    assert snap["header"]["impressions"] == 144000 and snap["restore"]["hc_x0_label"] == "公益贈檔"
+    # #10：主列改自行填入、實收 0，用檔次試算帶入 8 小時 × 3 檔 × 20 天 × 300 面
+    at.number_input(key="hc_extra_n").set_value(0).run()
+    at.radio(key="hc_imp_mode").set_value("自行填入").run()
+    at.number_input(key="hc_budget").set_value(0).run()
+    days_key = next(n.key for n in at.number_input if n.key and n.key.startswith("hc_impressions_days_"))
+    at.number_input(key=days_key).set_value(20).run()
+    at.button(key="hc_impressions_apply").click().run()
+    _ok(at)
+    assert at.number_input(key="hc_impressions").value == 144000
+    assert met()[:4] == ["144,000", "$281,250", "$0", "$0"]
 
 
 def test_order_panel_inline_customer_and_fields():

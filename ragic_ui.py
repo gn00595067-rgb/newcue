@@ -426,6 +426,25 @@ def booking_enabled():
     return str(_secret("RAGIC_BOOKING_ENABLED", "")).strip().lower() in ("1", "true", "yes")
 
 
+def test_mode():
+    """測試期：程式申請的 CUE號／訂檔都記到 cue/6、訂檔需求說明加測試標記、每月 CUE號有上限。
+    預設開；正式上線時 Secrets RAGIC_TEST_MODE="false" 關掉。"""
+    return str(_secret("RAGIC_TEST_MODE", "true")).strip().lower() not in ("0", "false", "no")
+
+
+def test_limit():
+    try:
+        return int(str(_secret("RAGIC_TEST_CUE_LIMIT", "")).strip() or 15)
+    except ValueError:
+        return 15
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _test_month_count():
+    from ragic_booking import test_log
+    return test_log.count_this_month()
+
+
 def my_code(u):
     import cue_registry as reg
     return reg.sales_code(u.get("name", ""), u.get("email", ""), reg.parse_overrides(_secret("RAGIC_SALES_CODES", "")))
@@ -720,9 +739,36 @@ def _book(snap, od, files_d, rid=None, signback_bytes=None, serial=""):
                         f.write(up.getvalue())
                     att[fkey] = path
         applicant = reg_owner_name(snap) or (current_user() or {}).get("name", "")
+        if test_mode():
+            from ragic_booking import test_log
+            for d in orders:
+                d.需求說明 = test_log.mark_need(d.需求說明)
         if snap.get("booking"):
-            return oc.update_booking(snap, orders, booking=snap["booking"], attachments={"all": att}, applicant=applicant)
-        return oc.submit_booking(snap, orders, applicant=applicant, attachments={"all": att}, serial=serial)
+            res = oc.update_booking(snap, orders, booking=snap["booking"], attachments={"all": att}, applicant=applicant)
+        else:
+            res = oc.submit_booking(snap, orders, applicant=applicant, attachments={"all": att}, serial=serial)
+    if test_mode():
+        _log_test_orders(res)
+    return res
+
+
+def _log_test_orders(res):
+    """測試期：把這次建立的訂檔單號回填到 cue/6 該 CUE號 那列；失敗只加提醒，不影響訂檔結果。"""
+    from ragic_booking import fields as rf
+    from ragic_booking import test_log
+    from ragic_booking import write as rw
+    rids = [o.get("rid") for o in res.get("orders") or [] if o.get("rid") and o.get("action") != "更新"]
+    if not res.get("cue_id") or not rids:
+        return
+    try:
+        nos = [str((rw.read_record(rf.FORM_ORDER, rid) or {}).get("訂檔單號") or f"#{rid}") for rid in rids]
+        lg = test_log.log_orders(res["cue_id"], nos)
+        err = "" if lg.ok else lg.error
+    except Exception as e:  # noqa: BLE001
+        err = str(e)
+    _test_month_count.clear()
+    if err:
+        res["warning"] = "；".join(x for x in (res.get("warning"), f"測試紀錄表回填訂檔單號失敗：{err}") if x)
 
 
 def reg_owner_name(snap):
@@ -1182,18 +1228,41 @@ def _cue_box(snap, key_prefix, cue_saver, serial=""):
         miss = miss + ["訂檔寫入未開放"]
     if not can_book():
         miss = [BOOK_DENIED] + miss
+    if test_mode():
+        try:
+            n = _test_month_count()
+            st.caption(f"🧪 測試期：本月程式已申請 {n}／{test_limit()} 個 CUE號（記在 Ragic「CUE系統訂檔測試」）")
+            if n >= test_limit():
+                miss = [f"本月測試 CUE號已達 {test_limit()} 筆上限"] + miss
+        except Exception as e:  # noqa: BLE001
+            miss = [f"讀不到測試紀錄表（{e}）"] + miss
     c1, c2 = st.columns([1, 2])
     if c1.button("🎫 申請 CUE號", key=f"{key_prefix}_cue_apply", type="primary", disabled=bool(miss),
                  help=("尚缺：" + "、".join(m.split("（")[0] for m in miss)) if miss else
                  f"以客戶 {cust.get('編號', '')} 向 Ragic「新增CUE號申請表」申請；申請完才送出訂檔。"):
         applicant = reg_owner_name(snap) or (current_user() or {}).get("name", "")
+        if test_mode():   # 按下時再查一次最新數字（畫面上的數字有 60 秒快取）
+            from ragic_booking import test_log
+            try:
+                over = test_log.quota_block(test_limit())
+            except Exception as e:  # noqa: BLE001
+                over = f"讀不到測試紀錄表，先不申請（{e}）"
+            if over:
+                st.error(over)
+                return
         with st.spinner("申請 CUE號中…"):
             r = oc.apply_cue(snap, applicant=applicant, serial=serial)
         if not r["ok"]:
             st.error(f"CUE號申請失敗：{r['error']}")
             return
+        warn = r["warning"]
+        if test_mode():
+            lg = test_log.log_cue(r["cue_apply"]["cue_id"])
+            _test_month_count.clear()
+            if not lg.ok:
+                warn = "；".join(x for x in (warn, f"測試紀錄表寫入失敗：{lg.error}，請通知 Jonathan") if x)
         _cue_save(cue_saver, lambda s: s.__setitem__("cue_apply", r["cue_apply"]),
-                  f"✅ 已申請 CUE號 {r['cue_apply']['cue_id']}" + (f"（{r['warning']}）" if r["warning"] else ""))
+                  f"✅ 已申請 CUE號 {r['cue_apply']['cue_id']}" + (f"（{warn}）" if warn else ""))
     with c2.popover("已在 Ragic 申請過 CUE號？"):
         cid = st.text_input("輸入 CUE號（如 1151108）", key=f"{key_prefix}_cue_exist")
         if st.button("沿用這個 CUE號", key=f"{key_prefix}_cue_use", disabled=not cid.strip()):

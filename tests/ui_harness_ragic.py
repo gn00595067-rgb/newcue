@@ -111,7 +111,7 @@ ragic_ui.can_book = lambda: bool(st.session_state.get("_fake_can_book", True))  
 
 
 def _fake_submit_booking(snap, orders, *, applicant="", attachments=None, submit=None, serial=""):
-    st.session_state.setdefault("_fake_booking_calls", []).append(("submit", len(orders), sorted((attachments or {}).get("all", {}))))
+    st.session_state.setdefault("_fake_booking_calls", []).append(("submit", len(orders), sorted((attachments or {}).get("all", {})), [o.需求說明 for o in orders]))
     return {"ok": True, "cue_id": "1160101", "results": [], "error": "",
             "orders": [{"wave": i + 1, "rid": str(500 + i), "action": "新增"} for i in range(len(orders))]}
 
@@ -130,6 +130,18 @@ def _fake_apply_cue(snap, *, applicant="", serial="", **k):
             "cue_apply": {"cue_id": "1160101", "rid": "9", "客戶編號": cust.get("編號", ""), "客戶名稱": cust.get("名稱", ""),
                           "產品名稱": "產品乙", "業務": cust.get("業務", ""), "主管": cust.get("主管", "")}}
 
+
+# 測試期紀錄表 cue/6 改假的：本月數量看 _fake_test_count，寫入記在 _fake_test_log
+from ragic_booking import test_log  # noqa: E402
+from ragic_booking import write as _rw  # noqa: E402
+
+test_log.count_this_month = lambda *a, **k: int(st.session_state.get("_fake_test_count", 0))
+test_log.log_cue = lambda cue_id, **k: (st.session_state.setdefault("_fake_test_log", []).append(("cue", cue_id))
+                                        or _rw.WriteResult(ok=True, form="cue/6", rid="1"))
+test_log.log_orders = lambda cue_id, nos, **k: (st.session_state.setdefault("_fake_test_log", []).append(("orders", cue_id, nos))
+                                                or _rw.WriteResult(ok=True, form="cue/6", rid="1"))
+_rw.read_record = lambda form, rid: {"訂檔單號": f"OD{rid}"}
+ragic_ui._test_month_count.clear()
 
 oc.apply_cue = _fake_apply_cue
 oc.submit_booking = _fake_submit_booking
