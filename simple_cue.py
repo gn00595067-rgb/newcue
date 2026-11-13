@@ -153,7 +153,7 @@ def _render_reach(sheet, family):
     by_plat = reach.get("by_platform") or []
     if not by_plat:
         return
-    est = "（估算，依子公司規則延伸）" if family in ("2008", "carat") else ""
+    est = "（估算，依子公司規則延伸）" if family in ("2008", "carat", "ddrive") else ""
     st.markdown(f"**📣 預估曝光／人流（{sheet.seconds}秒版）**{est}"
                 "　　:gray[依公司「各平台人流計算方式」逐地區試算]")
 
@@ -213,7 +213,7 @@ def _pills(label, options, fmt, key, default_index=0):
 # =============================================================================
 def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                       regions_order=None, sales_map=None, family="subsidiary"):
-    """family="subsidiary"：簡易模式（子公司組合）；"agency"：代理商CUE 分頁內的一鍵模板（2008／凱絡）。"""
+    """family="subsidiary"：簡易模式（子公司組合）；"agency"：代理商CUE 分頁內的一鍵模板（2008／凱絡／佳聖）。"""
     is_agency = family == "agency"
     # 從 Ragic「我的 CUE」開啟時的覆寫值（無 key 的欄位以此為預設值；開新 CUE 時清除）
     _ov = cue_store_from(st.session_state.get("_simple_restore") or {})

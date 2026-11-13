@@ -35,6 +35,7 @@
 - 測試：`tests/`（含 fidelity／visual_check／各模式 smoke）
 
 ## 下次續做
+- 11-11 宜歆 #11：代理商一鍵CUE 加 ⑤／⑥ 佳聖（spec `docs/specs/佳聖一鍵CUE.md`）。待 Reboot 後請宜歆試；待確認佳聖全家定價（暫用 15 秒 1,300）、素材日（開始日前 4 個工作天）。
 - 11-06 測試期 CUE號上限：申請 CUE號／送出訂檔記到 Ragic cue/6「CUE系統訂檔測試」，每月 15 筆（`RAGIC_TEST_CUE_LIMIT`）、訂檔需求說明加【newcue 系統測試】；正式上線設 `RAGIC_TEST_MODE="false"`（spec `docs/specs/測試期CUE號上限.md`）。cue/6 有一筆欄位測試資料「TEST-欄位測試」佔本月 1 筆，Jonathan 確認後刪。
 - 11-04 宜歆 #9／#10：健康視CUE 可加「加贈／其他列」、每列可自行填入曝光（🧮 檔次試算）、專案價欄紅字自填（公益贈檔等）；spec `docs/specs/健康視CUE.md` §6-1。待 Reboot 後請宜歆重測，並回覆 #10 定價應以 750,000 算（281,250）。
 （2026-10-16 停在這裡；ragic-dev 最新 `47fcb5d`，完整測試 615 綠；main 最新 `44867dd`）

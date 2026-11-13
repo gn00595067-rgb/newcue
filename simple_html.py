@@ -159,7 +159,7 @@ def _sub_table(model, sheet):
 
 
 # --------------------------------------------------------------------------- #
-# 代理商（2008 / 凱絡）通用簡表
+# 代理商（2008 / 凱絡 / 佳聖）通用簡表
 # --------------------------------------------------------------------------- #
 def _agency_table(model, sheet):
     days = sheet.days
@@ -214,6 +214,12 @@ def _agency_table(model, sheet):
                  f'<tr><td class="lbl">VAT 5%</td><td>{_money(f["vat"])}</td></tr>'
                  f'<tr><td class="lbl b">Grand-Total</td><td class="b">{_money(f["grand"])}</td></tr>'
                  "</table>")
+    elif f.get("type") == "ddrive":   # 佳聖：無 AC
+        h.append('<table class="fees">'
+                 f'<tr><td class="lbl">Total Net Cost</td><td>{_money(f["net"])}</td></tr>'
+                 f'<tr><td class="lbl">VAT (5%)</td><td>{_money(f["vat"])}</td></tr>'
+                 f'<tr><td class="lbl b">Total Gross Cost</td><td class="b">{_money(f["gross"])}</td></tr>'
+                 "</table>")
     else:
         h.append('<table class="fees">'
                  f'<tr><td class="lbl">Budget (net)</td><td>{_money(f["budget"])}</td></tr>'
@@ -240,7 +246,7 @@ def sheet_html(model, sheet):
         cls, grand = "cue-subsidiary", sheet.fees["grand"]
     else:
         body = _head(model, sheet) + _agency_table(model, sheet)
-        cls = "cue-2008" if model.family == "2008" else "cue-carat"
+        cls = {"2008": "cue-2008", "ddrive": "cue-ddrive"}.get(model.family, "cue-carat")
         grand = sheet.fees.get("total") or sheet.fees.get("grand")
     body += _remarks_html(model)
     total_spots = sum(r.spots for b in sheet.blocks for r in b.rows)

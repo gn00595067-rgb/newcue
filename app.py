@@ -1098,7 +1098,7 @@ def main():
                 return
             # 一鍵CUE：原簡易模式中的 2008／凱絡模板（2026-10-08 由簡易模式移入）；自訂：原代理商CUE
             ag_mode = st.radio("代理商CUE 方式", ["一鍵CUE（模板）", "自訂代理商CUE"], key="agency_sub_mode",
-                               horizontal=True, help="一鍵CUE：選 2008／凱絡模板＋預算＋開始日即出，用法同簡易模式。自訂：逐項設定平台、秒數、檔次。")
+                               horizontal=True, help="一鍵CUE：選 2008／凱絡／佳聖模板＋預算＋開始日即出，用法同簡易模式。自訂：逐項設定平台、秒數、檔次。")
             if not _customer_bar(cue_mode):
                 return
             if ag_mode == "一鍵CUE（模板）":

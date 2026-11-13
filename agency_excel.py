@@ -438,13 +438,15 @@ def _render_ddrive(wb, sheet, model, made_date):
         _set(ws, f"{D_}{r}", row["daypart"], size=18, wrap=True)
         _set(ws, f"{E_}{r}", row["spots"], size=18)
         if row["material"]:
-            _set(ws, f"{F_}{r}", row["material"], size=18, fmt=MATERIAL_FMT)
+            _set(ws, f"{F_}{r}", row["material"], size=18, fmt=MATERIAL_FMT, wrap=True)
         is_super = row["kind"] in (ac.KIND_SUPER, ac.KIND_SUPER_REBATE)
-        gval = ac.NET_ON_MAG if is_super else row["list_total"]
+        # 樂家康定價：自訂代理商CUE 不計（顯示「計價於量販」）；一鍵模板有計（宜歆 #11 範例 1,152,000）
+        super_priced = is_super and isinstance(row["list_total"], (int, float)) and row["list_total"] > 0
+        gval = ac.NET_ON_MAG if is_super and not super_priced else row["list_total"]
         _net_cell(ws, f"{G_}{r}", gval, size=18, fmt=NUM)
         _net_cell(ws, f"{H_}{r}", row["net_display"], size=18, fmt=NUM, align="right")
         total_spots += row["spots"]
-        if not is_super and isinstance(row["list_total"], (int, float)):
+        if (not is_super or super_priced) and isinstance(row["list_total"], (int, float)):
             total_list += row["list_total"]
         if isinstance(row["net_display"], (int, float)):
             total_net += row["net_display"]
@@ -464,10 +466,16 @@ def _render_ddrive(wb, sheet, model, made_date):
     if is_wjf:
         # 萬家福：託播秒數/素材/專案執行價 合併量販+超市（前兩列）
         if data_bot >= first_data + 1:
-            for c in (C_, F_, H_):
+            rows2 = sheet["rows"][:2]
+            # 專案執行價：樂家康列是「計價於量販」時合併顯示預算；一鍵模板樂家康列自帶「計於萬家福」則逐列顯示
+            merge_net = rows2[1]["net_display"] == ac.NET_ON_MAG or sheet["is_rebate_wave"]
+            # 地區兩列相同（一鍵模板「全台」）也合併
+            same_region = rows2[0]["region_label"] == rows2[1]["region_label"]
+            for c in (C_, F_) + ((H_,) if merge_net else ()) + ((B_,) if same_region else ()):
                 _merge(ws, f"{c}{first_data}:{c}{first_data + 1}")
-            _net_cell(ws, f"{H_}{first_data}", sheet["budget"] if not sheet["is_rebate_wave"] else ac.NET_REBATE,
-                      size=18, fmt=NUM, align="right")
+            if merge_net:
+                _net_cell(ws, f"{H_}{first_data}", sheet["budget"] if not sheet["is_rebate_wave"] else ac.NET_REBATE,
+                          size=18, fmt=NUM, align="right")
     else:
         # 全家：媒體/地區/秒數/時段/素材 直向合併整塊
         if data_bot > first_data:
@@ -513,6 +521,8 @@ def _render_ddrive(wb, sheet, model, made_date):
     fee_lines = [("Total Net Cost", f["net"]), ("VAT   (5%)", f["vat"]), ("Total Gross Cost", f["gross"])]
     for i, (lab, val) in enumerate(fee_lines):
         rr = subtotal_row + 2 + i
+        # 22pt 字在預設列高會與下一列重疊（VAT／Gross 疊字），至少 40
+        ws.row_dimensions[rr].height = max(ws.row_dimensions[rr].height or 0, 40)
         _set(ws, f"{F_}{rr}", lab, size=22, bold=True, align="left")
         _net_cell(ws, f"{H_}{rr}", val, size=22, bold=True, fmt=NUM, align="right")
     return ws

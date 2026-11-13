@@ -12,6 +12,7 @@
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from math import floor
+from types import SimpleNamespace
 
 import agency_cue as ac
 from agency_cue import rhu
@@ -106,7 +107,7 @@ class CueSheet:
 class CueModel:
     combo_key: str
     combo_label: str
-    family: str                 # subsidiary | 2008 | carat
+    family: str                 # subsidiary | 2008 | carat | ddrive(佳聖)
     client: str = ""
     tax_id: str = ""
     product: str = ""
@@ -459,6 +460,54 @@ def _fees_carat(budget):
             "ac": 0, "vat": vat, "grand": budget + vat}
 
 
+def _build_ddrive(combo, budget, start, end, data):
+    """佳聖（宜歆 #11）：單秒價同 2008／凱絡，不附回饋列；萬家福兩列都計定價、樂家康專案價「計於萬家福」。
+    定價一律用 sc.AGENCY_LIST_PRICE（設定表 AgencyPricing 的佳聖列是自訂代理商CUE 的 3,400 表）。"""
+    days = _daycols(start, end)
+    ndays = len(days)
+    agency = combo["agency"]
+    builtin = SimpleNamespace(agency_pricing=sc.AGENCY_LIST_PRICE)   # 只查內建表
+    # 素材：開始日前 4 個工作天中午前（範例 12/22 → 12/16 1200前）
+    mat = ac.minus_business_days(start, 4)
+    material = f"{mat.month}/{mat.day}\n1200前"
+    sheets = []
+    for sec in combo["seconds"]:
+        if combo["platform"] == "family":
+            n = rhu(budget / _agency_unit_net("family", sec))
+            lp = _list_per(agency, "全家企頻", sec, builtin)
+            station, region, daypart = ac.AGENCY_LABELS["佳聖"]["family"]
+            main = CueRow(kind="main", station=station, region=region, daypart=daypart,
+                          seconds=sec, spots=n, schedule=distribute(n, ndays),
+                          list_per=lp, list_total=lp * n, material=material)
+            main.net_display = budget
+            blocks = [CueBlock(platform="全家企頻", rows=[main])]
+            title = f"全家 {sec}秒"
+        else:
+            n = rhu(budget / _agency_unit_net("wjf", sec))
+            sn = super_spots(n)
+            lp = _list_per(agency, "萬家福", sec, builtin)
+            mag = CueRow(kind="main", station=f'萬家福-{sec}"量販店', region="全台", daypart="09-23",
+                         seconds=sec, spots=n, schedule=distribute(n, ndays),
+                         list_per=lp, list_total=lp * n, material=material)
+            mag.net_display = budget
+            sup = CueRow(kind="super", station=f'樂家康-{sec}"超市', region="全台", daypart="00-24",
+                         seconds=sec, spots=sn, schedule=distribute(sn, ndays),
+                         list_per=lp, list_total=lp * sn)
+            sup.net_display = sc.TXT_DDRIVE_ON_MAG
+            blocks = [CueBlock(platform="萬家福", rows=[mag, sup])]
+            title = f"萬家福&樂家康 {sec}秒"
+        sheets.append(CueSheet(title=title, seconds=sec, blocks=blocks, days=days, budget=budget,
+                               fees=_fees_ddrive(budget),
+                               reach=sr.compute_reach(blocks, data, ndays)))
+    return sheets
+
+
+def _fees_ddrive(budget):
+    vat = rhu(budget * 0.05)
+    # grand：一鍵流程摘要／預覽共用鍵；gross：佳聖版面用語
+    return {"type": "ddrive", "net": budget, "vat": vat, "gross": budget + vat, "grand": budget + vat}
+
+
 def _mmdd(d):
     return f"{d.month}/{d.day}"
 
@@ -490,6 +539,8 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
         sheets = _build_subsidiary(combo, budget, start, end, int(prod_cost), data, regions, barter)
     elif fam == "2008":
         sheets = _build_2008(combo, budget, start, end, data)
+    elif fam == "ddrive":
+        sheets = _build_ddrive(combo, budget, start, end, data)
     else:
         sheets = _build_carat(combo, budget, start, end, data)
 
@@ -522,6 +573,8 @@ def _subsidiary_remarks(combo, sign, billing, pay):
 
 def _agency_remarks(combo, start, end, budget, sign=None):
     agency = combo["agency"]
+    if agency == "佳聖":   # 佳聖：備註只有請款金額一行（跨月依天數拆分）
+        return [(ac.default_payment_note(start, end, budget), False)]
     if agency == "凱絡":
         sign = sign or (start - timedelta(days=7))
         pay = _carat_payment(start, end, budget)
