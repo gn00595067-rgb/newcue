@@ -22,6 +22,7 @@ from openpyxl.worksheet.properties import PageSetupProperties
 
 import config
 import agency_cue as ac
+from xlsx_formula_cache import fill_formula_cache, price_formula
 
 FONT = config.FONT_MAIN
 
@@ -292,7 +293,8 @@ def _render_2008(wb, sheet, model, made_date):
         if main["kind"] in (ac.KIND_SUPER, ac.KIND_SUPER_REBATE):
             _set(ws, f"{D_}{gtop}", ac.NET_ON_MAG, size=24)
         else:
-            _set(ws, f"{D_}{gtop}", main["list_total"], size=24, fmt=ACCT)
+            # 定價寫成 =單價*檔次，點進去看得到算法（宜歆 11/12 #13）
+            _set(ws, f"{D_}{gtop}", price_formula(main.get("list_per"), main["list_total"]), size=24, fmt=ACCT)
         _set(ws, f"{E_}{gtop}", f"{sec}秒", size=24)
         _net_cell(ws, f"{G_}{gtop}", main["net_display"], size=24)
         _set(ws, f"{H_}{gtop}", _mat_str(main["material"]), size=24, wrap=True)
@@ -443,7 +445,10 @@ def _render_ddrive(wb, sheet, model, made_date):
         # 樂家康定價：自訂代理商CUE 不計（顯示「計價於量販」）；一鍵模板有計（宜歆 #11 範例 1,152,000）
         super_priced = is_super and isinstance(row["list_total"], (int, float)) and row["list_total"] > 0
         gval = ac.NET_ON_MAG if is_super and not super_priced else row["list_total"]
-        _net_cell(ws, f"{G_}{r}", gval, size=18, fmt=NUM)
+        if gval is row["list_total"] and isinstance(gval, (int, float)):
+            _set(ws, f"{G_}{r}", price_formula(row.get("list_per"), gval), size=18, fmt=NUM)  # #13 看得到算法
+        else:
+            _net_cell(ws, f"{G_}{r}", gval, size=18, fmt=NUM)
         _net_cell(ws, f"{H_}{r}", row["net_display"], size=18, fmt=NUM, align="right")
         total_spots += row["spots"]
         if (not is_super or super_priced) and isinstance(row["list_total"], (int, float)):
@@ -622,7 +627,7 @@ def _render_carat(wb, sheet, model, made_date):
             _set(ws, f"{MARKET}{rr}", row["market_per"], size=12, fmt=ACCT)
             _set(ws, f"{UNI}{rr}", row["uni_per"], size=12, fmt=ACCT)
             _set(ws, f"{SPOTS}{rr}", row["spots"], size=12, fmt=CARAT_H_FMT)
-            _set(ws, f"{TOTAL}{rr}", row["uni_total"], size=12, fmt=ACCT)
+            _set(ws, f"{TOTAL}{rr}", price_formula(row.get("uni_per"), row["uni_total"]), size=12, fmt=ACCT)  # #13
             # 回饋列在表上顯示「聲活回饋」（內部 net_display 仍為專案回饋）
             jval = row["net_display"]
             if row["kind"] == ac.KIND_REBATE and jval == ac.NET_REBATE:
@@ -766,4 +771,4 @@ def generate_agency_excel(model, made_date=None):
         wb.create_sheet(title="空")
     bio = BytesIO()
     wb.save(bio)
-    return bio.getvalue()
+    return fill_formula_cache(bio.getvalue())

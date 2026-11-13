@@ -10,6 +10,8 @@ from copy import copy
 from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as XLImage
 
+from xlsx_formula_cache import fill_formula_cache
+
 _BAD = set(':\\/?*[]')
 
 
@@ -88,4 +90,4 @@ def merge_xlsx(parts):
         out.create_sheet("空")
     bio = io.BytesIO()
     out.save(bio)
-    return bio.getvalue()
+    return fill_formula_cache(bio.getvalue())  # 合併後公式快取會掉，補回

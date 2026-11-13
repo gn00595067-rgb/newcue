@@ -243,7 +243,7 @@ def test_F_2008_wjf_rebate_wave():
     sup = _row(sh, ac.KIND_SUPER)
     assert mag["spots"] == 413
     assert sup["spots"] == 708
-    assert mag["list_total"] == 805_350  # 1950 × 413
+    assert mag["list_total"] == 1_404_200  # 3400 × 413（宜歆 11/12 #12）
     assert sh["is_rebate_wave"] is True
     assert mag["net_display"] == ac.NET_REBATE
     assert sh["fees"]["total"] == ac.NET_REBATE
@@ -329,3 +329,33 @@ if __name__ == "__main__":
             failed += 1
     print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)
+
+
+def test_2008_wjf_list_price_4000():
+    # 宜歆 11/12 #12：2008 萬家福 20秒單檔 4000，15秒=×0.85、10秒=×0.65
+    assert ac.get_agency_list_price("2008傳媒", "萬家福", 20) == 4000
+    assert ac.get_agency_list_price("2008傳媒", "萬家福", 15) == 3400
+    assert ac.get_agency_list_price("2008傳媒", "萬家福", 10) == 2600
+
+
+def test_list_total_written_as_formula_with_cache():
+    # 宜歆 11/12 #13：定價格寫成 =單價*檔次，且有快取值（受保護檢視／PDF 不空白）
+    import io
+    from openpyxl import load_workbook
+    from agency_excel import generate_agency_excel
+    for agency in ("2008傳媒", "佳聖", "凱絡"):
+        m = ac.build_agency_model(
+            agency, "統一企業", "產品", "",
+            date(2027, 1, 6), date(2027, 1, 22), 250000,
+            None, _wjf(seconds=20, mag_override=420),
+            ac.COMP_NONE, date(2027, 1, 1), 3.0,
+        )
+        x = generate_agency_excel(m)
+        f_cells = [c for ws in load_workbook(io.BytesIO(x)).worksheets
+                   for row in ws.iter_rows() for c in row
+                   if isinstance(c.value, str) and c.value.startswith("=")]
+        assert f_cells, agency
+        v_wb = load_workbook(io.BytesIO(x), data_only=True)
+        for c in f_cells:
+            per, n = c.value[1:].split("*")
+            assert v_wb[c.parent.title][c.coordinate].value == int(per) * int(n), (agency, c.coordinate)
