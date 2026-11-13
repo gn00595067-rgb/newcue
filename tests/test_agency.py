@@ -359,3 +359,17 @@ def test_list_total_written_as_formula_with_cache():
         for c in f_cells:
             per, n = c.value[1:].split("*")
             assert v_wb[c.parent.title][c.coordinate].value == int(per) * int(n), (agency, c.coordinate)
+
+
+def test_preview_super_list_shows_on_mag_not_zero():
+    # 預覽樂家康定價沒另計時顯示「計價於量販」，同 Excel，不顯示 $0
+    from agency_ui import build_agency_html
+    m = ac.build_agency_model(
+        "2008傳媒", "統一企業", "產品", "",
+        date(2027, 1, 6), date(2027, 1, 22), 250000,
+        None, _wjf(seconds=20, mag_override=420),
+        ac.COMP_NONE, date(2027, 1, 1), 3.0,
+    )
+    html = build_agency_html(m)
+    assert "<td>$0</td>" not in html
+    assert html.count(ac.NET_ON_MAG) >= 2   # 樂家康 定價欄＋實收欄

@@ -168,9 +168,14 @@ def build_agency_html(model, made_date=None):
                          f"<td>{row['spots']}</td><td>{_fmt_money(row['uni_total'])}</td>"
                          f"<td{reb}>{_fmt_money(row['net_display'])}</td>")
             else:
+                # 樂家康定價沒另計時顯示「計價於量販」（同 Excel），不顯示 $0
+                lst = row['list_total']
+                if (row['kind'] in (ac.KIND_SUPER, ac.KIND_SUPER_REBATE)
+                        and not (isinstance(lst, (int, float)) and lst > 0)):
+                    lst = ac.NET_ON_MAG
                 cells = (f"<td class='l'>{label}</td><td>{html_escape(row['region_label'])}</td>"
                          f"<td>{html_escape(row['daypart'])}</td><td>{sh['seconds']}秒</td>"
-                         f"<td>{_fmt_money(row['list_total'])}</td><td>{row['spots']}</td>"
+                         f"<td>{_fmt_money(lst)}</td><td>{row['spots']}</td>"
                          f"<td{reb}>{_fmt_money(row['net_display'])}</td>")
             out.append(f"<tr>{cells}{daycells}</tr>")
         out.append("</table>")

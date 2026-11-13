@@ -566,7 +566,7 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
         if st.button("🆕 開新的 CUE（清空重來）", key=f"{key_prefix}_unlink"):
             request_new_cue()
     s = cs.summarize(snap)
-    st.caption(f"{s['waves']} 波｜{s['platform_detail'] or s['platform']}｜{s['seconds']}秒｜"
+    st.caption(f"{s['waves']} 波｜{(s['platform_detail'] or s['platform']).replace('家樂福', '萬家福．樂家康')}｜{s['seconds']}秒｜"
                f"總檔次 {s['total_spots']:,}｜實收合計 ${s['net_total']:,}")
 
     style = None

@@ -382,6 +382,11 @@ def _agency_unlock_gate(key_prefix="agency"):
 AQ_AGENCY_FORMATS = ["2008傳媒", "凱絡"]
 
 
+def _aq_media(m):
+    """畫面顯示用：家樂福已改名萬家福．樂家康（combo 的 media 仍存「家樂福」，回饋／Ragic 靠它比對）。"""
+    return "萬家福．樂家康" if m == "家樂福" else m
+
+
 def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, regions_order, fmt_options, fmt_idx, sales_map):
     """年約／季約細 CUE：以已知檔次與實收分配至各波段，每波段獨立 Excel/PDF。每個廣告組合可個別設定每波檔次與實收；若不知道各波分配則填該組合總檔次／總實收後按「依天數均分」。"""
     st.caption("以已知**執行區域、平台、秒數**設定各波段檔次與實收；若不知各波分配，可填該**廣告組合**的總檔次／總實收後按「依波段天數均分」。")
@@ -457,7 +462,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
             st.info("請在右側選擇平台、區域、秒數後按「加入組合」。")
         else:
             for i, c in enumerate(st.session_state.aq_combos):
-                st.text(f"【{c['media']}】{c['region']} {c['seconds']}秒")
+                st.text(f"【{_aq_media(c['media'])}】{c['region']} {c['seconds']}秒")
                 if st.button("刪除", key=f"aq_del_{i}"):
                     st.session_state.aq_combos.pop(i)
                     for w in st.session_state.aq_waves:
@@ -469,7 +474,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
 
     _ensure_wave_combo_arrays()
     if is_agency_fmt:
-        _bad = [f"【{c['media']}】{c['region']} {c['seconds']}秒" for c in combos if not agency_combo_ok(c)]
+        _bad = [f"【{_aq_media(c['media'])}】{c['region']} {c['seconds']}秒" for c in combos if not agency_combo_ok(c)]
         if _bad:
             st.warning("代理商格式只支援全家廣播（全省）與萬家福．樂家康，以下組合不會出現在 CUE 上：" + "、".join(_bad))
 
@@ -529,7 +534,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
             st.markdown("**總計（均分用）**")
         for j in range(n_combos):
             c = combos[j]
-            lbl = f"【{c['media']}】{c['region']} {c['seconds']}秒"
+            lbl = f"【{_aq_media(c['media'])}】{c['region']} {c['seconds']}秒"
             with row_tot[1 + j*2]:
                 st.number_input(lbl + " 總檔次", min_value=0, value=st.session_state.get(f"aq_ct_spots_{j}", 0), key=f"aq_ct_spots_{j}", label_visibility="collapsed")
             with row_tot[2 + j*2]:
@@ -564,7 +569,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
             st.markdown("**結束日**")
         for j in range(n_combos):
             c = combos[j]
-            short = f"{c['media']}{c['region']}{c['seconds']}s"
+            short = f"{_aq_media(c['media'])}{c['region']}{c['seconds']}s"
             with h_cols[3 + j*2]:
                 st.markdown(f"**{short} 檔次**")
             with h_cols[4 + j*2]:
