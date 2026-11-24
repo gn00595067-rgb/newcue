@@ -538,6 +538,28 @@ def _subsidiary_remarks(ws, model, r_hd, r0, r_sign, formulas, C_V):
 
 
 # =============================================================================
+# 佳聖（宜歆 #11）：沿用自訂代理商CUE 的佳聖版面（agency_excel._render_ddrive），轉接 model
+# =============================================================================
+def _render_ddrive(wb, model):
+    import agency_cue as ac
+    from agency_excel import _render_ddrive as render_sheet
+    kind_map = {"main": ac.KIND_MAIN, "super": ac.KIND_SUPER}
+    ag_model = {"agency": "佳聖", "client_name": model.client, "product_name": model.product,
+                "start_date": model.start, "end_date": model.end,
+                "payment_note": model.remarks[0][0] if model.remarks else ""}
+    for sheet in model.sheets:
+        blk = sheet.blocks[0]
+        rows = [{"kind": kind_map.get(r.kind, r.kind), "media_label": r.station, "region_label": r.region,
+                 "daypart": r.daypart, "spots": r.spots, "schedule": r.schedule,
+                 "material": r.material or "", "list_total": r.list_total or 0,
+                 "net_display": r.net_display} for r in blk.rows]
+        ag_sheet = {"platform": ac.PLATFORM_FAMILY if blk.platform == "全家企頻" else ac.PLATFORM_WJF,
+                    "seconds": sheet.seconds, "budget": sheet.budget, "is_rebate_wave": False,
+                    "rows": rows, "fees": sheet.fees}
+        render_sheet(wb, ag_sheet, ag_model, model.made_date)
+
+
+# =============================================================================
 # 對外入口
 # =============================================================================
 def render(model, formulas=True):
@@ -550,6 +572,8 @@ def render(model, formulas=True):
     elif model.family == "carat":
         from simple_excel_agency import render_carat
         render_carat(wb, model, formulas)
+    elif model.family == "ddrive":
+        _render_ddrive(wb, model)
     else:
         raise ValueError(model.family)
     # 移除預設空白分頁

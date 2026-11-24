@@ -12,6 +12,7 @@
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from math import floor
+from types import SimpleNamespace
 
 import agency_cue as ac
 from agency_cue import rhu
@@ -106,7 +107,7 @@ class CueSheet:
 class CueModel:
     combo_key: str
     combo_label: str
-    family: str                 # subsidiary | 2008 | carat
+    family: str                 # subsidiary | 2008 | carat | ddrive(佳聖)
     client: str = ""
     tax_id: str = ""
     product: str = ""
@@ -195,8 +196,9 @@ def _effective_regions(media, regions):
     return sel
 
 
-def sub_unit_net(media, sec, data, regions=None):
+def sub_unit_net(media, sec, data, regions=None, barter=False):
     """子公司單檔實作價（隱藏）。
+    barter＝交換合約（元朗）：改依定價 List 核算（宜歆 10/22 #4-2：新鮮視全省 15 萬、企頻 40 萬）。
     全省：全省 Net / 全省 Std × factor（§4.3）。
     指定區域（子集）：Σ(各選定區 Net) / 全省 Std × factor
       —— Net 用各區牌價加總，Std 沿用全省實作基準（§4.6 新鮮視 Std=504 設計）。
@@ -204,9 +206,10 @@ def sub_unit_net(media, sec, data, regions=None):
     f = factor(media, sec, data)
     nat = _national(media, data)
     sel = _effective_regions(media, regions)
+    key = "List" if barter else "Net"
     if sel is None:
-        return nat["Net"] / nat["Std"] * f
-    net_sum = sum(data.pricing[media][r]["Net"] for r in sel)
+        return nat[key] / nat["Std"] * f
+    net_sum = sum(data.pricing[media][r][key] for r in sel)
     return net_sum / nat["Std"] * f
 
 
@@ -234,7 +237,7 @@ def _minguo_month(d):
 # =============================================================================
 # 子公司建模（§4.3 / 4.4 / 4.6）
 # =============================================================================
-def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None):
+def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None, barter=False):
     days = _daycols(start, end)
     ndays = len(days)
     sheets = []
@@ -242,14 +245,14 @@ def _build_subsidiary(combo, budget, start, end, prod_cost, data, regions=None):
         # 各區塊預算佔比 → 檔次
         plats = []
         for i, media in enumerate(combo["blocks"]):
-            plats.append((media, combo["split"][i], sub_unit_net(media, sec, data, regions)))
+            plats.append((media, combo["split"][i], sub_unit_net(media, sec, data, regions, barter)))
         alloc = allocate_spots(budget, plats)
 
         blocks = []
         hidden = 0.0
         for media in combo["blocks"]:
             n = alloc[media]
-            unit = sub_unit_net(media, sec, data, regions)
+            unit = sub_unit_net(media, sec, data, regions, barter)
             hidden += n * unit
             sch = distribute(n, ndays)
             rows = []
@@ -457,6 +460,54 @@ def _fees_carat(budget):
             "ac": 0, "vat": vat, "grand": budget + vat}
 
 
+def _build_ddrive(combo, budget, start, end, data):
+    """佳聖（宜歆 #11）：單秒價同 2008／凱絡，不附回饋列；萬家福兩列都計定價、樂家康專案價「計於萬家福」。
+    定價一律用 sc.AGENCY_LIST_PRICE（設定表 AgencyPricing 的佳聖列是自訂代理商CUE 的 3,400 表）。"""
+    days = _daycols(start, end)
+    ndays = len(days)
+    agency = combo["agency"]
+    builtin = SimpleNamespace(agency_pricing=sc.AGENCY_LIST_PRICE)   # 只查內建表
+    # 素材：開始日前 4 個工作天中午前（範例 12/22 → 12/16 1200前）
+    mat = ac.minus_business_days(start, 4)
+    material = f"{mat.month}/{mat.day}\n1200前"
+    sheets = []
+    for sec in combo["seconds"]:
+        if combo["platform"] == "family":
+            n = rhu(budget / _agency_unit_net("family", sec))
+            lp = _list_per(agency, "全家企頻", sec, builtin)
+            station, region, daypart = ac.AGENCY_LABELS["佳聖"]["family"]
+            main = CueRow(kind="main", station=station, region=region, daypart=daypart,
+                          seconds=sec, spots=n, schedule=distribute(n, ndays),
+                          list_per=lp, list_total=lp * n, material=material)
+            main.net_display = budget
+            blocks = [CueBlock(platform="全家企頻", rows=[main])]
+            title = f"全家 {sec}秒"
+        else:
+            n = rhu(budget / _agency_unit_net("wjf", sec))
+            sn = super_spots(n)
+            lp = _list_per(agency, "萬家福", sec, builtin)
+            mag = CueRow(kind="main", station=f'萬家福-{sec}"量販店', region="全台", daypart="09-23",
+                         seconds=sec, spots=n, schedule=distribute(n, ndays),
+                         list_per=lp, list_total=lp * n, material=material)
+            mag.net_display = budget
+            sup = CueRow(kind="super", station=f'樂家康-{sec}"超市', region="全台", daypart="00-24",
+                         seconds=sec, spots=sn, schedule=distribute(sn, ndays),
+                         list_per=lp, list_total=lp * sn)
+            sup.net_display = sc.TXT_DDRIVE_ON_MAG
+            blocks = [CueBlock(platform="萬家福", rows=[mag, sup])]
+            title = f"萬家福&樂家康 {sec}秒"
+        sheets.append(CueSheet(title=title, seconds=sec, blocks=blocks, days=days, budget=budget,
+                               fees=_fees_ddrive(budget),
+                               reach=sr.compute_reach(blocks, data, ndays)))
+    return sheets
+
+
+def _fees_ddrive(budget):
+    vat = rhu(budget * 0.05)
+    # grand：一鍵流程摘要／預覽共用鍵；gross：佳聖版面用語
+    return {"type": "ddrive", "net": budget, "vat": vat, "gross": budget + vat, "grand": budget + vat}
+
+
 def _mmdd(d):
     return f"{d.month}/{d.day}"
 
@@ -466,7 +517,9 @@ def _mmdd(d):
 # =============================================================================
 def build_model(combo_key, budget, start, end, *, client="", tax_id="", product="",
                 sales="", campaign="", prod_cost=0, today=None, data=None, regions=None,
-                party_b="", party_b_tax="", payment_date=""):
+                party_b="", party_b_tax="", payment_date="", sign_deadline=None, billing_month="",
+                barter=False):
+    """barter：交換合約（元朗格式）→ 子公司組合檔次依定價核算。"""
     if combo_key not in sc.COMBOS:
         raise ValueError(f"未知組合：{combo_key}")
     ndays = (end - start).days + 1
@@ -483,21 +536,24 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
 
     fam = combo["family"]
     if fam == "subsidiary":
-        sheets = _build_subsidiary(combo, budget, start, end, int(prod_cost), data, regions)
+        sheets = _build_subsidiary(combo, budget, start, end, int(prod_cost), data, regions, barter)
     elif fam == "2008":
         sheets = _build_2008(combo, budget, start, end, data)
+    elif fam == "ddrive":
+        sheets = _build_ddrive(combo, budget, start, end, data)
     else:
         sheets = _build_carat(combo, budget, start, end, data)
 
-    sign = start - timedelta(days=7)
+    # 回簽截止日／請款月份：業務可於介面自填（存檔必填，寫入 cue/2）；未給則依走期預設
+    sign = sign_deadline or (start - timedelta(days=7))
     material_due = start - timedelta(days=7)
-    billing = _minguo_month(end)
+    billing = (billing_month or "").strip() or _minguo_month(end)
     # 付款兌現日期：業務可於介面自填；留白則回退範本佔位（民國年.XX.XX）
     pay = payment_date.strip() if (payment_date and payment_date.strip()) \
         else f"{start.year - 1911}.XX.XX"
 
     remarks = _subsidiary_remarks(combo, sign, billing, pay) if fam == "subsidiary" else \
-        _agency_remarks(combo, start, end, budget)
+        _agency_remarks(combo, start, end, budget, sign)
 
     model = CueModel(
         combo_key=combo_key, combo_label=combo["label"], family=fam,
@@ -515,10 +571,12 @@ def _subsidiary_remarks(combo, sign, billing, pay):
     return [(t, remark_color(t) == "FF0000") for t in get_remarks_text(sign, billing, pay)]
 
 
-def _agency_remarks(combo, start, end, budget):
+def _agency_remarks(combo, start, end, budget, sign=None):
     agency = combo["agency"]
+    if agency == "佳聖":   # 佳聖：備註只有請款金額一行（跨月依天數拆分）
+        return [(ac.default_payment_note(start, end, budget), False)]
     if agency == "凱絡":
-        sign = start - timedelta(days=7)
+        sign = sign or (start - timedelta(days=7))
         pay = _carat_payment(start, end, budget)
         lines = ac.default_remarks("凱絡", sign_date=sign, payment_note=pay)
         return [(t, i == 4) for i, t in enumerate(lines)]  # 第5行(請款)紅字

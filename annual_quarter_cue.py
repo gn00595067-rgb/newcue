@@ -205,16 +205,39 @@ def agency_combo_ok(combo):
     return combo["media"] in AGENCY_MEDIA and (combo["media"] == "家樂福" or combo["region"] == "全省")
 
 
+# 統一贈檔規則（宜歆 1150316 全家-統一凌晨檔次轉換說明：1 組＝25 萬，全家 14,400 秒、萬家福 8,400 秒）
+UNI_NONE = "不套用"
+UNI_PLAN1 = "方案一：15% 換全家（＋專案回饋 40%）"
+UNI_PLAN2 = "方案二：20% 換萬家福（＋全家專案回饋 40%）"
+UNI_PLANS = (UNI_PLAN1, UNI_PLAN2)
+UNI_OPTIONS = [UNI_NONE, UNI_PLAN1, UNI_PLAN2]
+UNI_REBATE_PCT = 40.0
+_FAM_SEC_PER_SET, _WJF_SEC_PER_SET = 14400, 8400
+
+
+def uni_bonus(plan, buy_spots):
+    """依全家購買檔數算統一贈檔一（組數＝購買檔×秒數÷14,400，與秒數無關）。
+    方案一：全家檔 ＝ 購買檔×15%；方案二：萬家福量販檔 ＝ 購買檔×8,400/14,400×20%（超市另依 720/420 換算）。"""
+    import agency_cue as ac
+    if plan == UNI_PLAN1:
+        return {"comp_override": ac.rhu(buy_spots * 0.15)}
+    if plan == UNI_PLAN2:
+        return {"comp_mag_override": ac.rhu(buy_spots * _WJF_SEC_PER_SET / _FAM_SEC_PER_SET * 0.20)}
+    return {}
+
+
 def build_wave_agency_model(agency, combos, wave_start, wave_end, wave_spots_list, wave_net_list, *,
                             client_name="", product_name="", campaign="", comp_mode=None,
                             fam_auto_rebate=False, fam_rebate_pct=0.0, wjf_rebate_pct=0.0,
                             ac_pct=None, material_due=None, agency_pricing=None,
-                            remarks=None, payment_note=""):
+                            remarks=None, payment_note="", uni_plan=None):
     """
     單一波段 → 代理商 CUE model（交給 agency_excel.generate_agency_excel／agency_ui.build_agency_html）。
     每個組合各建一張表（同平台不同秒數各一張），檔次＝業務填的檔次、實收＝業務填的實收。
     年約檔次已含回饋（2026-10-14 宜歆回饋：不論內容都多一列 720 檔）→ 預設無凌晨補償、無自帶回饋、
     2008 萬家福不加 10%；要加贈用檔次調整（加贈）。AC 沿用代理商CUE 規則。不支援的組合（新鮮視、分區）略過。
+    uni_plan：統一贈檔規則 UNI_PLAN1／UNI_PLAN2（spec：docs/specs/統一贈檔規則.md）；業務填的全家檔次＝購買檔，
+    依購買檔自動加贈檔一（方案一 15%換全家／方案二 20%換萬家福）＋贈檔二（專案回饋 40%）。萬家福組合不受影響。
     """
     import agency_cue as ac
 
@@ -230,9 +253,13 @@ def build_wave_agency_model(agency, combos, wave_start, wave_end, wave_spots_lis
         if spots <= 0 or not agency_combo_ok(combo):
             continue
         sec = int(combo["seconds"])
+        combo_comp = comp_mode
         if combo["media"] == "全家廣播":
             fam_cfg = {"enabled": True, "seconds": sec, "share": 100, "rebate_pct": float(fam_rebate_pct),
                        "spots_override": spots, "auto_rebate": bool(fam_auto_rebate)}
+            if uni_plan in UNI_PLANS:
+                fam_cfg.update(uni_bonus(uni_plan, spots), rebate_pct=UNI_REBATE_PCT, auto_rebate=False)
+                combo_comp = ac.COMP_PLAN1 if uni_plan == UNI_PLAN1 else ac.COMP_PLAN2
             wjf_cfg = None
         else:
             fam_cfg = None
@@ -240,7 +267,7 @@ def build_wave_agency_model(agency, combos, wave_start, wave_end, wave_spots_lis
                        "mag_override": spots, "is_rebate_wave": False,
                        "exact_spots": True}
         m = ac.build_agency_model(agency, client_name, product_name, campaign, wave_start, wave_end,
-                                  net, fam_cfg, wjf_cfg, comp_mode, material_due, ac_pct,
+                                  net, fam_cfg, wjf_cfg, combo_comp, material_due, ac_pct,
                                   agency_pricing=agency_pricing, payment_note="x", remarks=[])
         for sh in m["sheets"]:
             if sh["platform"] == ac.PLATFORM_FAMILY and agency == "2008傳媒":

@@ -5,6 +5,7 @@
 計算走 simple_model.build_model；Excel 走 simple_excel.render；預覽走 simple_html。
 內部成本不出現在客戶檔案；Google Sheet 斷線用內建備援並警示，不 crash。
 """
+import dataclasses
 from datetime import date, timedelta
 
 import streamlit as st
@@ -76,14 +77,16 @@ def _to_sheetdata(store_counts_num, pricing_db, sec_factors):
 @st.cache_data(ttl=600, show_spinner=False)
 def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
               sales, campaign, prod_cost, made_iso, _data, regions=None,
-              party_b="", party_b_tax="", payment_date=""):
+              party_b="", party_b_tax="", payment_date="", sign_iso="", billing="", barter=False):
     start = date.fromisoformat(start_iso)
     end = date.fromisoformat(end_iso)
     model = sm.build_model(combo_key, budget, start, end, client=client, tax_id=tax_id,
                            product=product, sales=sales, campaign=campaign,
                            prod_cost=prod_cost, today=date.fromisoformat(made_iso), data=_data,
                            regions=list(regions) if regions else None,
-                           party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date)
+                           party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date,
+                           sign_deadline=date.fromisoformat(sign_iso) if sign_iso else None,
+                           billing_month=billing, barter=barter)
     xlsx = se.render(model, formulas=True)
     xlsx_val = se.render(model, formulas=False)
     htmls = shtml.render_html(model)
@@ -91,17 +94,32 @@ def _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
 
 
 # 一鍵CUE 公司格式：東吳＝簡易模式原版面（宜歆範本）；聲活／鉑霖＝一般CUE 同款版面（simple_general）
-FORMAT_OPTIONS = ["東吳", "聲活", "鉑霖"]
+FORMAT_OPTIONS = ["東吳", "聲活", "鉑霖", "元朗"]   # 元朗＝交換合約用，版面同聲活
+BARTER_FORMATS = {"元朗"}   # 交換合約格式：檔次依定價核算（宜歆 10/22 #4-2）
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _render_general(fmt, sales_full, combo_key, budget, start_iso, end_iso, client, tax_id, product,
-                    sales, campaign, prod_cost, made_iso, _data, regions=None, payment_date=""):
-    """聲活／鉑霖：同一份簡易模式 model，改用一般 CUE renderer 產 Excel／HTML。"""
+                    sales, campaign, prod_cost, made_iso, _data, regions=None, payment_date="",
+                    bonus=None, _bonus_data=None, sign_iso="", billing="", barter=False):
+    """聲活／鉑霖（或有加贈的東吳）：同一份簡易模式 model，改用一般 CUE renderer 產 Excel／HTML。
+    bonus：檔次調整（加贈）設定；_bonus_data＝(pricing_db, sec_factors, store_counts_num, regions_order)。"""
     model, _x, _xv, _h = _generate(combo_key, budget, start_iso, end_iso, client, tax_id, product,
                                    sales, campaign, prod_cost, made_iso, _data, regions,
-                                   payment_date=payment_date)
-    return sg.render_xlsx(model, fmt, sales_person=sales_full), sg.render_htmls(model, fmt)
+                                   payment_date=payment_date, sign_iso=sign_iso, billing=billing,
+                                   barter=barter)
+    tf = _bonus_transform(model, bonus, _bonus_data)
+    return (sg.render_xlsx(model, fmt, sales_person=sales_full, transform=tf),
+            sg.render_htmls(model, fmt, transform=tf))
+
+
+def _bonus_transform(model, bonus, bonus_data):
+    """加贈設定 → 一般 CUE rows 轉換函式（無設定回 None）。"""
+    if not bonus or not bonus_data:
+        return None
+    from bonus_adjust import apply_bonus
+    pdb, fac, stores, regs = bonus_data
+    return lambda rows: apply_bonus(rows, bonus, model.start, model.end, pdb, fac, stores, regs)
 
 
 def _next_monday_after(days_ahead=10):
@@ -135,7 +153,7 @@ def _render_reach(sheet, family):
     by_plat = reach.get("by_platform") or []
     if not by_plat:
         return
-    est = "（估算，依子公司規則延伸）" if family in ("2008", "carat") else ""
+    est = "（估算，依子公司規則延伸）" if family in ("2008", "carat", "ddrive") else ""
     st.markdown(f"**📣 預估曝光／人流（{sheet.seconds}秒版）**{est}"
                 "　　:gray[依公司「各平台人流計算方式」逐地區試算]")
 
@@ -195,8 +213,10 @@ def _pills(label, options, fmt, key, default_index=0):
 # =============================================================================
 def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                       regions_order=None, sales_map=None, family="subsidiary"):
-    """family="subsidiary"：簡易模式（子公司組合）；"agency"：代理商CUE 分頁內的一鍵模板（2008／凱絡）。"""
+    """family="subsidiary"：簡易模式（子公司組合）；"agency"：代理商CUE 分頁內的一鍵模板（2008／凱絡／佳聖）。"""
     is_agency = family == "agency"
+    # 從 Ragic「我的 CUE」開啟時的覆寫值（無 key 的欄位以此為預設值；開新 CUE 時清除）
+    _ov = cue_store_from(st.session_state.get("_simple_restore") or {})
     st.title("⚡ 代理商一鍵 CUE" if is_agency else "⚡ 一鍵 CUE")
     st.caption("選平台組合 → 輸入預算 → 選開始日，立即顯示與公司範本一致的預覽，可下載 Excel／PDF。")
 
@@ -217,7 +237,10 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     fmt = "東吳"
     if not is_agency:
         fmt = st.radio("選擇格式", FORMAT_OPTIONS, horizontal=True, key="simple_format",
-                       help="東吳：公司範本版面。聲活／鉑霖：與一般CUE 選該格式時的版面相同。")
+                       help="東吳：公司範本版面。聲活／鉑霖：與一般CUE 選該格式時的版面相同。元朗：交換合約，檔次依定價核算。")
+        if fmt in BARTER_FORMATS:
+            st.caption("📌 **交換合約**：檔次依**定價**核算（企頻全省 40 萬、新鮮視全省 15 萬），不依實收價。")
+    barter = fmt in BARTER_FORMATS
 
     # 【2】預算
     st.markdown("**【2】預算（未稅 Net）**")
@@ -246,10 +269,13 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     st.markdown("**【3】走期**")
     d1, d2, d3 = st.columns([2, 2, 2])
     with d1:
-        start = st.date_input("開始日", value=_next_monday_after(), format="YYYY-MM-DD")
+        start = st.date_input("開始日", value=_ov.get("start", _next_monday_after()), format="YYYY-MM-DD")
     with d2:
-        weeks = st.select_slider("週數", options=list(range(1, sc.MAX_WEEKS + 1)), value=2)
+        weeks = st.select_slider("週數", options=list(range(1, sc.MAX_WEEKS + 1)), value=_ov.get("weeks", 2))
     default_end = start + timedelta(days=weeks * 7 - 1)
+    # 讀回的結束日只在開始日／週數沒改時沿用（改了就回到自動計算）
+    if _ov.get("end") and _ov.get("start") == start and _ov.get("weeks") == weeks:
+        default_end = _ov["end"]
     with d3:
         end = st.date_input("結束日", value=default_end, format="YYYY-MM-DD")
     if end < start:
@@ -265,14 +291,18 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
         st.warning("距上檔不足 7 天，回簽／素材時程可能來不及。")
 
     # 甲乙方／付款／其他（收合）
-    with st.expander("甲乙方／付款／產品／其他（可留白）"):
-        st.caption("甲方＝客戶、乙方＝我方（供應商）；付款兌現日期預設為佔位，可直接改成實際日期。")
+    import ragic_ui
+    # 10/14 實測：同事找不到改客戶名稱／選業務的地方 → 標題寫出內含欄位（標題固定，避免打字時收合）
+    with st.expander("客戶名稱／業務／產品／付款／甲乙方（點開修改）"):
+        st.caption("甲方＝客戶、乙方＝我方（供應商）。回簽截止日、請款月份、付款兌現日期存檔前必填（會寫入 Ragic）。")
         pcol = st.columns(2)
-        client = pcol[0].text_input("甲方／客戶名稱", "")
-        tax_id = pcol[0].text_input("甲方統一編號", "")
+        for _k in ("simple_client", "simple_tax", "simple_product"):
+            st.session_state.setdefault(_k, "")   # 可由 Ragic 客戶帶入
+        client = pcol[0].text_input("甲方／客戶名稱", key="simple_client")
+        tax_id = pcol[0].text_input("甲方統一編號", key="simple_tax")
         if fmt == "東吳":
-            party_b = pcol[1].text_input("乙方名稱（我方）", "")
-            party_b_tax = pcol[1].text_input("乙方統一編號", "")
+            party_b = pcol[1].text_input("乙方名稱（我方）", _ov.get("party_b", ""))
+            party_b_tax = pcol[1].text_input("乙方統一編號", _ov.get("party_b_tax", ""))
         else:
             # 聲活／鉑霖版面的公司抬頭與乙方由一般CUE 版面固定帶入
             party_b = party_b_tax = ""
@@ -280,14 +310,20 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
 
         default_pay = f"{start.year - 1911}.XX.XX"
         e1, e2, e3 = st.columns(3)
-        payment_date = e1.text_input("付款兌現日期（民國，可留白）", default_pay)
-        product = e2.text_input("產品名稱", "")
+        sign_deadline = e1.date_input("回簽截止日 *", _ov.get("sign") or sign, format="YYYY-MM-DD")
+        billing = e1.text_input("請款月份 *", _ov.get("billing") or f"{end.year - 1911}年{end.month}月")
+        st.session_state.setdefault("simple_payment", _ov.get("payment", default_pay))
+        payment_date = e1.text_input("付款兌現日期 *（民國，如 115.11.30）", key="simple_payment")
+        product = e2.text_input("產品名稱", key="simple_product")
         sales_options = list(sales_map.keys()) if sales_map else []
-        sales_name = e2.selectbox("業務", ["—"] + sales_options) if sales_options else "—"
+        _s_opts = ["—"] + sales_options
+        _s_idx = (_s_opts.index(_ov["sales_name"]) if _ov.get("sales_name") in _s_opts
+                  else ragic_ui.default_sales_index(sales_options, offset=1) or 0)
+        sales_name = e2.selectbox("業務", _s_opts, index=_s_idx) if sales_options else "—"
         # 下拉顯示姓名、傳暱稱給 model（檔名用暱稱，§3-1）
         sales = "" if sales_name == "—" else (sales_map.get(sales_name) or sales_name)
-        prod_cost = e3.number_input("製作費（未稅）", min_value=0, value=0, step=1000)
-        campaign = e3.text_input("Campaign（2008 用）", "")
+        prod_cost = e3.number_input("製作費（未稅）", min_value=0, value=int(_ov.get("prod_cost", 0)), step=1000)
+        campaign = e3.text_input("Campaign（2008 用）", _ov.get("campaign", ""))
 
     # 進階：指定投放區域（僅子公司；含全家企頻／新鮮視的區塊才有分區）
     regions = ()
@@ -318,14 +354,29 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                 combo_key, int(budget), start.isoformat(), end.isoformat(),
                 client, tax_id, product, sales, campaign, int(prod_cost),
                 date.today().isoformat(), data, regions,
-                party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date)
-        if fmt != "東吳":
+                party_b=party_b, party_b_tax=party_b_tax, payment_date=payment_date,
+                sign_iso=sign_deadline.isoformat(), billing=billing, barter=barter)
+        # 檔次調整（加贈，不收費）：簡易範本沒有加贈列，有加贈時東吳改用一般CUE 東吳版面
+        bonus = {}
+        _bonus_data = (pricing_db or {}, sec_factors or {}, store_counts_num or {}, list(regions_order or sc.REGIONS_ORDER))
+        if is_agency:
+            with st.expander("📌 檔次調整（加贈，不收費）", expanded=False):
+                st.caption("代理商一鍵模板不支援加贈列；需要加贈請改用「自訂代理商CUE」。")
+        else:
+            from bonus_adjust import render_bonus_ui
+            all_rows = [r for s_ in model.sheets for r in sg.sheet_to_rows(s_)]
+            bonus = render_bonus_ui(all_rows, start, end, _bonus_data[3], key_prefix="simple_")
+            if bonus and fmt == "東吳":
+                st.caption("有加贈檔次時，東吳格式改用一般CUE 的東吳版面（簡易範本沒有加贈列）。")
+        if fmt != "東吳" or bonus:
             with st.spinner("產生中…"):
                 xlsx_val, htmls = _render_general(
                     fmt, sales_name if sales_name != "—" else "",
                     combo_key, int(budget), start.isoformat(), end.isoformat(),
                     client, tax_id, product, sales, campaign, int(prod_cost),
-                    date.today().isoformat(), data, regions, payment_date=payment_date)
+                    date.today().isoformat(), data, regions, payment_date=payment_date,
+                    bonus=bonus or None, _bonus_data=_bonus_data,
+                    sign_iso=sign_deadline.isoformat(), billing=billing, barter=barter)
     except Exception as e:  # noqa: BLE001
         st.error(f"產生失敗：{e}")
         st.exception(e)
@@ -351,20 +402,14 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
     #   次要：公式版 —— 業務可改每日檔次讓 rate/Total 自動更新
     fname = safe_filename(model.filename)
     # edit_fname = safe_filename(fname.replace(".xlsx", "-可編輯.xlsx"))  # 可編輯版隱藏中
-    dc = st.columns(4)
-    dc[0].download_button("⬇ 下載 Excel（開啟即見數字）", data=xlsx_val, file_name=fname,
-                          mime=_XLSX_MIME, type="primary")
-    # 「可編輯版（改檔次自動加總）」先隱藏（保留產出與程式碼，恢復即取消註解）
-    # dc[1].download_button("⬇ 可編輯版（改檔次自動加總）", data=xlsx, file_name=edit_fname,
-    #                       mime=_XLSX_MIME)
+    # 下載移到下方「☁️ 存檔到 Ragic」：存檔後才能下載（第 5 期，每張出過的 CUE 納入統計）
+    pdf = None
     if spv.has_soffice():
         pdf, _tag, _msg = xlsx_bytes_to_pdf_bytes(xlsx_val, fname)
-        if pdf:
-            dc[2].download_button("⬇ 下載 PDF", data=pdf,
-                                  file_name=safe_filename(fname.replace(".xlsx", ".pdf")),
-                                  mime="application/pdf")
-        else:
-            dc[2].caption(f"（PDF 產生失敗：{_msg}）")
+        if not pdf:
+            st.caption(f"（PDF 產生失敗：{_msg}）")
+    dc = st.columns(4)
+    st.caption("⬇️ 下載 Excel／PDF 請到頁面下方「☁️ 存檔到 Ragic」，存檔後即可下載。")
     if dc[3].button("🔁 重新整理設定檔"):
         st.cache_data.clear()
         st.rerun()
@@ -389,7 +434,7 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
             if pngs is not None:
                 st.image(pngs[idx], use_container_width=True)
             else:
-                components.html(html, height=shtml.estimate_height(sheet) if fmt == "東吳" else 700,
+                components.html(html, height=shtml.estimate_height(sheet) if fmt == "東吳" and not bonus else 700,
                                 scrolling=True)
             with st.expander("檔次明細（僅供業務/主管，不進客戶檔案）"):
                 for blk in sheet.blocks:
@@ -401,3 +446,92 @@ def render_simple_cue(store_counts_num=None, pricing_db=None, sec_factors=None,
                 if model.family == "subsidiary":
                     fill = sheet.hidden_net_total / sheet.budget * 100 if sheet.budget else 0
                     st.caption(f"隱藏實收 ${int(sheet.hidden_net_total):,}／填滿率 {fill:.1f}%")
+
+    _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf,
+                   combo_key="agency_simple_combo" if is_agency else "simple_combo",
+                   ov={"start": start, "weeks": weeks, "end": end, "party_b": party_b, "party_b_tax": party_b_tax,
+                       "payment": payment_date, "sales_name": sales_name, "prod_cost": int(prod_cost),
+                       "campaign": campaign, "sign": sign_deadline, "billing": billing},
+                   sales=sales, budget=int(budget), transform=_bonus_transform(model, bonus, _bonus_data),
+                   sales_full=sales_name if sales_name != "—" else "")
+
+
+def cue_store_from(d):
+    import cue_store as cs
+    return cs.from_jsonable(d)
+
+
+def _picked_files(model, sheet, fmt, fname, transform=None, sales_full=""):
+    """只含採用秒數版那一張的 Excel／PDF（存檔附件與下載用）。
+    預覽仍列出所有秒數版給業務比較，但給客戶的檔案只留選定的那一張（宜歆回饋）。"""
+    sub = dataclasses.replace(model, sheets=[sheet])
+    if fmt != "東吳" or transform:
+        xlsx = sg.render_xlsx(sub, fmt, sales_person=sales_full, transform=transform)
+    else:
+        xlsx = se.render(sub, formulas=False)
+    pdf = None
+    if spv.has_soffice():
+        pdf, _tag, _msg = xlsx_bytes_to_pdf_bytes(xlsx, fname)
+    return {"xlsx": (fname, xlsx),
+            "pdf": (safe_filename(fname.replace(".xlsx", ".pdf")), pdf) if pdf else None}
+
+
+def _save_to_ragic(model, is_agency, fmt, fname, xlsx_val, pdf, *, combo_key, ov, sales, budget, transform=None,
+                   sales_full=""):
+    """Ragic 存檔（第 2 期）。簡易模式各秒數版是給客戶挑的選項，存檔時選定採用的秒數版。"""
+    import cue_store as cs
+    import ragic_ui
+    from bonus_adjust import bonus_keys
+    secs = [s.seconds for s in model.sheets]
+    pick_key = "agency_simple_pick_sec" if is_agency else "simple_pick_sec"
+    if st.session_state.get(pick_key) not in secs:
+        st.session_state.pop(pick_key, None)
+    sec = st.selectbox("這份 CUE 採用的秒數版（存檔／訂檔以此為準）", secs, key=pick_key,
+                       format_func=lambda x: f"{x}秒版")
+    sheet = model.sheets[secs.index(sec)]
+    if transform:   # 有加贈：與輸出同一份 rows（加贈列實收 0）
+        rows = cs.norm_general_rows(transform(sg.sheet_to_rows(sheet)))
+    else:
+        rows = cs.norm_simple_sheet(model, sheet)
+    if model.family == "subsidiary":
+        rows = cs.scale_net(rows, budget)
+    header = {"client": model.client, "tax_id": model.tax_id, "product": model.product,
+              "format": fmt if not is_agency else sc.COMBOS[model.combo_key]["label"],
+              "sales": sales, "start": model.start, "end": model.end, "budget": budget, "final": budget,
+              "prod_cost": model.sheets[0].prod_cost, "seconds_pick": sec}
+    restore = ragic_ui.capture([combo_key, combo_key + "_r", "simple_format", "simple_budget2", "simple_client",
+                                "simple_tax", "simple_product", "simple_regions", "simple_payment", pick_key] + bonus_keys("simple_"))
+    restore["_simple_restore"] = ov
+    mode = "代理商一鍵" if is_agency else "簡易模式"
+    snap = cs.make_snapshot(mode, header, [{"label": "", "start": model.start, "end": model.end, "rows": rows}],
+                            restore=restore, customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+    if len(model.sheets) == 1:
+        files = {"xlsx": (fname, xlsx_val),
+                 "pdf": (safe_filename(fname.replace(".xlsx", ".pdf")), pdf) if pdf else None}
+    else:   # 多秒數版：只輸出採用的那一張（存檔／下載時才產生）
+        files = lambda: _picked_files(model, sheet, fmt, fname, transform, sales_full)  # noqa: E731
+    # 回簽截止日／請款月份／付款兌現日：存檔必填（10/14 實測 cue/2 這三欄空白）
+    pay = parse_roc_date(ov.get("payment"))
+    snap["header"]["payment_date"] = cs.to_jsonable(pay)   # 訂檔「收款日期」預設
+    save_block = ([] if str(ov.get("billing") or "").strip() else ["請款月份"])         + ([] if pay else ["付款兌現日期（民國，如 115.11.30）"])
+    from config import RAGIC_MAP
+    ragic_ui.render_save_panel(
+        snap, files=files, save_block=save_block,
+        extra_fields={RAGIC_MAP["date_sign"]: str(ov.get("sign") or ""), RAGIC_MAP["bill_month"]: ov.get("billing", ""),
+                      RAGIC_MAP["date_pay"]: str(pay or "")},
+        key_prefix="agsimple_save" if is_agency else "simple_save")
+
+
+def parse_roc_date(text):
+    """付款兌現日期文字 → date：民國 115.11.30／115/11/30／115-11-30，或西元 2026-11-30；佔位（XX）或無法辨識回 None。"""
+    import re
+    m = re.fullmatch(r"\s*(\d{2,4})\s*[./\-年]\s*(\d{1,2})\s*[./\-月]\s*(\d{1,2})\s*日?\s*", str(text or ""))
+    if not m:
+        return None
+    y, mo, d = (int(x) for x in m.groups())
+    if y < 1911:
+        y += 1911
+    try:
+        return date(y, mo, d)
+    except ValueError:
+        return None

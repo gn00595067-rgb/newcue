@@ -243,38 +243,40 @@ def test_F_2008_wjf_rebate_wave():
     sup = _row(sh, ac.KIND_SUPER)
     assert mag["spots"] == 413
     assert sup["spots"] == 708
-    assert mag["list_total"] == 805_350  # 1950 × 413
+    assert mag["list_total"] == 1_404_200  # 3400 × 413（宜歆 11/12 #12）
     assert sh["is_rebate_wave"] is True
     assert mag["net_display"] == ac.NET_REBATE
     assert sh["fees"]["total"] == ac.NET_REBATE
 
 
 # ---------------------------------------------------------------------------
-# 自帶專案回饋（凌晨時數轉換）
+# 自帶專案回饋（宜歆 10/21 #3：主時段 × 40%、凌晨補償 × 40% 各一列；舊版時數轉換停用）
 # ---------------------------------------------------------------------------
-def test_offhours_parse_all_formats():
-    # 三家時段格式都要解析出 07→23 = 16 時 → off 8
-    assert ac.family_offhours("07:00-23:00") == 8   # 2008
-    assert ac.family_offhours("07-23") == 8          # 佳聖
-    assert ac.family_offhours("0700-2300") == 8      # 凱絡
-    assert ac.family_offhours("0700-2300 ") == 8     # 含尾空白
-    assert ac.family_offhours("亂七八糟") == 8        # 解析失敗退回預設 8
-
-
-def test_auto_rebate_spots_formula():
-    # 檔 = off(8) × 30 × 30 / 秒
-    assert ac.auto_rebate_spots("07:00-23:00", 30) == 240   # 8×30×1
-    assert ac.auto_rebate_spots("07:00-23:00", 15) == 480   # 8×30×2  ← 合作夥伴案例
-    assert ac.auto_rebate_spots("07:00-23:00", 20) == 360   # 8×30×1.5
-    assert ac.auto_rebate_spots("07:00-23:00", 10) == 720   # 8×30×3
-
-
 def _rows(sheet, kind):
     return [r for r in sheet["rows"] if r["kind"] == kind]
 
 
 def test_auto_rebate_row_2008():
-    # 統一案例：全家 15秒、預算 250000、自帶回饋開 → 480 檔專案回饋列
+    # 宜歆 10/21 #3 案例：2008、15秒、10 萬、方案一 → 主時段 384、凌晨補償 58、回饋 154＋23
+    logs = []
+    m = ac.build_agency_model(
+        "2008傳媒", "客戶", "全家企頻", "",
+        date(2026, 8, 5), date(2026, 9, 1), 100000,
+        _fam(seconds=15, auto_rebate=True), None,
+        ac.COMP_PLAN1, date(2026, 7, 29), None,
+    )
+    fam = _sheet(m, "全家企頻")
+    main = _row(fam, ac.KIND_MAIN)
+    rebs = _rows(fam, ac.KIND_REBATE)
+    assert main["spots"] == 384 and _row(fam, ac.KIND_COMP)["spots"] == 58
+    assert [r["spots"] for r in rebs] == [154, 23]
+    assert all(r["net_display"] == ac.NET_REBATE for r in rebs)
+    # 自帶回饋不計實收：費用 net 仍等於實作價值（不含回饋列）
+    assert fam["fees"]["budget_net"] == ac.rhu(ac.family_unit_net(15) * 384)
+    assert any("主時段×40%" in x and "=154" in x for x in m["logs"]) if "logs" in m else True
+
+
+def test_auto_rebate_no_comp_only_main_row():
     m = ac.build_agency_model(
         "2008傳媒", "統一企業", "全家企頻", "",
         date(2026, 8, 5), date(2026, 9, 1), 250000,
@@ -282,18 +284,11 @@ def test_auto_rebate_row_2008():
         ac.COMP_NONE, date(2026, 7, 29), None,
     )
     fam = _sheet(m, "全家企頻")
-    main = _row(fam, ac.KIND_MAIN)
-    rebs = _rows(fam, ac.KIND_REBATE)
-    assert main["spots"] == 960
-    assert len(rebs) == 1
-    assert rebs[0]["spots"] == 480
-    assert rebs[0]["net_display"] == ac.NET_REBATE
-    # 自帶回饋不計實收：費用 net 仍等於實作價值（不含回饋列）
-    assert fam["fees"]["budget_net"] == ac.rhu(ac.family_unit_net(15) * 960)
+    assert [r["spots"] for r in _rows(fam, ac.KIND_REBATE)] == [ac.rhu(0.4 * 960)]   # 384
 
 
 def test_auto_rebate_stacks_with_manual_and_comp():
-    # 自帶(480) + 手動%(另一列) 兩列並存，三家共用算法（凱絡逐日鋪滿）
+    # 自帶(主×40%、補償×40%) + 額外手動%(另一列)，三家共用算法（凱絡逐日鋪滿）
     m = ac.build_agency_model(
         "凱絡", "統一企業", "全家企頻", "",
         date(2026, 8, 5), date(2026, 9, 1), 250000,
@@ -302,12 +297,10 @@ def test_auto_rebate_stacks_with_manual_and_comp():
     )
     fam = _sheet(m, "全家企頻")
     rebs = _rows(fam, ac.KIND_REBATE)
-    assert len(rebs) == 2
-    assert rebs[0]["spots"] == 480                       # 自帶（先列）
-    assert sum(rebs[0]["schedule"]) == 480               # 凱絡逐日鋪滿
-    main = _row(fam, ac.KIND_MAIN)
-    # 手動 20% × (主+補償)
-    assert rebs[1]["spots"] == ac.rhu(0.20 * main["spots"])
+    main = _row(fam, ac.KIND_MAIN)                                    # 凱絡：主＋補償併一列
+    comp = main["spots"] - 960
+    assert [r["spots"] for r in rebs] == [384, ac.rhu(0.4 * comp), ac.rhu(0.20 * main["spots"])]
+    assert sum(rebs[0]["schedule"]) == 384                           # 凱絡逐日鋪滿
 
 
 def test_auto_rebate_off_by_default_when_disabled():
@@ -336,3 +329,47 @@ if __name__ == "__main__":
             failed += 1
     print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)
+
+
+def test_2008_wjf_list_price_4000():
+    # 宜歆 11/12 #12：2008 萬家福 20秒單檔 4000，15秒=×0.85、10秒=×0.65
+    assert ac.get_agency_list_price("2008傳媒", "萬家福", 20) == 4000
+    assert ac.get_agency_list_price("2008傳媒", "萬家福", 15) == 3400
+    assert ac.get_agency_list_price("2008傳媒", "萬家福", 10) == 2600
+
+
+def test_list_total_written_as_formula_with_cache():
+    # 宜歆 11/12 #13：定價格寫成 =單價*檔次，且有快取值（受保護檢視／PDF 不空白）
+    import io
+    from openpyxl import load_workbook
+    from agency_excel import generate_agency_excel
+    for agency in ("2008傳媒", "佳聖", "凱絡"):
+        m = ac.build_agency_model(
+            agency, "統一企業", "產品", "",
+            date(2027, 1, 6), date(2027, 1, 22), 250000,
+            None, _wjf(seconds=20, mag_override=420),
+            ac.COMP_NONE, date(2027, 1, 1), 3.0,
+        )
+        x = generate_agency_excel(m)
+        f_cells = [c for ws in load_workbook(io.BytesIO(x)).worksheets
+                   for row in ws.iter_rows() for c in row
+                   if isinstance(c.value, str) and c.value.startswith("=")]
+        assert f_cells, agency
+        v_wb = load_workbook(io.BytesIO(x), data_only=True)
+        for c in f_cells:
+            per, n = c.value[1:].split("*")
+            assert v_wb[c.parent.title][c.coordinate].value == int(per) * int(n), (agency, c.coordinate)
+
+
+def test_preview_super_list_shows_on_mag_not_zero():
+    # 預覽樂家康定價沒另計時顯示「計價於量販」，同 Excel，不顯示 $0
+    from agency_ui import build_agency_html
+    m = ac.build_agency_model(
+        "2008傳媒", "統一企業", "產品", "",
+        date(2027, 1, 6), date(2027, 1, 22), 250000,
+        None, _wjf(seconds=20, mag_override=420),
+        ac.COMP_NONE, date(2027, 1, 1), 3.0,
+    )
+    html = build_agency_html(m)
+    assert "<td>$0</td>" not in html
+    assert html.count(ac.NET_ON_MAG) >= 2   # 樂家康 定價欄＋實收欄

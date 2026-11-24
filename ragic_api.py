@@ -158,6 +158,7 @@ def restore_state_from_ragic(record):
     try:
         # 1. 基礎欄位還原 (使用 RAGIC_MAP 統一管理欄位 ID)
         st.session_state['temp_client_name'] = record.get(RAGIC_MAP['client'], '') or ''
+        st.session_state['_cust_ok'] = True   # 載入舊排程＝客戶已確認，不再擋客戶關卡
         st.session_state['temp_product_name'] = record.get(RAGIC_MAP['product'], '') or ''
 
         st.session_state['temp_budget'] = _ragic_number(record.get(RAGIC_MAP['budget_raw']), 0)
@@ -192,7 +193,9 @@ def restore_state_from_ragic(record):
 
         # 2. 複雜設定還原 (解析 Details 字串)
         # 需解析如: "【全家廣播】 預算佔比: 50% | 秒數分配: 20秒(100%) | 區域: 全省聯播"
-        details = record.get(RAGIC_MAP['details'], '')
+        details = record.get(RAGIC_MAP['details'], '') or ''
+        # 新版存檔在尾端附 [CUESNAP] 快照 JSON；舊還原只看其前的文字
+        details = details.split("[CUESNAP]", 1)[0]
 
         # 先重置開關
         st.session_state['cb_rad'] = False
@@ -335,6 +338,11 @@ def _apply_ext_state(ext_data):
                         ss[f"cb_start_{skey}"] = start_d
                     if end_d:
                         ss[f"cb_end_{skey}"] = end_d
+            continue
+        if isinstance(k, str) and (k.startswith(("rad_period_", "fv_period_"))) and v:
+            parsed = _parse_iso_date(v)   # 各區不同走期的起訖日
+            if parsed:
+                ss[k] = parsed
             continue
         if k in date_keys and v:
             parsed = _parse_iso_date(v)

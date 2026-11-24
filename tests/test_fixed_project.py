@@ -227,3 +227,15 @@ def test_station_per_row_not_merged(fmt):
     assert ws.column_dimensions["B"].width < 19
     det = {e["platform"]: e for e in compute_reach_from_rows(rows, 21)["by_platform"]}["家樂福"]["detail"]
     assert det["量販"]["spots"] == 168 + 294 and det["超市"]["spots"] == 126 + 288 + 504 + 63
+
+
+def test_yuanlang_format_is_shenghuo_with_own_header():
+    """宜歆 10/21 #4：交換合約用「元朗有限公司」抬頭，版面同聲活，只換抬頭與公司名。"""
+    from openpyxl import load_workbook
+    yl = load_workbook(io.BytesIO(_xlsx("元朗"))).active
+    sh = load_workbook(io.BytesIO(_xlsx("聲活"))).active
+    assert yl["A1"].value == "元朗-媒體計劃排程表" and yl["A3"].value == "元朗有限公司 統編 60455991"
+    assert sh["A1"].value == "聲活數位-媒體計劃排程表"
+    diff = [c.coordinate for c in _cells(sh) if c.coordinate not in ("A1", "A3") and yl[c.coordinate].value != c.value]
+    assert diff == []                                                    # 其餘與聲活完全相同
+    assert "元朗" not in "".join(str(c.value) for c in _cells(sh))

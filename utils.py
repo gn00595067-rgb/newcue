@@ -124,6 +124,32 @@ def expand_schedule_to_calendar(schedule_active, segments, start_date, end_date)
     return result
 
 
+def apply_region_periods(rows, region_periods, start_date, end_date):
+    """各區不同走期（spec：各區不同走期.md）：該區的列總檔次不變，重新平均排進該區走期，走期外填 0。
+    region_periods: {media: {region: (start, end)}}；排程已全在該區走期內的列（如加贈自設日期）不動。
+    會就地修改 rows 的 schedule，也回傳 rows。"""
+    total_days = (end_date - start_date).days + 1
+    for row in rows:
+        period = (region_periods.get(row.get("media")) or {}).get(row.get("region"))
+        sch = row.get("schedule")
+        if not period or not isinstance(sch, list) or len(sch) != total_days:
+            continue
+        p0 = max(0, (period[0] - start_date).days)
+        p1 = min(total_days - 1, (period[1] - start_date).days)
+        if p1 < p0:
+            continue
+        if not any(v for i, v in enumerate(sch) if i < p0 or i > p1):
+            continue
+        total, days = sum(sch), p1 - p0 + 1
+        if total % 2 == 0:
+            spread = calculate_schedule(total, days)
+        else:   # 奇數（加贈每日檔次可為奇數）不補成偶數，總檔次維持不變
+            base, rem = divmod(total, days)
+            spread = [base + (1 if i < rem else 0) for i in range(days)]
+        row["schedule"] = [0] * p0 + spread + [0] * (total_days - p1 - 1)
+    return rows
+
+
 def get_remarks_text(sign_deadline, billing_month, payment_date, project_remark=None):
     """生成一般 CUE 合約備註文字（依 116 年度專案版 1~6 點）。
     project_remark：固定專案限定的第 7 點（如中元專案），一般排程不傳。
@@ -158,11 +184,28 @@ def cue_station(r, default=""):
     return default
 
 
+# 同版面、不同抬頭的公司格式（宜歆 10/21 #4：交換合約固定用「元朗有限公司」抬頭，版面同聲活）
+FORMAT_ALIASES = {
+    "元朗": {"base": "聲活", "title": "元朗-媒體計劃排程表", "company": "元朗有限公司 統編 60455991"},
+}
+
+
+def base_format(fmt):
+    """格式 → 實際版面（元朗＝聲活版面）。"""
+    return FORMAT_ALIASES.get(fmt, {}).get("base", fmt)
+
+
+# 東吳／聲活／鉑霖 CUE 的播出地區寫法（宜歆 10/21 #5，比照實際送客戶的 CUE）；
+# 只改顯示，rows 的 region 仍是 北區／中區／東區（定價、回饋、Ragic 靠它）
+CUE_REGION_NAMES = {"北區": "北北基", "中區": "中彰投", "東區": "宜花東"}
+
+
 def cue_location(r):
-    """CUE 表 Location／播出地區欄顯示文字：家樂福列顯示「量販店／超市」，其餘照 region。"""
+    """CUE 表 Location／播出地區欄顯示文字：家樂福列顯示「量販店／超市」，其餘地區改實際寫法（北區→北北基…）。"""
     if r.get("media") == "家樂福":
         return "超市" if "超市" in str(r.get("region", "")) else "量販店"
-    return r.get("region", "")
+    reg = r.get("region", "")
+    return CUE_REGION_NAMES.get(reg, reg)
 
 
 def remark_color(text, blue_payment=False):
@@ -299,6 +342,9 @@ def build_platform_detail_text(rows, config):
                 if reg in seen["新鮮視"] and reg in region_to_fv:
                     out.append(f"新鮮視{region_to_fv[reg]}")
 
+    if any(r.get("media") == "全民健康視" for r in rows):   # 健康視CUE（Ragic 平台欄可存，2026-10-30 實測）
+        out.append("全民健康視")
+
     # 去重並保序，上傳 Ragic 時以逗號隔開
     dedup = []
     for x in out:
@@ -320,8 +366,9 @@ def build_platform_text(rows):
         "全家廣播": "全家企頻",
         "家樂福": "家樂福企頻",
         "新鮮視": "新鮮視",
+        "全民健康視": "全民健康視",
     }
-    order = ["全家企頻", "家樂福企頻", "新鮮視"]
+    order = ["全家企頻", "家樂福企頻", "新鮮視", "全民健康視"]
     seen = set()
     for r in rows:
         media = r.get("media")

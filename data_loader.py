@@ -91,6 +91,37 @@ def load_config_from_cloud(share_url):
 
 
 @st.cache_data(ttl=300)
+def load_health_pricing_from_cloud(share_url):
+    """
+    從 Google Sheet 的 `HealthPricing` 分頁讀取全民健康視價格（宜歆 10/29 #6；Jonathan 決定放設定表）。
+    欄位：Seconds | List_Price_Tax（定價含稅）| Direct_Net（300面直客報價未稅，僅參考）| Project_Price_Tax（專案價含稅）。
+    回傳 {seconds: (定價含稅, 直客未稅, 專案價含稅)}；讀不到或欄位不齊回傳 None（改用 health_cue 內建值）。
+    """
+    try:
+        match = re.search(r"/d/([a-zA-Z0-9-_]+)", share_url)
+        if not match:
+            return None
+        url = f"https://docs.google.com/spreadsheets/d/{match.group(1)}/gviz/tq?tqx=out:csv&sheet=HealthPricing"
+        df = _read_csv_url(url)
+        df.columns = [c.strip() for c in df.columns]
+        if not {"Seconds", "List_Price_Tax", "Direct_Net", "Project_Price_Tax"}.issubset(set(df.columns)):
+            return None
+
+        def num(v):
+            return float(str(v).replace(",", "").replace("NT$", "").replace("$", "").strip())
+        out = {}
+        for _, row in df.iterrows():
+            try:
+                out[int(num(row["Seconds"]))] = (num(row["List_Price_Tax"]), num(row["Direct_Net"]),
+                                                 num(row["Project_Price_Tax"]))
+            except (ValueError, TypeError):
+                continue
+        return {k: v for k, v in out.items() if v[2] > 0} or None
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=300)
 def load_agency_pricing_from_cloud(share_url):
     """
     從 Google Sheet 的 `AgencyPricing` 分頁讀取代理商牌價（定價）。

@@ -8,3 +8,4 @@ reportlab<5
 pillow<13
 numpy<2.4
 pyarrow<22
+google-auth<3

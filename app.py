@@ -7,7 +7,6 @@ Cue Sheet Pro (媒體排程生成系統)
 """
 
 import calendar
-import mimetypes
 import streamlit as st
 import traceback
 import time
@@ -49,6 +48,108 @@ def _slice_rows_to_segment(rows, start_date, seg_start, seg_end):
             nr["schedule"] = full[seg_d0 : seg_d1 + 1] if seg_d0 >= 0 and seg_d1 < len(full) else [0] * seg_days
         out.append(nr)
     return out
+
+
+def _render_region_period_ui(prefix, regs, start_date, end_date):
+    """各區不同走期（spec：各區不同走期.md）：回傳 {區域: (開始, 結束)}，只含與整張走期不同的區；未啟用回傳 {}。"""
+    ss = st.session_state
+    with st.expander("📅 各區走期不同", expanded=bool(ss.get(f"{prefix}use_region_period"))):
+        if not st.checkbox("啟用各區走期", key=f"{prefix}use_region_period",
+                           help="例：北區走 1/1～1/31、桃竹苗只走 1/1～1/15。該區檔次會平均排進自己的走期，其他日子 CUE 上留空。各區預算請用上方「自訂區域比例」。"):
+            return {}
+        st.caption(f"每區走期須在 {start_date:%Y/%m/%d}～{end_date:%Y/%m/%d} 內。")
+        out = {}
+        for r in regs:
+            ks, ke = f"{prefix}period_s_{r}", f"{prefix}period_e_{r}"
+            # 整張走期改過時，把超出範圍的舊值夾回走期內（widget 建立前改值）
+            ss[ks] = min(max(ss.get(ks, start_date), start_date), end_date)
+            ss[ke] = min(max(ss.get(ke, end_date), start_date), end_date)
+            c1, c2 = st.columns(2)
+            s = c1.date_input(f"{r} 開始", key=ks, min_value=start_date, max_value=end_date)
+            e = c2.date_input(f"{r} 結束", key=ke, min_value=start_date, max_value=end_date)
+            if e < s:
+                st.warning(f"{r}：結束日早於開始日，此區沿用整張走期。")
+                continue
+            if (s, e) != (start_date, end_date):
+                out[r] = (s, e)
+        return out
+
+
+def _parse_amount(raw):
+    """金額欄文字 → 數字：可填 150000、150,000、15萬；空白或看不懂回 0。"""
+    t = str(raw or "").replace(",", "").replace("，", "").replace(" ", "").replace("$", "")
+    mult = 1
+    if t.endswith("萬"):
+        t, mult = t[:-1], 10000
+    try:
+        return max(0.0, float(t) * mult) if t else 0.0
+    except ValueError:
+        return 0.0
+
+
+def _parse_pct(raw):
+    try:
+        return float(str(raw or "").strip() or 0)
+    except ValueError:
+        return 0.0
+
+
+def _on_region_edit(prefix, region, kind, regions, base):
+    """自訂區域比例：填了某區的 % 或金額 → 其他區自動補剩下的（宜歆 8-2 後續）。
+    手填過的區依序記在 {prefix}region_manual，最多保留「區數−1」個（滿了丟最早填的）；沒手填的區均分差額。"""
+    ss = st.session_state
+    ss[f"{prefix}region_src"] = kind
+    order = [r for r in ss.get(f"{prefix}region_manual", []) if r in regions and r != region] + [region]
+    order = order[-(len(regions) - 1):] if len(regions) > 1 else order
+    ss[f"{prefix}region_manual"] = order
+    auto = [r for r in regions if r not in order]
+    if not auto or (kind == "amt" and base <= 0):
+        return
+    key = (lambda r: f"{prefix}region_amt_{r}") if kind == "amt" else (lambda r: f"{prefix}region_{r}")
+    parse = _parse_amount if kind == "amt" else _parse_pct
+    rest = max(0.0, (base if kind == "amt" else 100.0) - sum(parse(ss.get(key(r))) for r in order))
+    if kind == "amt":
+        each = int(rest // len(auto))
+        vals = [each] * (len(auto) - 1) + [int(round(rest)) - each * (len(auto) - 1)]   # 尾差給最後一區
+        for r, v in zip(auto, vals):
+            ss[key(r)] = f"{v:,}"
+    else:
+        each = round(rest / len(auto), 1)
+        vals = [each] * (len(auto) - 1) + [round(rest - each * (len(auto) - 1), 1)]
+        for r, v in zip(auto, vals):
+            ss[key(r)] = f"{v:.1f}"
+
+
+def _region_share_inputs(prefix, regions, base):
+    """自訂區域比例：每區「%」與「金額」擇一填，另一欄自動換算（宜歆 8-2；base＝該平台預算）。
+    以最後編輯的那一種為準（{prefix}region_src＝pct／amt），回傳 {區域: %}（金額為準時用精確比例，不受 % 顯示四捨五入影響）。"""
+    ss = st.session_state
+    src_key = f"{prefix}region_src"
+    pk = lambda r: f"{prefix}region_{r}"
+    ak = lambda r: f"{prefix}region_amt_{r}"
+    use_amt = ss.get(src_key) == "amt" and base > 0
+    # widget 建立前同步另一欄
+    for r in regions:
+        if use_amt:
+            a = _parse_amount(ss.get(ak(r)))
+            ss[pk(r)] = f"{a / base * 100:.1f}" if a else ""
+        else:
+            v = _parse_pct(ss.get(pk(r)))
+            ss[ak(r)] = f"{int(round(base * v / 100)):,}" if v and base > 0 else ""
+    for r in regions:
+        c1, c2 = st.columns(2)
+        c1.text_input(f"{r} %", key=pk(r), on_change=_on_region_edit, args=(prefix, r, "pct", regions, base))
+        c2.text_input(f"{r} 金額", key=ak(r), placeholder="如 150000 或 15萬",
+                      on_change=_on_region_edit, args=(prefix, r, "amt", regions, base))
+    if use_amt:
+        amts = {r: _parse_amount(ss.get(ak(r))) for r in regions}
+        total = sum(amts.values())
+        if total and abs(total - base) >= 1:
+            st.warning(f"各區金額合計 {total:,.0f}，與此平台預算 {base:,.0f} 不同；會依各區金額的比例分配。")
+        # 依金額比例換成合計 100%（全省計價不會自動正規化）
+        return {r: a / total * 100 for r, a in amts.items()} if total else {r: 0.0 for r in regions}
+    st.caption(f"此平台預算 {base:,.0f}；% 與金額擇一填，另一欄自動換算。")
+    return {r: _parse_pct(ss.get(pk(r))) for r in regions}
 
 
 def _round_half_up(value):
@@ -93,7 +194,8 @@ from utils import (
     build_ragic_details_full,
     build_platform_detail_text,
     build_platform_text,
-    expand_schedule_to_calendar
+    expand_schedule_to_calendar,
+    apply_region_periods,
 )
 from data_loader import load_config_from_cloud
 from calculator import calculate_plan_data, render_logic_panel
@@ -104,10 +206,12 @@ from pdf_converter import xlsx_bytes_to_pdf_bytes
 from annual_quarter_cue import build_wave_rows, distribute_by_wave_days, round_to_even, wave_net_total, apply_wave_price_override, AGENCY_MEDIA, agency_combo_ok, build_wave_agency_model
 from agency_ui import render_agency_cue, render_annual_agency_waves
 from simple_cue import render_simple_cue
+import ragic_ui
+import cue_admin
+from bonus_adjust import render_bonus_ui, apply_bonus, bonus_keys, agency_groups, render_agency_bonus_ui, apply_agency_bonus
 from fixed_projects import FIXED_PROJECTS, build_project_rows, project_days, project_seconds_text, project_total_list
 from ragic_api import (
     search_ragic_records,
-    upload_to_ragic,
     restore_state_from_ragic,
     _ragic_number,
 )
@@ -155,6 +259,12 @@ DEFAULT_STATES = {
     "cue_mode": "簡易模式",
 }
 
+# 一般CUE「3. 媒體投放設定」中預設值來自 DEFAULT_STATES 的元件 key（見畫元件前的同步）
+_GENERAL_MEDIA_WIDGET_KEYS = ("cb_rad", "cb_fv", "cb_cf", "rad_nat", "rad_reg", "rad_sec", "rad_share",
+                              "fv_nat", "fv_reg", "fv_sec", "fv_share", "cf_sec", "cf_share",
+                              "rad_use_region_share", "fv_use_region_share")
+
+
 def _init_session_state():
     """在 main() 內呼叫，避免 import 時 st.session_state 未就緒導致 KeyError。"""
     try:
@@ -175,7 +285,8 @@ def _get_ragic_extra_state(row_groups):
     for k in ("is_barter_contract", "cue_mode", "temp_format_type", "use_date_segments", "apply_rebate",
               "apply_nat_rad_rebate", "rebate_nat_destination", "apply_nat_cf_rebate",
               "apply_region_rad_rebate", "rebate_region_destination",
-              "bonus_rebate_pct", "cue_live_update_remarks", "rad_use_region_share", "fv_use_region_share"):
+              "bonus_rebate_pct", "cue_live_update_remarks", "rad_use_region_share", "fv_use_region_share",
+              "rad_region_src", "fv_region_src"):
         if k in ss:
             state[k] = ss[k]
     if ss.get("use_date_segments") and "date_segments" in ss and ss["date_segments"]:
@@ -198,15 +309,22 @@ def _get_ragic_extra_state(row_groups):
     if "_rad_region_list" in ss and ss["_rad_region_list"]:
         state["_rad_region_list"] = list(ss["_rad_region_list"])
         for r in ss["_rad_region_list"]:
-            key = f"rad_region_{r}"
-            if key in ss:
-                state[key] = ss[key]
+            for key in (f"rad_region_{r}", f"rad_region_amt_{r}"):
+                if key in ss:
+                    state[key] = ss[key]
     if "_fv_region_list" in ss and ss["_fv_region_list"]:
         state["_fv_region_list"] = list(ss["_fv_region_list"])
         for r in ss["_fv_region_list"]:
-            key = f"fv_region_{r}"
-            if key in ss:
-                state[key] = ss[key]
+            for key in (f"fv_region_{r}", f"fv_region_amt_{r}"):
+                if key in ss:
+                    state[key] = ss[key]
+    # 各區不同走期（開關＋各區起訖日）
+    for pre in ("rad_", "fv_"):
+        if ss.get(f"{pre}use_region_period"):
+            state[f"{pre}use_region_period"] = True
+            for k, v in list(ss.items()):
+                if isinstance(k, str) and (k.startswith(f"{pre}period_s_") or k.startswith(f"{pre}period_e_")):
+                    state[k] = v
     # 業務加贈：依 row_groups 的 skey 從 session_state 讀取
     if row_groups:
         custom = []
@@ -224,6 +342,26 @@ def _get_ragic_extra_state(row_groups):
         if custom:
             state["custom_bonus"] = custom
     return state
+
+
+# 各製作模式「客戶名稱／統編／產品」輸入欄的 session key（Ragic 客戶帶入用）
+# 一般CUE 欄位無 key，以 temp_* 當預設值（同「載入舊排程」機制）
+_CUSTOMER_TARGETS = {
+    "簡易模式": {"client": "simple_client", "tax": "simple_tax", "product": "simple_product"},
+    "一般CUE": {"client": "temp_client_name", "tax": "temp_tax_id", "product": "temp_product_name"},
+    "年約季約細CUE": {"client": "aq_client", "tax": "aq_tax", "product": "aq_product"},
+    "專案CUE": {"client": "fp_client", "tax": "fp_tax", "product": "fp_product"},
+    # 代理商：一鍵模板沿用簡易模式欄位、自訂用 ag_*（無統編欄）
+    "代理商CUE": {"client": "ag_client", "product": "ag_product"},
+}
+
+
+def _customer_bar(cue_mode):
+    """① 這次的客戶：先選既有／新客戶／先估價才顯示表單（宜歆 #7-1）；回傳 True＝可顯示表單。"""
+    targets = dict(_CUSTOMER_TARGETS.get(cue_mode, {}))
+    if cue_mode == "代理商CUE" and str(st.session_state.get("agency_sub_mode", "一鍵")).startswith("一鍵"):
+        targets = dict(_CUSTOMER_TARGETS["簡易模式"])
+    return ragic_ui.customer_gate(targets, key_prefix="cust")
 
 
 def _agency_unlock_gate(key_prefix="agency"):
@@ -244,11 +382,14 @@ def _agency_unlock_gate(key_prefix="agency"):
 AQ_AGENCY_FORMATS = ["2008傳媒", "凱絡"]
 
 
+def _aq_media(m):
+    """畫面顯示用：家樂福已改名萬家福．樂家康（combo 的 media 仍存「家樂福」，回饋／Ragic 靠它比對）。"""
+    return "萬家福．樂家康" if m == "家樂福" else m
+
+
 def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, regions_order, fmt_options, fmt_idx, sales_map):
     """年約／季約細 CUE：以已知檔次與實收分配至各波段，每波段獨立 Excel/PDF。每個廣告組合可個別設定每波檔次與實收；若不知道各波分配則填該組合總檔次／總實收後按「依天數均分」。"""
     st.caption("以已知**執行區域、平台、秒數**設定各波段檔次與實收；若不知各波分配，可填該**廣告組合**的總檔次／總實收後按「依波段天數均分」。")
-    can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
-    can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
     if "aq_combos" not in st.session_state:
         st.session_state.aq_combos = []
     if "aq_waves" not in st.session_state:
@@ -285,10 +426,15 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
     def_client = st.session_state.get("temp_client_name", "萬國通路")
     def_tax = st.session_state.get("temp_tax_id", "")
     def_prod = st.session_state.get("temp_product_name", "統一布丁")
-    client_name = st.text_input("客戶名稱", def_client, key="aq_client")
-    client_tax_id = st.text_input("統一編號", def_tax, key="aq_tax")
-    product_name = st.text_input("產品名稱", def_prod, key="aq_product")
-    sales_person = st.selectbox("業務名稱", options=sales_options, index=0, key="aq_sales") if sales_options else ""
+    # 預設值只在第一次寫入 session（之後由 Ragic 帶入或使用者輸入覆寫，不再傳 value 以免衝突警告）
+    for _k, _v in (("aq_client", def_client), ("aq_tax", def_tax), ("aq_product", def_prod)):
+        st.session_state.setdefault(_k, _v)
+    client_name = st.text_input("客戶名稱", key="aq_client")
+    client_tax_id = st.text_input("統一編號", key="aq_tax")
+    product_name = st.text_input("產品名稱", key="aq_product")
+    if sales_options and "aq_sales" not in st.session_state:
+        st.session_state["aq_sales"] = sales_options[ragic_ui.default_sales_index(sales_options) or 0]   # 預設登入者
+    sales_person = st.selectbox("業務名稱", options=sales_options, key="aq_sales") if sales_options else ""
 
     st.markdown("---")
     st.markdown("#### 廣告組合（平台、區域、秒數）")
@@ -316,7 +462,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
             st.info("請在右側選擇平台、區域、秒數後按「加入組合」。")
         else:
             for i, c in enumerate(st.session_state.aq_combos):
-                st.text(f"【{c['media']}】{c['region']} {c['seconds']}秒")
+                st.text(f"【{_aq_media(c['media'])}】{c['region']} {c['seconds']}秒")
                 if st.button("刪除", key=f"aq_del_{i}"):
                     st.session_state.aq_combos.pop(i)
                     for w in st.session_state.aq_waves:
@@ -328,7 +474,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
 
     _ensure_wave_combo_arrays()
     if is_agency_fmt:
-        _bad = [f"【{c['media']}】{c['region']} {c['seconds']}秒" for c in combos if not agency_combo_ok(c)]
+        _bad = [f"【{_aq_media(c['media'])}】{c['region']} {c['seconds']}秒" for c in combos if not agency_combo_ok(c)]
         if _bad:
             st.warning("代理商格式只支援全家廣播（全省）與萬家福．樂家康，以下組合不會出現在 CUE 上：" + "、".join(_bad))
 
@@ -388,7 +534,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
             st.markdown("**總計（均分用）**")
         for j in range(n_combos):
             c = combos[j]
-            lbl = f"【{c['media']}】{c['region']} {c['seconds']}秒"
+            lbl = f"【{_aq_media(c['media'])}】{c['region']} {c['seconds']}秒"
             with row_tot[1 + j*2]:
                 st.number_input(lbl + " 總檔次", min_value=0, value=st.session_state.get(f"aq_ct_spots_{j}", 0), key=f"aq_ct_spots_{j}", label_visibility="collapsed")
             with row_tot[2 + j*2]:
@@ -423,7 +569,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
             st.markdown("**結束日**")
         for j in range(n_combos):
             c = combos[j]
-            short = f"{c['media']}{c['region']}{c['seconds']}s"
+            short = f"{_aq_media(c['media'])}{c['region']}{c['seconds']}s"
             with h_cols[3 + j*2]:
                 st.markdown(f"**{short} 檔次**")
             with h_cols[4 + j*2]:
@@ -477,7 +623,8 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
     _ensure_wave_combo_arrays()
 
     if is_agency_fmt:
-        render_annual_agency_waves(format_type, combos, waves, client_name, product_name)
+        _aq_out = render_annual_agency_waves(format_type, combos, waves, client_name, product_name)
+        _aq_save_panel(format_type, _aq_out, client_name, client_tax_id, product_name, sales_person, sales_map)
         return
 
     # 各波段備註以各波自己的三個欄位為準，不再使用上方範本
@@ -553,7 +700,15 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
                 st.session_state.aq_waves[i]["remarks_text"] = st.session_state.get(f"aq_wave_remarks_{i}", _ta_val) or ""
 
     st.markdown("---")
+    # 檔次調整（加贈，不收費）：一份設定套用到各波（加贈日期自動限縮在各波走期內）
+    _tmpl = next((r for r in (build_wave_rows(combos, w["start"], w["end"], [max(x, 2) for x in (w.get("combo_spots") or [2] * len(combos))],
+                                              [0] * len(combos), pricing_db, sec_factors, store_counts_num, regions_order)
+                              for w in waves) if r), [])
+    _aq_bonus = render_bonus_ui(_tmpl, min(w["start"] for w in waves), max(w["end"] for w in waves),
+                                regions_order, key_prefix="aq_")
+
     st.subheader("📥 各波段下載（每波獨立 Excel / PDF）")
+    _aq_out = []   # 各波結果，供 Ragic 存檔
     for i, w in enumerate(waves):
         start_d = w["start"]
         end_d = w["end"]
@@ -578,6 +733,7 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
         price_override = w.get("price_override") if isinstance(w.get("price_override"), (int, float)) and w.get("price_override") > 0 else None
         if price_override is not None and budget_wave > 0:
             budget_wave = apply_wave_price_override(rows, price_override)
+        rows = apply_bonus(rows, _aq_bonus, start_d, end_d, pricing_db, sec_factors, store_counts_num, regions_order)
         # 年約/季約細 CUE：標題 Product 僅顯示「秒數種類」一次，例如「5秒」而不是重複多次
         unique_secs = sorted(list({r['seconds'] for r in rows}))
         p_str = f"{'、'.join([f'{s}秒' for s in unique_secs])} {product_name}"
@@ -604,22 +760,58 @@ def _render_annual_quarter_cue(store_counts_num, pricing_db, sec_factors, region
                 st.components.v1.html(html_preview, height=400, scrolling=True)
         xlsx_bytes = generate_excel_from_scratch(format_type, start_d, end_d, client_name, client_tax_id, product_name, rows, _wave_rem, budget_wave, 0, sales_person, total_list_wave)
         pdf_bytes, _, _ = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
-        col_x, col_p = st.columns(2)
-        with col_x:
-            if can_download_excel:
-                st.download_button(f"📥 波段{i+1} Excel", xlsx_bytes, f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.xlsx", key=f"aq_xlsx_{i}", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            else:
-                st.caption("Excel 下載已由主管關閉")
-        with col_p:
-            if pdf_bytes and can_download_pdf:
-                st.download_button(f"📥 波段{i+1} PDF", pdf_bytes, f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.pdf", key=f"aq_pdf_{i}", mime="application/pdf")
-            elif not can_download_pdf:
-                st.caption("PDF 下載已由主管關閉")
-            else:
-                st.caption("PDF 需 LibreOffice")
+        import cue_store as _cst
+        _aq_out.append({"label": f"波段{i+1}", "start": start_d, "end": end_d,
+                        "payment_date": w.get("payment_date") or _last_day_of_month_after(w["end"]),
+                        "rows": _cst.scale_net(_cst.norm_general_rows(rows), budget_wave),
+                        "xlsx": (f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.xlsx", xlsx_bytes),
+                        "pdf": (f"Cue_{safe_filename(client_name)}_波段{i+1}_{start_d}_{end_d}.pdf", pdf_bytes)})
+        st.caption(f"波段 {i+1}：{start_d} ~ {end_d}｜下載請到下方「☁️ 存檔到 Ragic」")
+    _aq_save_panel(format_type, _aq_out, client_name, client_tax_id, product_name, sales_person, sales_map)
 
 
-def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales_map):
+def _aq_save_panel(format_type, waves_out, client_name, client_tax_id, product_name, sales_person, sales_map):
+    """年約季約 Ragic 存檔（第 2 期）：一份年約＝一筆存檔，各波結果放快照；附件放第 1 波的 Excel／PDF。"""
+    import cue_store as cs
+    if not waves_out:
+        return
+    budget = sum(r["net"] for w in waves_out for r in w["rows"])
+    snap = cs.make_snapshot(
+        "年約季約細CUE",
+        {"client": client_name, "tax_id": client_tax_id, "product": product_name, "format": format_type,
+         "sales": (sales_map or {}).get(sales_person, sales_person), "start": min(w["start"] for w in waves_out),
+         "end": max(w["end"] for w in waves_out), "budget": budget, "final": budget, "prod_cost": 0},
+        [{k: w[k] for k in ("label", "start", "end", "rows", "payment_date") if k in w} for w in waves_out],
+        restore={**ragic_ui.capture(["aq_combos", "aq_waves", "aq_format", "aq_client", "aq_tax", "aq_product",
+                                     "aq_sales", "aq_ag_campaign", "aq_ag_uni",
+                                     "aq_ag_ac", "aq_ag_ac_free"] + bonus_keys("aq_") + bonus_keys("aqag_")),
+                 # 由 aq_waves 重算的表格／備註欄位，開啟時先清掉讓預設值從 aq_waves 帶入
+                 "_clear_prefixes": ["aq_tbl_", "aq_w_", "aq_wave_", "aq_ct_", "aq_ag_mat_", "aq_ag_sign_",
+                                     "aq_ag_rem_", "aq_ag_pay_"]},
+        customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+    def _files():
+        """各波 Excel 合成一檔（每波一張工作表），PDF 由合併檔產生。"""
+        from xlsx_merge import merge_xlsx
+        merged = merge_xlsx([(w["label"], w["xlsx"][1]) for w in waves_out if w.get("xlsx")])
+        pdf, _m, _e = xlsx_bytes_to_pdf_bytes(merged)
+        name = (f"Cue_{safe_filename(client_name)}_年約{len(waves_out)}波_"
+                f"{snap['header']['start']['__date__']}_{snap['header']['end']['__date__']}")
+        return {"xlsx": (name + ".xlsx", merged), "pdf": (name + ".pdf", pdf) if pdf else None}
+
+    def _files_all():
+        d = _files()
+        xl = [(f"⬇️ {w['label']} Excel", w["xlsx"][0], w["xlsx"][1],
+               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+              for w in waves_out if w.get("xlsx")]
+        pdf = [(f"⬇️ {w['label']} PDF", w["pdf"][0], w["pdf"][1], "application/pdf")
+               for w in waves_out if w.get("pdf") and w["pdf"][1]]
+        d["extra"] = xl + pdf
+        return d
+
+    ragic_ui.render_save_panel(snap, files=_files_all, key_prefix="aq_save")
+
+
+def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales_map, pricing_db=None, sec_factors=None, regions_order=None):
     """一般 CUE 的固定專案：走期／秒數／檔次／實收鎖死，只填客戶資料與備註日期（spec：固定專案_中元限定.md）。"""
     p = FIXED_PROJECTS[project_name]
     ndays = project_days(p)
@@ -632,14 +824,19 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        client_name = st.text_input("客戶名稱", st.session_state.get("temp_client_name", ""), key="fp_client")
-        client_tax_id = st.text_input("統一編號", st.session_state.get("temp_tax_id", ""), key="fp_tax")
+        st.session_state.setdefault("fp_client", st.session_state.get("temp_client_name", ""))
+        st.session_state.setdefault("fp_tax", st.session_state.get("temp_tax_id", ""))
+        st.session_state.setdefault("fp_product", st.session_state.get("temp_product_name", ""))
+        client_name = st.text_input("客戶名稱", key="fp_client")
+        client_tax_id = st.text_input("統一編號", key="fp_tax")
     with c2:
-        product_name = st.text_input("產品名稱", st.session_state.get("temp_product_name", ""), key="fp_product")
+        product_name = st.text_input("產品名稱", key="fp_product")
     with c3:
         prod_cost = st.number_input("製作費 (未稅)", value=0.0, step=1000.0, key="fp_prod_cost")
     with c4:
         sales_options = list(sales_map.keys()) if sales_map else []
+        if sales_options and "fp_sales" not in st.session_state:
+            st.session_state["fp_sales"] = sales_options[ragic_ui.default_sales_index(sales_options) or 0]   # 預設登入者
         sales_person = st.selectbox("業務名稱", options=sales_options, key="fp_sales") if sales_options else ""
 
     _def_sign = date.today() + timedelta(days=3)
@@ -653,6 +850,10 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
 
     rows = build_project_rows(p, store_counts_num)
     total_list = project_total_list(rows)
+    # 檔次調整（加贈，不收費）：加在定價合計之後，不影響專案價
+    _bonus = render_bonus_ui(rows, p["start"], p["end"], regions_order or [], key_prefix="fp_")
+    rows = apply_bonus(rows, _bonus, p["start"], p["end"], pricing_db or {}, sec_factors or {},
+                       store_counts_num or {}, regions_order or [])
     grand_total = budget + _round_half_up(budget * 0.05)
     p_str = f"{project_seconds_text(p)} {product_name}"
 
@@ -667,30 +868,36 @@ def _render_fixed_project_cue(project_name, format_type, store_counts_num, sales
                                              rem, budget, prod_cost, sales_person, total_list, medium_label=p["medium"])
     _nick = sales_map.get(sales_person, sales_person) if sales_person else ""
     fn = lambda ext: build_cue_filename(client_name, rows, budget, _nick, ext=ext, seg_label=p["short"])
-    can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
-    can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
-    d1, d2 = st.columns(2)
-    with d1:
-        if can_download_excel:
-            st.download_button("📥 下載 Excel", xlsx_bytes, fn("xlsx"), key="fp_xlsx_dl",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        else:
-            st.caption("Excel 下載已由主管關閉")
-    with d2:
-        pdf_bytes, _, err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
-        if pdf_bytes and can_download_pdf:
-            st.download_button("📥 下載 PDF", pdf_bytes, fn("pdf"), key="fp_pdf_dl", mime="application/pdf")
-        elif not can_download_pdf:
-            st.caption("PDF 下載已由主管關閉")
-        else:
-            st.warning(f"PDF 生成失敗: {err}")
-    st.caption("固定專案暫不提供上傳 Ragic。")
+    # 下載移到下方「☁️ 存檔到 Ragic」：存檔後才能下載（第 5 期）
+    pdf_bytes, _, err = xlsx_bytes_to_pdf_bytes(xlsx_bytes)
+    if not pdf_bytes:
+        st.warning(f"PDF 生成失敗: {err}")
+    # Ragic 存檔（第 2 期）
+    import cue_store as cs
+    _rows_n = cs.scale_net(cs.norm_general_rows(rows), budget)
+    _snap = cs.make_snapshot(
+        "專案CUE",
+        {"client": client_name, "tax_id": client_tax_id, "product": product_name, "format": format_type,
+         "sales": _nick, "start": p["start"], "end": p["end"], "budget": budget, "final": budget,
+         "prod_cost": prod_cost, "project": project_name, "payment_date": payment_date},
+        [{"label": p["short"], "start": p["start"], "end": p["end"], "rows": _rows_n}],
+        restore={**ragic_ui.capture(["cue_fixed_project", "fp_client", "fp_tax", "fp_product", "fp_prod_cost",
+                                     "fp_sales", "fp_sign_deadline", "fp_billing_month", "fp_payment_date"]
+                                    + bonus_keys("fp_")),
+                 "temp_format_type": format_type},
+        customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+    ragic_ui.render_save_panel(
+        _snap, files={"xlsx": (fn("xlsx"), xlsx_bytes), "pdf": (fn("pdf"), pdf_bytes) if pdf_bytes else None},
+        extra_fields={RAGIC_MAP["date_sign"]: str(sign_deadline), RAGIC_MAP["bill_month"]: billing_month,
+                      RAGIC_MAP["date_pay"]: str(payment_date)},
+        key_prefix="fp_save")
 
 
 # =============================================================================
 # 主程式邏輯 (Main Execution Block)
 # =============================================================================
 def main():
+    ragic_ui.apply_new_cue_reset()   # 🆕 開新的 CUE：在畫任何元件前清空（保留登入、主管模式）
     _init_session_state()
     try:
         with st.spinner("正在讀取 Google 試算表設定檔..."):
@@ -704,6 +911,10 @@ def main():
         with st.sidebar:
             with st.expander("ℹ️ 版本", expanded=False):
                 st.caption(f"Streamlit {st.__version__}")
+            ragic_ui.render_login_sidebar()
+            st.markdown("---")
+            ragic_ui.render_my_cues_sidebar()
+            st.markdown("---")
             st.header("🕵️ 主管登入")
             if not st.session_state.is_supervisor:
                 pwd = st.text_input("輸入密碼", type="password", key="pwd_input")
@@ -848,25 +1059,39 @@ def main():
                 st.rerun()
 
         # --- Main Content 邏輯 (輸入與報表) ---
-        st.title("📺 媒體 Cue 表生成器")
+        t1, t2 = st.columns([5, 1], vertical_alignment="bottom")
+        t1.title("📺 媒體 Cue 表生成器")
+        with t2:
+            ragic_ui.render_new_cue_button()
         
         # 修改：處理格式的預設選擇 (東吳/聲活/鉑霖)
         loaded_fmt = st.session_state.get('temp_format_type', '東吳')
-        fmt_options = ["東吳", "聲活", "鉑霖"]
+        fmt_options = ["東吳", "聲活", "鉑霖", "元朗"]   # 元朗＝交換合約用，版面同聲活（宜歆 10/21 #4）
         try:
             fmt_idx = fmt_options.index(loaded_fmt)
         except:
             fmt_idx = 0
         
         # 製作模式（先分流：簡易模式／代理商CUE 與「選擇格式／交換合約」無關，須在其之前分流）
-        mode_options = ["簡易模式", "一般CUE", "年約季約細CUE", "代理商CUE", "專案CUE"]
+        mode_options = ["簡易模式", "一般CUE", "年約季約細CUE", "代理商CUE", "專案CUE", "健康視CUE", "CUE 管理", "統計"]
+        if ragic_ui.NAV_KEY in st.session_state:   # 從「我的 CUE」／CUE 管理開啟存檔
+            st.session_state["cue_mode"] = st.session_state.pop(ragic_ui.NAV_KEY)
         cur_mode = st.session_state.get("cue_mode", "簡易模式")
         try:
             mode_idx = mode_options.index(cur_mode)
         except ValueError:
             mode_idx = 0
         cue_mode = st.radio("製作模式", mode_options, index=mode_idx, key="cue_mode", horizontal=True,
-                            help="簡易模式：只選平台組合＋輸入預算，自動產各秒數版 CUE。年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式（需密碼）。專案CUE：走期／檔次／金額固定的專案（如萬家福／樂家康過年、中元限定專案）。")
+                            help="簡易模式：只選平台組合＋輸入預算，自動產各秒數版 CUE。年約季約細CUE：以已知檔次與實收分配至各波段，每波段獨立存檔。代理商CUE：2008傳媒／佳聖／凱絡專用格式（需密碼）。專案CUE：走期／檔次／金額固定的專案（如萬家福／樂家康過年、中元限定專案）。健康視CUE：全民健康視（診所螢幕），依預算算曝光次數。CUE 管理：查看／開啟／送出存過的 CUE。統計：每位業務出 CUE 與成交張數。")
+
+        if cue_mode == "CUE 管理":
+            cue_admin.render_manage()
+            return
+        if cue_mode == "統計":
+            cue_admin.render_stats()
+            return
+        if cue_mode in ("簡易模式", "年約季約細CUE") and not _customer_bar(cue_mode):
+            return
 
         if cue_mode == "簡易模式":
             render_simple_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, SALES_MAP)
@@ -878,7 +1103,9 @@ def main():
                 return
             # 一鍵CUE：原簡易模式中的 2008／凱絡模板（2026-10-08 由簡易模式移入）；自訂：原代理商CUE
             ag_mode = st.radio("代理商CUE 方式", ["一鍵CUE（模板）", "自訂代理商CUE"], key="agency_sub_mode",
-                               horizontal=True, help="一鍵CUE：選 2008／凱絡模板＋預算＋開始日即出，用法同簡易模式。自訂：逐項設定平台、秒數、檔次。")
+                               horizontal=True, help="一鍵CUE：選 2008／凱絡／佳聖模板＋預算＋開始日即出，用法同簡易模式。自訂：逐項設定平台、秒數、檔次。")
+            if not _customer_bar(cue_mode):
+                return
             if ag_mode == "一鍵CUE（模板）":
                 render_simple_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, SALES_MAP, family="agency")
             else:
@@ -890,13 +1117,29 @@ def main():
             _render_annual_quarter_cue(STORE_COUNTS_NUM, PRICING_DB, SEC_FACTORS, REGIONS_ORDER, fmt_options, fmt_idx, SALES_MAP)
             return
 
+        if cue_mode == "健康視CUE":   # 宜歆 #6：自帶格式（東吳／聲活／鉑霖）與客戶關卡
+            from data_loader import load_health_pricing_from_cloud
+            from health_cue import render_health_cue
+            render_health_cue(SALES_MAP, load_health_pricing_from_cloud(GSHEET_SHARE_URL))
+            return
+
         format_type = st.radio("選擇格式", fmt_options, index=fmt_idx, horizontal=True)
+        if not _customer_bar(cue_mode):   # 宜歆 #7-1：選完模式、格式先確認客戶
+            return
         if cue_mode == "專案CUE":
             project_name = st.selectbox("專案", list(FIXED_PROJECTS), key="cue_fixed_project",
                                         help="走期、秒數、檔次與金額皆固定，只需填客戶資料。")
-            _render_fixed_project_cue(project_name, format_type, STORE_COUNTS_NUM, SALES_MAP)
+            _render_fixed_project_cue(project_name, format_type, STORE_COUNTS_NUM, SALES_MAP, PRICING_DB, SEC_FACTORS, REGIONS_ORDER)
             return
-        is_barter_contract = st.checkbox("是否為交換合約", value=st.session_state.get("is_barter_contract", False), key="is_barter_contract", help="交換合約：檔次依定價計算，不提供優惠回饋檔次。")
+        # 元朗＝交換合約專用抬頭：自動勾選且鎖定（宜歆 10/22 #4-2：交換依定價核算）
+        if format_type == "元朗":
+            st.session_state["is_barter_contract"] = True
+        st.session_state.setdefault("is_barter_contract", False)
+        is_barter_contract = st.checkbox("是否為交換合約", key="is_barter_contract",
+                                         disabled=(format_type == "元朗"),
+                                         help="交換合約：檔次依定價計算（企頻全省 40 萬、新鮮視全省 15 萬），不提供優惠回饋檔次。元朗格式固定為交換合約。")
+        if format_type == "元朗":   # 鎖住的勾是灰的、看不出已勾（宜歆 4-3 10/29）
+            st.caption("✅ 元朗格式固定為交換合約，已自動勾選（不用手動勾）；檔次依定價核算。")
 
         c1, c2, c3, c4, c5_sales = st.columns(5)
         # 載入資料後的預設值
@@ -905,7 +1148,7 @@ def main():
         def_prod = st.session_state.get('temp_product_name', "統一布丁")
         def_budget = float(st.session_state.get("_total_budget_for_sidebar", st.session_state.get('temp_budget', 1000000)))
         def_cost = float(st.session_state.get('temp_prod_cost', 0))
-        def_sales_idx = 0
+        def_sales_idx = ragic_ui.default_sales_index(list(SALES_MAP.keys()) if SALES_MAP else []) or 0   # 預設登入者
         
         # 嘗試還原業務選項
         loaded_sales = st.session_state.get('temp_sales')
@@ -1063,6 +1306,11 @@ def main():
                     st.text_area("本波備註", value=_seg_display, height=180, key=f"cue_seg_remarks_{i}", label_visibility="collapsed", disabled=seg_live)
 
         st.markdown("### 3. 媒體投放設定")
+        # 預設值是在前幾次執行（還沒畫這些元件時）放進 session 的，Streamlit 不會同步到畫面
+        # → 畫面顯示沒勾、程式卻當有勾，一操作就整塊消失。畫元件前重新指定一次，強制同步到畫面。
+        for _k in _GENERAL_MEDIA_WIDGET_KEYS:
+            if _k in st.session_state:
+                st.session_state[_k] = st.session_state[_k]
         col_cb1, col_cb2, col_cb3 = st.columns(3)
         
         # Slider 連動邏輯
@@ -1197,6 +1445,7 @@ def main():
 
         m1, m2, m3 = st.columns(3)
         config = {}
+        region_periods = {}   # 各區不同走期 {media: {區域: (開始, 結束)}}
         
         if is_rad:
             with m1:
@@ -1247,26 +1496,14 @@ def main():
                                 for r in region_share_regions:
                                     st.session_state[f"rad_region_{r}"] = pending.get(r, "")
                                 del st.session_state[pending_key]
+                                st.session_state["rad_region_src"] = "pct"   # 按鈕改的是 %，以 % 為準
+                                st.session_state.pop("rad_region_manual", None)
                             keys_region = [f"rad_region_{r}" for r in region_share_regions]
                             if any(k not in st.session_state for k in keys_region):
                                 for k in keys_region:
                                     st.session_state[k] = ""
                             st.session_state["_rad_region_list"] = region_share_regions
-                            cols_rad = st.columns(len(region_share_regions))
-                            region_shares_rad = {}
-                            for idx, r in enumerate(region_share_regions):
-                                with cols_rad[idx]:
-                                    st.text_input(
-                                        f"{r} %",
-                                        key=f"rad_region_{r}",
-                                        placeholder="",
-                                        label_visibility="visible",
-                                    )
-                                    raw = st.session_state.get(f"rad_region_{r}", "") or ""
-                                    try:
-                                        region_shares_rad[r] = float(raw.strip()) if raw.strip() else 0.0
-                                    except ValueError:
-                                        region_shares_rad[r] = 0.0
+                            region_shares_rad = _region_share_inputs("rad_", region_share_regions, total_budget_input * st.session_state.rad_share / 100.0)
                             btn_col1, btn_col2 = st.columns(2)
                             with btn_col1:
                                 if st.button("填完加重區域，均分剩餘", key="rad_auto_fill_btn", help="已填的區域保留，空欄位均分剩餘比例使加總為 100%"):
@@ -1279,6 +1516,10 @@ def main():
                         else:
                             region_shares_rad = None
 
+                    if not is_nat and len(regs) >= 2 and not use_date_segments:
+                        _rp = _render_region_period_ui("rad_", regs, start_date, end_date)
+                        if _rp:
+                            region_periods["全家廣播"] = _rp
                     config["全家廣播"] = {"is_national": is_nat, "regions": regs, "sec_shares": sec_shares, "share": st.session_state.rad_share, "region_shares": region_shares_rad}
 
         if is_fv:
@@ -1329,26 +1570,14 @@ def main():
                                 for r in region_share_regions_fv:
                                     st.session_state[f"fv_region_{r}"] = pending_fv.get(r, "")
                                 del st.session_state[pending_key_fv]
+                                st.session_state["fv_region_src"] = "pct"   # 按鈕改的是 %，以 % 為準
+                                st.session_state.pop("fv_region_manual", None)
                             keys_region_fv = [f"fv_region_{r}" for r in region_share_regions_fv]
                             if any(k not in st.session_state for k in keys_region_fv):
                                 for k in keys_region_fv:
                                     st.session_state[k] = ""
                             st.session_state["_fv_region_list"] = region_share_regions_fv
-                            cols_fv = st.columns(len(region_share_regions_fv))
-                            region_shares_fv = {}
-                            for idx, r in enumerate(region_share_regions_fv):
-                                with cols_fv[idx]:
-                                    st.text_input(
-                                        f"{r} %",
-                                        key=f"fv_region_{r}",
-                                        placeholder="",
-                                        label_visibility="visible",
-                                    )
-                                    raw = st.session_state.get(f"fv_region_{r}", "") or ""
-                                    try:
-                                        region_shares_fv[r] = float(raw.strip()) if raw.strip() else 0.0
-                                    except ValueError:
-                                        region_shares_fv[r] = 0.0
+                            region_shares_fv = _region_share_inputs("fv_", region_share_regions_fv, total_budget_input * st.session_state.fv_share / 100.0)
                             btn_col1_fv, btn_col2_fv = st.columns(2)
                             with btn_col1_fv:
                                 if st.button("填完加重區域，均分剩餘", key="fv_auto_fill_btn", help="已填的區域保留，空欄位均分剩餘比例使加總為 100%"):
@@ -1361,6 +1590,10 @@ def main():
                         else:
                             region_shares_fv = None
 
+                    if not is_nat and len(regs) >= 2 and not use_date_segments:
+                        _rp = _render_region_period_ui("fv_", regs, start_date, end_date)
+                        if _rp:
+                            region_periods["新鮮視"] = _rp
                     config["新鮮視"] = {"is_national": is_nat, "regions": regs, "sec_shares": sec_shares, "share": st.session_state.fv_share, "region_shares": region_shares_fv}
 
         if is_cf:
@@ -1633,31 +1866,8 @@ def main():
                                     b_sec_shares_cf[s] = st.session_state.get(f"bonus_cs_{s}", 0)
                                 bonus_config["家樂福"] = {"regions": ["全省"], "sec_shares": b_sec_shares_cf, "share": st.session_state.get("bonus_cf_share", 0)}
 
-            # 業務加贈檔次：每個「同平台、同秒數、同區域」可選加贈、每日檔次、加贈日期區間
-            row_groups = get_row_groups(rows, REGIONS_ORDER)
-            custom_bonus_config = {}
-            if st.session_state.get("is_supervisor", False):
-                with st.expander("📌 業務加贈檔次", expanded=False):
-                    st.caption("在相同平台、相同秒數、相同區域的廣告下方可加一列「加贈檔次」，設定每日加贈幾檔及加贈日期區間（須在走期內）。")
-                    for g in row_groups:
-                        media, sec, region_key = g["key"]
-                        skey = f"cb_{media}_{sec}_{region_key}".replace(" ", "_")
-                        label = f"【{media}】 {sec}秒 - {region_key}"
-                        st.markdown(f"**{label}**")
-                        c1, c2, c3, c4 = st.columns([1, 2, 2, 2])
-                        with c1:
-                            enabled = st.checkbox("加贈", value=st.session_state.get(f"cb_en_{skey}", False), key=f"cb_en_{skey}", label_visibility="collapsed")
-                        with c2:
-                            spots_per_day = st.number_input("每日加贈檔次", min_value=0, max_value=999, value=st.session_state.get(f"cb_spots_{skey}", 0) or 0, step=1, key=f"cb_spots_{skey}")
-                        with c3:
-                            b_start = st.date_input("加贈開始日", value=start_date, min_value=start_date, max_value=end_date, key=f"cb_start_{skey}")
-                        with c4:
-                            b_end = st.date_input("加贈結束日", value=end_date, min_value=start_date, max_value=end_date, key=f"cb_end_{skey}")
-                        if enabled and spots_per_day and b_start and b_end:
-                            custom_bonus_config[g["key"]] = {"enabled": True, "spots_per_day": spots_per_day, "date_start": b_start, "date_end": b_end}
-            else:
-                with st.expander("📌 業務加贈檔次", expanded=False):
-                    st.caption("僅主管可設定業務加贈檔次。")
+            # 業務加贈檔次（＝第 3 期檔次調整，共用 bonus_adjust）：同平台、同秒數、同區域可加「加贈」列，預算不變
+            custom_bonus_config = render_bonus_ui(rows, start_date, end_date, REGIONS_ORDER, key_prefix="")
 
             # 合併回饋與加贈：兩者皆依「原始 rows」的 index；同一 index 先插門檻回饋再插業務加贈、主管加贈
             all_inserts = []
@@ -1681,6 +1891,8 @@ def main():
                 for row in rows:
                     if (row.get("is_rebate") or row.get("is_custom_bonus")) and "schedule" in row:
                         row["schedule"] = expand_schedule_to_calendar(row["schedule"], segments, start_date, end_date)
+            if region_periods:
+                apply_region_periods(rows, region_periods, start_date, end_date)
             prod_cost = prod_cost_input 
             vat = _round_half_up(final_budget_val * 0.05)
             grand_total = final_budget_val + vat
@@ -1707,8 +1919,6 @@ def main():
 
             # 顯示運算邏輯（含回饋檔次計算、主管額外回饋計算）
             render_logic_panel(logs, use_list_price_for_spots=is_barter_contract, rebate_logs=rebate_logs if not is_barter_contract else [], bonus_rebate_logs=bonus_rebate_logs)
-            can_download_excel = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_excel_download", True)
-            can_download_pdf = st.session_state.get("is_supervisor", False) or st.session_state.get("allow_sales_pdf_download", True)
             
             st.markdown("---")
             st.subheader("📥 檔案下載區")
@@ -1722,6 +1932,7 @@ def main():
             if isinstance(_cue_def_s, datetime):
                 _cue_def_s = _cue_def_s.date() if hasattr(_cue_def_s, "date") else _cue_def_s
 
+            _gen_extra = []   # 分波段各波下載（第 5 期：存檔後在存檔區下載）
             if use_date_segments and segments and len(segments) > 1:
                 for i, (seg_start, seg_end) in enumerate(segments):
                     seg_rem = _get_cue_segment_rem(i, seg_end, _cue_def_s)
@@ -1737,20 +1948,9 @@ def main():
                             st.components.v1.html(html_seg, height=500, scrolling=True)
                         xlsx_seg = generate_excel_from_scratch(format_type, seg_start, seg_end, client_name, client_tax_id, product_name, segment_rows, seg_rem, final_budget_val, prod_cost, sales_person, total_list_accum)
                         pdf_seg, _, _ = xlsx_bytes_to_pdf_bytes(xlsx_seg)
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            if can_download_excel:
-                                st.download_button(f"📥 波段{i+1} Excel", xlsx_seg, _cue_fn(segment_rows, "xlsx", f"波段{i+1}"), key=f"cue_seg_xlsx_{i}", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                            else:
-                                st.caption("Excel 下載已由主管關閉")
-                        with c2:
-                            if pdf_seg and can_download_pdf:
-                                st.download_button(f"📥 波段{i+1} PDF", pdf_seg, _cue_fn(segment_rows, "pdf", f"波段{i+1}"), key=f"cue_seg_pdf_{i}", mime="application/pdf")
-                            elif not can_download_pdf:
-                                st.caption("PDF 下載已由主管關閉")
-                            else:
-                                st.caption("PDF 需 LibreOffice")
-                _ragic_col = st.columns(3)[2]
+                        _gen_extra.append((f"⬇️ 波段{i+1} Excel", _cue_fn(segment_rows, "xlsx", f"波段{i+1}"), xlsx_seg, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                        if pdf_seg:
+                            _gen_extra.append((f"⬇️ 波段{i+1} PDF", _cue_fn(segment_rows, "pdf", f"波段{i+1}"), pdf_seg, "application/pdf"))
                 seg0_start, seg0_end = segments[0][0], segments[0][1]
                 _seg0_rem = _get_cue_segment_rem(0, seg0_end, _cue_def_s)
                 _seg0_rows = _slice_rows_to_segment(rows, start_date, seg0_start, seg0_end)
@@ -1766,137 +1966,48 @@ def main():
                 else:
                     st.components.v1.html(html_preview, height=700, scrolling=True)
                 xlsx_temp = generate_excel_from_scratch(format_type, start_date, end_date, client_name, client_tax_id, product_name, rows, rem, final_budget_val, prod_cost, sales_person, total_list_accum)
-                col_dl1, col_dl2, col_ragic = st.columns([1, 1, 2])
-                with col_dl2:
-                    pdf_bytes, method, err = xlsx_bytes_to_pdf_bytes(xlsx_temp)
-                    if pdf_bytes and can_download_pdf:
-                        st.download_button(f"📥 下載 PDF", pdf_bytes, _cue_fn(rows, "pdf"), key="pdf_dl_btn", mime="application/pdf")
-                    elif not can_download_pdf:
-                        st.caption("PDF 下載已由主管關閉")
-                    else:
-                        st.warning(f"PDF 生成失敗: {err}")
-                with col_dl1:
-                    if can_download_excel:
-                        st.download_button("📥 下載 Excel", xlsx_temp, _cue_fn(rows, "xlsx"), key="xlsx_dl_btn", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    else:
-                        st.caption("Excel 下載已由主管關閉")
-                _ragic_col = col_ragic
+                pdf_bytes, method, err = xlsx_bytes_to_pdf_bytes(xlsx_temp)
+                if not pdf_bytes:
+                    st.warning(f"PDF 生成失敗: {err}")
+                st.caption("⬇️ 下載 Excel／PDF 請到下方「☁️ 存檔到 Ragic」，存檔後即可下載。")
                 _xlsx_ragic, _pdf_ragic = xlsx_temp, pdf_bytes
 
-            with _ragic_col:
-                st.markdown("#### ☁️ 上傳至 Ragic")
-                style_excel_file = st.file_uploader(
-                    "自調外觀excel上傳",
-                    type=["xlsx", "xlsm", "xls"],
-                    key="ragic_style_excel_upload",
-                    help="僅能調整外觀及呈列方式，請勿調整每日檔次及金額等重要資訊(訂檔資訊將以程式設定為主)。",
-                )
-                st.caption("僅能調整外觀及呈列方式，請勿調整每日檔次及金額等重要資訊(訂檔資訊將以程式設定為主)。")
-                
-                # === [新增功能] 顯示上傳成功的歷史訊息 (不會一閃即逝) ===
-                if 'upload_success_msg' in st.session_state:
-                    st.success(st.session_state['upload_success_msg'])
-                    if st.button("👌 我知道了 (清除訊息)"):
-                        del st.session_state['upload_success_msg']
-                        st.rerun()
-                # ====================================================
-
-                if not st.session_state.ragic_confirm_state:
-                    if st.button("🚀 上傳資料至 Ragic", type="primary"):
-                        st.session_state.ragic_confirm_state = True
-                        st.rerun()
-                else:
-                    st.warning(f"即將上傳【{client_name} - {product_name}】至 Ragic，請確認？")
-                    c_conf1, c_conf2 = st.columns(2)
-                    
-                    with c_conf1:
-                        if st.button("❌ 取消"):
-                            st.session_state.ragic_confirm_state = False
-                            st.rerun()
-                            
-                    with c_conf2:
-                        if st.button("✅ 確認上傳"):
-                            with st.spinner("正在上傳資料與檔案..."):
-                                row_groups_upload = get_row_groups(rows, REGIONS_ORDER)
-                                campaign_summary = build_ragic_details_full(config, _get_ragic_extra_state(row_groups_upload))
-                                platform_detail = build_platform_detail_text(rows, config)
-                                platform_text = build_platform_text(rows)
-                                # Ragic 追加欄位：總檔數（含一般+回饋+加贈）與秒數聯集
-                                total_spots_all = int(sum(
-                                    (d if isinstance(d, (int, float)) else 0)
-                                    for r in rows for d in (r.get("schedule") or [])
-                                ))
-                                seconds_union_text = "、".join([
-                                    str(s) for s in sorted({int(r.get("seconds")) for r in rows if r.get("seconds") is not None})
-                                ])
-                                sales_nickname = SALES_MAP.get(sales_person, sales_person)
-
-                                data_payload = {
-                                    RAGIC_MAP['client']:     client_name,
-                                    RAGIC_MAP['product']:    product_name,
-                                    RAGIC_MAP['budget_raw']: total_budget_input,
-                                    RAGIC_MAP['budget_fin']: final_budget_val,
-                                    RAGIC_MAP['prod_cost']:  prod_cost_input,
-                                    RAGIC_MAP['format']:     format_type,
-                                    RAGIC_MAP['sales']:      sales_nickname,
-                                    RAGIC_MAP['date_start']: str(start_date),
-                                    RAGIC_MAP['date_end']:   str(end_date),
-                                    RAGIC_MAP['date_sign']:  str(sign_deadline),
-                                    RAGIC_MAP['bill_month']: billing_month,
-                                    RAGIC_MAP['date_pay']:   str(payment_date),
-                                    RAGIC_MAP['details']:    campaign_summary,
-                                    RAGIC_MAP['tax_id']:     client_tax_id
-                                }
-                                if RAGIC_MAP.get('platform_detail'):
-                                    data_payload[RAGIC_MAP['platform_detail']] = platform_detail
-                                if RAGIC_MAP.get('platform'):
-                                    data_payload[RAGIC_MAP['platform']] = platform_text
-                                if RAGIC_MAP.get('total_spots'):
-                                    data_payload[RAGIC_MAP['total_spots']] = total_spots_all
-                                if RAGIC_MAP.get('seconds_union'):
-                                    data_payload[RAGIC_MAP['seconds_union']] = seconds_union_text
-
-                                files_payload = {}
-                                files_payload[RAGIC_MAP['file_xls']] = (
-                                    _cue_fn(rows, "xlsx"),
-                                    _xlsx_ragic,
-                                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                                )
-                                if _pdf_ragic:
-                                    files_payload[RAGIC_MAP['file_pdf']] = (
-                                        _cue_fn(rows, "pdf"),
-                                        _pdf_ragic, 
-                                        'application/pdf'
-                                    )
-                                if style_excel_file and RAGIC_MAP.get('file_style_xls'):
-                                    _name_raw = style_excel_file.name or f"Style_{safe_filename(client_name)}.xlsx"
-                                    _name = safe_filename(_name_raw)
-                                    _mime = mimetypes.guess_type(_name)[0] or "application/octet-stream"
-                                    files_payload[RAGIC_MAP['file_style_xls']] = (
-                                        _name,
-                                        style_excel_file.getvalue(),
-                                        _mime,
-                                    )
-
-                                success, msg, rid = upload_to_ragic(
-                                    st.session_state.ragic_url,
-                                    st.session_state.ragic_key,
-                                    data_payload,
-                                    files_payload
-                                )
-                                
-                                if success:
-                                    # 成功：將訊息存入 Session，然後重新整理頁面
-                                    st.session_state['upload_success_msg'] = msg
-                                    st.session_state.ragic_confirm_state = False
-                                    st.rerun()
-                                else:
-                                    # 失敗：直接顯示紅字錯誤
-                                    st.error(f"上傳失敗: {msg}")
-                            
-                            st.session_state.ragic_confirm_state = False
-                            time.sleep(1)
-                            st.rerun()
+            # Ragic 存檔（第 2 期：取代原「上傳至 Ragic」；同一份再存＝更新同一筆、版本 +1）
+            import cue_store as _cst
+            row_groups_upload = get_row_groups(rows, REGIONS_ORDER)
+            _norm = _cst.scale_net(_cst.norm_general_rows(rows), int(final_budget_val))
+            _waves = (_cst.split_waves(_norm, start_date, segments) if use_date_segments and segments and len(segments) > 1
+                      else [{"label": "", "start": start_date, "end": end_date, "rows": _norm}])
+            # 付款兌現日 → 訂檔「收款日期」預設（分波段時各波各自）
+            _segrem = st.session_state.get("cue_seg_remarks") or {}
+            for _i, _w in enumerate(_waves):
+                _pd = (_segrem.get(_i) or _segrem.get(str(_i)) or {}).get("payment_date") if len(_waves) > 1 else st.session_state.get("cue_payment_date")
+                if _pd:
+                    _w["payment_date"] = _pd.date() if isinstance(_pd, datetime) else _pd
+            _snap = _cst.make_snapshot(
+                "一般CUE",
+                {"client": client_name, "tax_id": client_tax_id, "product": product_name, "format": format_type,
+                 "sales": SALES_MAP.get(sales_person, sales_person), "start": start_date, "end": end_date,
+                 "budget": total_budget_input, "final": final_budget_val, "prod_cost": prod_cost_input},
+                _waves, customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+            # 一般CUE 讀回沿用原本 [EXT] 還原，欄位與舊上傳一致
+            _extra = {
+                RAGIC_MAP['budget_raw']: total_budget_input,
+                RAGIC_MAP['budget_fin']: final_budget_val,
+                RAGIC_MAP['date_sign']: str(sign_deadline),
+                RAGIC_MAP['bill_month']: billing_month,
+                RAGIC_MAP['date_pay']: str(payment_date),
+                RAGIC_MAP['platform_detail']: build_platform_detail_text(rows, config),
+                RAGIC_MAP['total_spots']: int(sum((d if isinstance(d, (int, float)) else 0)
+                                                  for r in rows for d in (r.get("schedule") or []))),
+            }
+            ragic_ui.render_save_panel(
+                _snap,
+                files={"xlsx": (_cue_fn(rows, "xlsx"), _xlsx_ragic),
+                       "pdf": (_cue_fn(rows, "pdf"), _pdf_ragic) if _pdf_ragic else None,
+                       "extra": _gen_extra},
+                legacy_details=build_ragic_details_full(config, _get_ragic_extra_state(row_groups_upload)),
+                extra_fields=_extra, key_prefix="gen_save")
 
     except Exception as e:
         st.error("程式執行發生錯誤，請聯絡開發者。")

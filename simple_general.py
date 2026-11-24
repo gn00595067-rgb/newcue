@@ -5,7 +5,8 @@
 簡易模式的 CueModel 每個秒數版一張 CueSheet；這裡把每張轉成一般 CUE 的 rows，
 交給 excel_renderer.render_excel_into／html_generator.generate_html_preview，
 版面與一般 CUE 選聲活／鉑霖時一模一樣（規格見 docs/specs/格式選擇擴充.md）。
-東吳仍走簡易模式原版面（宜歆 0902 範本），不經過這裡。
+東吳仍走簡易模式原版面（宜歆 0902 範本）；但有「檔次調整（加贈）」時改走這裡的一般CUE 東吳版面
+（簡易範本沒有加贈列）。
 
 本模組不 import streamlit，可獨立測試。
 """
@@ -67,12 +68,14 @@ def _remarks(model):
     return [t for t, _red in model.remarks]
 
 
-def render_xlsx(model, format_type, sales_person=""):
+def render_xlsx(model, format_type, sales_person="", transform=None):
     """所有秒數版併成一個活頁簿（每秒數一張；走期超過 31 天跨月時再依月拆），回傳 bytes。"""
     wb = openpyxl.Workbook()
     blank = wb.active
     for sheet in model.sheets:
         rows = sheet_to_rows(sheet)
+        if transform:   # 例：插入加贈列（bonus_adjust）
+            rows = transform(rows)
         render_excel_into(
             format_type, model.start, model.end, model.client, model.tax_id, model.product,
             rows, _remarks(model), sheet.budget, sheet.prod_cost, sales_person,
@@ -83,12 +86,14 @@ def render_xlsx(model, format_type, sales_person=""):
     return bio.getvalue()
 
 
-def render_htmls(model, format_type):
+def render_htmls(model, format_type, transform=None):
     """每個秒數版一份 HTML 預覽（跨月拆頁時為多頁合併）；回傳 [(title, html)]。"""
     ndays = (model.end - model.start).days + 1
     out = []
     for sheet in model.sheets:
         rows = sheet_to_rows(sheet)
+        if transform:   # 例：插入加贈列（bonus_adjust）
+            rows = transform(rows)
         p_str = f"{sheet.seconds}秒 {model.product}".strip()
         grand = sheet.fees.get("grand") or sheet.fees.get("total") or 0
         html = generate_html_preview(
