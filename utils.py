@@ -124,25 +124,6 @@ def expand_schedule_to_calendar(schedule_active, segments, start_date, end_date)
     return result
 
 
-def rebalance_shares(values, changed, manual):
-    """預算 % 連動（第二階段 A1，宜歆／業務 11/23 測試：拉桿調第二個平台時第一個會跑掉）。
-    values：{key: 目前 %}（依畫面順序）；changed：剛改的 key；manual：之前手填過的 key（先後順序）。
-    規則：手填過的保留，沒手填的平均補剩下的（整數，尾差給最後一個）；手填紀錄最多「項目數−1」個，
-    滿了丟最早填的、由它吸收差額。回傳 (新 values, 新 manual)。"""
-    keys = list(values)
-    out = {k: int(values[k] or 0) for k in keys}
-    if len(keys) <= 1:
-        return {k: 100 for k in keys}, []
-    order = [k for k in (manual or []) if k in keys and k != changed] + [changed]
-    order = order[-(len(keys) - 1):]
-    auto = [k for k in keys if k not in order]
-    rest = max(0, 100 - sum(out[k] for k in order))
-    each = rest // len(auto)
-    for i, k in enumerate(auto):
-        out[k] = each if i < len(auto) - 1 else rest - each * (len(auto) - 1)
-    return out, order
-
-
 def apply_region_periods(rows, region_periods, start_date, end_date):
     """各區不同走期（spec：各區不同走期.md）：該區的列總檔次不變，重新平均排進該區走期，走期外填 0。
     region_periods: {media: {region: (start, end)}}；排程已全在該區走期內的列（如加贈自設日期）不動。

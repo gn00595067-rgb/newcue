@@ -121,7 +121,7 @@ def _on_region_edit(prefix, region, kind, regions, base):
 
 
 def _rebalance_shares(keys, changed, manual_key):
-    """預算 % 連動（第二階段 A1）：計算見 utils.rebalance_shares，這裡只讀寫 session。"""
+    """預算 % 連動（第二階段 A1）：計算見 share_rebalance.rebalance_shares，這裡只讀寫 session。"""
     ss = st.session_state
     vals, ss[manual_key] = rebalance_shares({k: ss.get(k) for k in keys}, changed, ss.get(manual_key, []))
     for k, v in vals.items():
@@ -200,6 +200,7 @@ from config import (
     SUPERVISOR_PASSWORD,
     AGENCY_PASSWORD
 )
+from share_rebalance import rebalance_shares
 from utils import (
     safe_filename,
     build_cue_filename,
@@ -210,7 +211,6 @@ from utils import (
     build_platform_text,
     expand_schedule_to_calendar,
     apply_region_periods,
-    rebalance_shares,
 )
 from data_loader import load_config_from_cloud
 from calculator import calculate_plan_data, render_logic_panel

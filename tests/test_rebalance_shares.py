@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """預算 % 連動（第二階段 A1，spec docs/specs/第二階段A批小修.md）。"""
-from utils import rebalance_shares
+from share_rebalance import rebalance_shares
 
 
 def test_三平台依序填_先填的不會跑掉():
