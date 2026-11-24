@@ -120,6 +120,20 @@ def _on_region_edit(prefix, region, kind, regions, base):
             ss[key(r)] = f"{v:.1f}"
 
 
+def _rebalance_shares(keys, changed, manual_key):
+    """預算 % 連動（第二階段 A1）：計算見 utils.rebalance_shares，這裡只讀寫 session。"""
+    ss = st.session_state
+    vals, ss[manual_key] = rebalance_shares({k: ss.get(k) for k in keys}, changed, ss.get(manual_key, []))
+    for k, v in vals.items():
+        ss[k] = v
+
+
+def _warn_share_total(keys, label="預算"):
+    total = sum(int(st.session_state.get(k) or 0) for k in keys)
+    if keys and total != 100:
+        st.warning(f"{label}佔比目前合計 {total}%，需為 100%，請調整。")
+
+
 def _region_share_inputs(prefix, regions, base):
     """自訂區域比例：每區「%」與「金額」擇一填，另一欄自動換算（宜歆 8-2；base＝該平台預算）。
     以最後編輯的那一種為準（{prefix}region_src＝pct／amt），回傳 {區域: %}（金額為準時用精確比例，不受 % 顯示四捨五入影響）。"""
@@ -196,6 +210,7 @@ from utils import (
     build_platform_text,
     expand_schedule_to_calendar,
     apply_region_periods,
+    rebalance_shares,
 )
 from data_loader import load_config_from_cloud
 from calculator import calculate_plan_data, render_logic_panel
@@ -1190,7 +1205,9 @@ def main():
         if "date_segments" not in st.session_state:
             st.session_state.date_segments = []
 
-        use_date_segments = st.checkbox("分段執行（可選多段波段日期，未執行日顯示空白）", value=st.session_state.use_date_segments, key="use_date_segments")
+        use_date_segments = st.checkbox("分段執行／跳週（例：走一週停一週，未執行日留空，同一張 CUE）", value=st.session_state.use_date_segments, key="use_date_segments")
+        if not use_date_segments:
+            st.caption("💡 客戶要跳週、中間停播？勾上方「分段執行」，一張 CUE 就能完成，不用做兩份。")
         if use_date_segments:
             if not st.session_state.date_segments:
                 st.session_state.date_segments = [(start_date, end_date)]
@@ -1315,6 +1332,7 @@ def main():
         
         # Slider 連動邏輯
         def on_media_change():
+            st.session_state.pop("_share_manual", None)
             active = []
             if st.session_state.get("cb_rad"): active.append("rad_share")
             if st.session_state.get("cb_fv"): active.append("fv_share")
@@ -1325,56 +1343,16 @@ def main():
             rem = 100 - sum([st.session_state[k] for k in active])
             st.session_state[active[0]] += rem
 
+        def _active_share_keys():
+            return [k for cb, k in (("cb_rad", "rad_share"), ("cb_fv", "fv_share"), ("cb_cf", "cf_share"))
+                    if st.session_state.get(cb)]
+
         def on_slider_change(changed_key):
-            active = []
-            if st.session_state.get("cb_rad"): active.append("rad_share")
-            if st.session_state.get("cb_fv"): active.append("fv_share")
-            if st.session_state.get("cb_cf"): active.append("cf_share")
-            others = [k for k in active if k != changed_key]
-            if not others:
-                st.session_state[changed_key] = 100
-            elif len(others) == 1:
-                val = st.session_state[changed_key]
-                st.session_state[others[0]] = max(0, 100 - val)
-            elif len(others) == 2:
-                val = st.session_state[changed_key]
-                rem = max(0, 100 - val)
-                k1, k2 = others[0], others[1]
-                sum_others = st.session_state[k1] + st.session_state[k2]
-                if sum_others == 0:
-                    st.session_state[k1] = rem // 2
-                    st.session_state[k2] = rem - st.session_state[k1]
-                else:
-                    ratio = st.session_state[k1] / sum_others
-                    st.session_state[k1] = int(rem * ratio)
-                    st.session_state[k2] = rem - st.session_state[k1]
+            _rebalance_shares(_active_share_keys(), changed_key, "_share_manual")
 
         def on_sec_slider_change(media_prefix, changed_sec, all_secs):
-            key_changed = f"{media_prefix}{changed_sec}"
-            new_val = st.session_state[key_changed]
-            rem = 100 - new_val
-
-            others = [s for s in all_secs if s != changed_sec]
-            if not others:
-                st.session_state[key_changed] = 100
-                return
-
-            current_sum_others = sum([st.session_state[f"{media_prefix}{s}"] for s in others])
-
-            for i, s in enumerate(others):
-                other_key = f"{media_prefix}{s}"
-                if current_sum_others == 0:
-                    new_other_val = rem // len(others)
-                    if i == len(others) - 1:
-                        new_other_val = rem - sum([st.session_state[f"{media_prefix}{x}"] for x in others if x != s])
-                else:
-                    ratio = st.session_state[other_key] / current_sum_others
-                    new_other_val = int(rem * ratio)
-                    if i == len(others) - 1:
-                        allocated = new_val + sum([st.session_state[f"{media_prefix}{x}"] for x in others if x != s])
-                        new_other_val = 100 - allocated
-
-                st.session_state[other_key] = max(0, new_other_val)
+            _rebalance_shares([f"{media_prefix}{s}" for s in all_secs], f"{media_prefix}{changed_sec}",
+                              f"_{media_prefix}manual")
 
         def auto_fill_region_remainder(prefix, region_list):
             """將目前未填（空或 0）的區域均分剩餘比例，使加總接近 100%。寫入 pending key，下一輪再套用到 widget key（避免 Streamlit 不允許同 run 內改 widget key）。"""
@@ -1443,6 +1421,7 @@ def main():
         is_fv = col_cb2.checkbox("新鮮視", key="cb_fv", on_change=on_media_change)
         is_cf = col_cb3.checkbox("萬家福．樂家康", key="cb_cf", on_change=on_media_change)
 
+        _warn_share_total(_active_share_keys())
         m1, m2, m3 = st.columns(3)
         config = {}
         region_periods = {}   # 各區不同走期 {media: {區域: (開始, 結束)}}
@@ -1461,12 +1440,13 @@ def main():
                 
                 # 修改：移除預設值參數
                 secs = st.multiselect("秒數", DURATIONS, key="rad_sec")
-                st.slider("預算 %", 0, 100, key="rad_share", on_change=on_slider_change, args=("rad_share",))
+                st.number_input("預算 %", 0, 100, step=1, key="rad_share", on_change=on_slider_change, args=("rad_share",))
                 
                 sorted_secs = sorted(secs)
                 if sorted_secs:
                     keys_to_check = [f"rs_{s}" for s in sorted_secs]
                     if any(k not in st.session_state for k in keys_to_check):
+                        st.session_state.pop("_rs_manual", None)
                         default_val = 100 // len(sorted_secs)
                         for i, s in enumerate(sorted_secs):
                             k = f"rs_{s}"
@@ -1477,13 +1457,14 @@ def main():
                     
                     sec_shares = {}
                     for s in sorted_secs:
-                        st.slider(
-                            f"{s}秒 %", 0, 100,
+                        st.number_input(
+                            f"{s}秒 %", 0, 100, step=1,
                             key=f"rs_{s}",
                             on_change=on_sec_slider_change,
                             args=("rs_", s, sorted_secs)
                         )
                         sec_shares[s] = st.session_state[f"rs_{s}"]
+                    _warn_share_total([f"rs_{x}" for x in sorted_secs], "秒數")
 
                     # 自訂區域比例：一開始格子皆為空；可輸入加重區域，再按「填完加重區域，均分剩餘」或「清空數值」
                     region_share_regions = REGIONS_ORDER if is_nat else regs
@@ -1536,12 +1517,13 @@ def main():
                 
                 # 修改：移除預設值參數
                 secs = st.multiselect("秒數", DURATIONS, key="fv_sec")
-                st.slider("預算 %", 0, 100, key="fv_share", on_change=on_slider_change, args=("fv_share",))
+                st.number_input("預算 %", 0, 100, step=1, key="fv_share", on_change=on_slider_change, args=("fv_share",))
                 
                 sorted_secs = sorted(secs)
                 if sorted_secs:
                     keys_to_check = [f"fs_{s}" for s in sorted_secs]
                     if any(k not in st.session_state for k in keys_to_check):
+                        st.session_state.pop("_fs_manual", None)
                         default_val = 100 // len(sorted_secs)
                         for i, s in enumerate(sorted_secs):
                             k = f"fs_{s}"
@@ -1552,13 +1534,14 @@ def main():
                     
                     sec_shares = {}
                     for s in sorted_secs:
-                        st.slider(
-                            f"{s}秒 %", 0, 100,
+                        st.number_input(
+                            f"{s}秒 %", 0, 100, step=1,
                             key=f"fs_{s}",
                             on_change=on_sec_slider_change,
                             args=("fs_", s, sorted_secs)
                         )
                         sec_shares[s] = st.session_state[f"fs_{s}"]
+                    _warn_share_total([f"fs_{x}" for x in sorted_secs], "秒數")
 
                     region_share_regions_fv = REGIONS_ORDER if is_nat else regs
                     with st.expander("📍 自訂區域比例", expanded=False):
@@ -1601,12 +1584,13 @@ def main():
                 st.markdown("#### 🛒 萬家福．樂家康")
                 # 修改：移除預設值參數
                 secs = st.multiselect("秒數", DURATIONS, key="cf_sec")
-                st.slider("預算 %", 0, 100, key="cf_share", on_change=on_slider_change, args=("cf_share",))
+                st.number_input("預算 %", 0, 100, step=1, key="cf_share", on_change=on_slider_change, args=("cf_share",))
                 
                 sorted_secs = sorted(secs)
                 if sorted_secs:
                     keys_to_check = [f"cs_{s}" for s in sorted_secs]
                     if any(k not in st.session_state for k in keys_to_check):
+                        st.session_state.pop("_cs_manual", None)
                         default_val = 100 // len(sorted_secs)
                         for i, s in enumerate(sorted_secs):
                             k = f"cs_{s}"
@@ -1617,13 +1601,14 @@ def main():
                     
                     sec_shares = {}
                     for s in sorted_secs:
-                        st.slider(
-                            f"{s}秒 %", 0, 100, 
+                        st.number_input(
+                            f"{s}秒 %", 0, 100, step=1,
                             key=f"cs_{s}", 
                             on_change=on_sec_slider_change, 
                             args=("cs_", s, sorted_secs)
                         )
                         sec_shares[s] = st.session_state[f"cs_{s}"]
+                    _warn_share_total([f"cs_{x}" for x in sorted_secs], "秒數")
                 
                     config["家樂福"] = {"regions": ["全省"], "sec_shares": sec_shares, "share": st.session_state.cf_share}
 
@@ -1734,6 +1719,7 @@ def main():
 
                     # 主管回饋分配 UI：仿「3. 媒體投放設定」，無自訂區域比例
                     def bonus_on_media_change():
+                        st.session_state.pop("_bonus_share_manual", None)
                         active = []
                         if st.session_state.get("bonus_cb_rad"): active.append("bonus_rad_share")
                         if st.session_state.get("bonus_cb_fv"): active.append("bonus_fv_share")
@@ -1745,51 +1731,15 @@ def main():
                         st.session_state[active[0]] += rem
 
                     def bonus_on_slider_change(changed_key):
-                        active = []
-                        if st.session_state.get("bonus_cb_rad"): active.append("bonus_rad_share")
-                        if st.session_state.get("bonus_cb_fv"): active.append("bonus_fv_share")
-                        if st.session_state.get("bonus_cb_cf"): active.append("bonus_cf_share")
-                        others = [k for k in active if k != changed_key]
-                        if not others:
-                            st.session_state[changed_key] = 100
-                        elif len(others) == 1:
-                            val = st.session_state[changed_key]
-                            st.session_state[others[0]] = max(0, 100 - val)
-                        else:
-                            val = st.session_state[changed_key]
-                            rem = max(0, 100 - val)
-                            k1, k2 = others[0], others[1]
-                            sum_others = st.session_state[k1] + st.session_state[k2]
-                            if sum_others == 0:
-                                st.session_state[k1] = rem // 2
-                                st.session_state[k2] = rem - st.session_state[k1]
-                            else:
-                                ratio = st.session_state[k1] / sum_others
-                                st.session_state[k1] = int(rem * ratio)
-                                st.session_state[k2] = rem - st.session_state[k1]
+                        keys = [k for cb, k in (("bonus_cb_rad", "bonus_rad_share"), ("bonus_cb_fv", "bonus_fv_share"),
+                                                ("bonus_cb_cf", "bonus_cf_share")) if st.session_state.get(cb)]
+                        _rebalance_shares(keys, changed_key, "_bonus_share_manual")
 
                     def bonus_on_sec_slider_change(media_prefix, changed_sec, all_secs):
-                        key_changed = f"{media_prefix}{changed_sec}"
-                        new_val = st.session_state[key_changed]
-                        rem = 100 - new_val
-                        others = [s for s in all_secs if s != changed_sec]
-                        if not others:
-                            st.session_state[key_changed] = 100
-                            return
-                        current_sum_others = sum([st.session_state.get(f"{media_prefix}{s}", 0) for s in others])
-                        for i, s in enumerate(others):
-                            other_key = f"{media_prefix}{s}"
-                            if current_sum_others == 0:
-                                new_other_val = rem // len(others)
-                                if i == len(others) - 1:
-                                    new_other_val = rem - sum([st.session_state.get(f"{media_prefix}{x}", 0) for x in others if x != s])
-                            else:
-                                ratio = st.session_state.get(other_key, 0) / current_sum_others
-                                new_other_val = int(rem * ratio)
-                                if i == len(others) - 1:
-                                    allocated = new_val + sum([st.session_state.get(f"{media_prefix}{x}", 0) for x in others if x != s])
-                                    new_other_val = 100 - allocated
-                            st.session_state[other_key] = max(0, new_other_val)
+                        for s_ in all_secs:
+                            st.session_state.setdefault(f"{media_prefix}{s_}", 0)
+                        _rebalance_shares([f"{media_prefix}{s_}" for s_ in all_secs], f"{media_prefix}{changed_sec}",
+                                          f"_{media_prefix}manual")
 
                     st.markdown("#### 主管回饋分配（平台／區域／秒數／比重）")
                     b_cb1, b_cb2, b_cb3 = st.columns(3)
@@ -1807,7 +1757,7 @@ def main():
                                 b_regs_rad = ["全省"]
                                 st.info("✅ 已選滿6區，視為全省")
                             b_secs_rad = st.multiselect("秒數", DURATIONS, key="bonus_rad_sec")
-                            st.slider("預算 %", 0, 100, key="bonus_rad_share", on_change=bonus_on_slider_change, args=("bonus_rad_share",))
+                            st.number_input("預算 %", 0, 100, step=1, key="bonus_rad_share", on_change=bonus_on_slider_change, args=("bonus_rad_share",))
                             sorted_b_secs_rad = sorted(b_secs_rad)
                             if sorted_b_secs_rad:
                                 for k in [f"bonus_rs_{s}" for s in sorted_b_secs_rad]:
@@ -1819,7 +1769,7 @@ def main():
                                         break
                                 b_sec_shares_rad = {}
                                 for s in sorted_b_secs_rad:
-                                    st.slider(f"{s}秒 %", 0, 100, key=f"bonus_rs_{s}", on_change=bonus_on_sec_slider_change, args=("bonus_rs_", s, sorted_b_secs_rad))
+                                    st.number_input(f"{s}秒 %", 0, 100, step=1, key=f"bonus_rs_{s}", on_change=bonus_on_sec_slider_change, args=("bonus_rs_", s, sorted_b_secs_rad))
                                     b_sec_shares_rad[s] = st.session_state.get(f"bonus_rs_{s}", 0)
                                 bonus_config["全家廣播"] = {"is_national": is_b_nat_rad, "regions": b_regs_rad if b_regs_rad else ["全省"], "sec_shares": b_sec_shares_rad, "share": st.session_state.get("bonus_rad_share", 0)}
                     if is_b_fv:
@@ -1831,7 +1781,7 @@ def main():
                                 b_regs_fv = ["全省"]
                                 st.info("✅ 已選滿6區，視為全省")
                             b_secs_fv = st.multiselect("秒數", DURATIONS, key="bonus_fv_sec")
-                            st.slider("預算 %", 0, 100, key="bonus_fv_share", on_change=bonus_on_slider_change, args=("bonus_fv_share",))
+                            st.number_input("預算 %", 0, 100, step=1, key="bonus_fv_share", on_change=bonus_on_slider_change, args=("bonus_fv_share",))
                             sorted_b_secs_fv = sorted(b_secs_fv)
                             if sorted_b_secs_fv:
                                 for k in [f"bonus_fs_{s}" for s in sorted_b_secs_fv]:
@@ -1843,14 +1793,14 @@ def main():
                                         break
                                 b_sec_shares_fv = {}
                                 for s in sorted_b_secs_fv:
-                                    st.slider(f"{s}秒 %", 0, 100, key=f"bonus_fs_{s}", on_change=bonus_on_sec_slider_change, args=("bonus_fs_", s, sorted_b_secs_fv))
+                                    st.number_input(f"{s}秒 %", 0, 100, step=1, key=f"bonus_fs_{s}", on_change=bonus_on_sec_slider_change, args=("bonus_fs_", s, sorted_b_secs_fv))
                                     b_sec_shares_fv[s] = st.session_state.get(f"bonus_fs_{s}", 0)
                                 bonus_config["新鮮視"] = {"is_national": is_b_nat_fv, "regions": b_regs_fv if b_regs_fv else ["全省"], "sec_shares": b_sec_shares_fv, "share": st.session_state.get("bonus_fv_share", 0)}
                     if is_b_cf:
                         with b_m3:
                             st.markdown("##### 🛒 萬家福．樂家康")
                             b_secs_cf = st.multiselect("秒數", DURATIONS, key="bonus_cf_sec")
-                            st.slider("預算 %", 0, 100, key="bonus_cf_share", on_change=bonus_on_slider_change, args=("bonus_cf_share",))
+                            st.number_input("預算 %", 0, 100, step=1, key="bonus_cf_share", on_change=bonus_on_slider_change, args=("bonus_cf_share",))
                             sorted_b_secs_cf = sorted(b_secs_cf)
                             if sorted_b_secs_cf:
                                 for k in [f"bonus_cs_{s}" for s in sorted_b_secs_cf]:
@@ -1862,7 +1812,7 @@ def main():
                                         break
                                 b_sec_shares_cf = {}
                                 for s in sorted_b_secs_cf:
-                                    st.slider(f"{s}秒 %", 0, 100, key=f"bonus_cs_{s}", on_change=bonus_on_sec_slider_change, args=("bonus_cs_", s, sorted_b_secs_cf))
+                                    st.number_input(f"{s}秒 %", 0, 100, step=1, key=f"bonus_cs_{s}", on_change=bonus_on_sec_slider_change, args=("bonus_cs_", s, sorted_b_secs_cf))
                                     b_sec_shares_cf[s] = st.session_state.get(f"bonus_cs_{s}", 0)
                                 bonus_config["家樂福"] = {"regions": ["全省"], "sec_shares": b_sec_shares_cf, "share": st.session_state.get("bonus_cf_share", 0)}
 

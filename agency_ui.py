@@ -318,10 +318,10 @@ def render_agency_cue(sales_map=None):
         st.markdown("**預算佔比（兩平台自動連動，合計恆為 100%）**")
         cs1, cs2 = st.columns(2)
         with cs1:
-            st.slider("全家企頻 %", 0, 100, key="ag_fam_share",
+            st.number_input("全家企頻 %", 0, 100, step=1, key="ag_fam_share",
                       on_change=_link_share, args=("ag_fam_share", "ag_wjf_share"))
         with cs2:
-            st.slider("萬家福 %", 0, 100, key="ag_wjf_share",
+            st.number_input("萬家福 %", 0, 100, step=1, key="ag_wjf_share",
                       on_change=_link_share, args=("ag_wjf_share", "ag_fam_share"))
         fam_cfg["share"] = int(st.session_state["ag_fam_share"])
         wjf_cfg["share"] = int(st.session_state["ag_wjf_share"])
