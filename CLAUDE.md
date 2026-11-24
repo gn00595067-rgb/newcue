@@ -7,9 +7,10 @@
 - 狀態：🟢 LIVE（簡易模式 v2 已上線，見 `newcue_簡易模式_開發摘要.md`）
 - 本機：`C:\dev\newcue`
 - push：`gn00595067-rgb/newcue.git` · `main`（push 後 Streamlit Cloud 自動部署）
-- 開發分支：`ragic-dev`（Ragic 串接／訂檔流程，spec `docs/specs/Ragic串接_訂檔流程.md`）→ 只推此分支，另有 Streamlit 測試 app 指向它；全部確認後才 merge 回 main。Ragic 寫入預設乾跑，Secrets `RAGIC_WRITE_ENABLED="true"` 才寫入。
+- **2026-11-24 起只有一個 app、一條分支**：ragic-dev 已合併回 main（`22e5988`），測試 app 停用，Jonathan 直接在正式版測；之後一律推 `main`（ragic-dev 不再使用）。推版後記得提醒 Reboot。Ragic 寫入預設乾跑，Secrets `RAGIC_WRITE_ENABLED="true"` 才寫入（沒開＝存檔鈕灰、同事無法下載）。
+- 同事用指南：`docs/guides/newcue登入指南.pdf`（網址、登入、第一次改密碼、存檔才能下載；HTML 原稿同資料夾，改完用 Edge headless 重印）。
 - 線上：https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/（2026-10-05 重建，舊網址失效）
-- Secrets（只列名稱）：`[gcp_service_account]`（同事登入密碼表＝設定檔 Sheet 的「登入密碼」分頁，Sheet 要共用給服務帳號）、`DEV_LOGIN_PASSWORD`／`DEV_LOGIN_NAME`／`DEV_LOGIN_EMAIL`（開發者登入，只設在測試 app）、`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`、`AGENCY_PASSWORD`（代理商CUE 密碼，未設時預設 123）（見 `.streamlit/secrets.toml.example`）
+- Secrets（只列名稱）：`[gcp_service_account]`（同事登入密碼表＝設定檔 Sheet 的「登入密碼」分頁，Sheet 要共用給服務帳號）、`DEV_LOGIN_PASSWORD`／`DEV_LOGIN_NAME`／`DEV_LOGIN_EMAIL`（開發者登入；11-24 起正式 app 也有設，同事側欄會看到入口，指南已註明不用理）、`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`、`AGENCY_PASSWORD`（代理商CUE 密碼，未設時預設 123）（見 `.streamlit/secrets.toml.example`）
 
 ## 地雷（踩過的坑，改 code 前先看）
 - Excel 產出一律用「值版」下載；openpyxl 公式版在受保護檢視會空白。
