@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>newcue 登入指南</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<style>
+  @page { size: A4; margin: 14mm 14mm 16mm; }
+  :root {
+    --ink: #1d2433; --muted: #5b6578; --line: #d9dee7; --soft: #f4f6f9;
+    --brand: #c8102e; --ok: #1f7a4d; --okbg: #e7f4ec; --warn: #8a5a00; --warnbg: #fff4d6;
+    --err: #b42318; --errbg: #fdecea; --info: #1d4f91; --infobg: #e8f0fb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--ink); background: #fff;
+    font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", sans-serif; font-size: 10pt; line-height: 1.5; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  h1 { font-size: 22pt; margin: 0 0 2mm; letter-spacing: .5px; }
+  h2 { font-size: 13pt; margin: 0 0 2.5mm; display: flex; align-items: center; gap: 3mm; }
+  .step { display: inline-flex; align-items: center; justify-content: center; width: 8mm; height: 8mm;
+    border-radius: 50%; background: var(--brand); color: #fff; font-size: 11pt; flex: none; }
+  .sub { color: var(--muted); margin: 0 0 6mm; }
+  .cover-band { border-left: 2.5mm solid var(--brand); padding: 1mm 0 1mm 5mm; margin-bottom: 7mm; }
+  section { margin-bottom: 5mm; break-inside: avoid; }
+  .row { display: flex; gap: 6mm; align-items: flex-start; }
+  .row > .text { flex: 1; }
+  .row > .shot { flex: none; }
+  ul, ol { margin: 1mm 0 0; padding-left: 5mm; }
+  li { margin: .8mm 0; }
+  b.k { color: var(--brand); }
+  code, .mono { font-family: Consolas, "Microsoft JhengHei", monospace; }
+
+  /* 網址卡 */
+  .urlcard { display: flex; gap: 6mm; align-items: center; border: 1.5px solid var(--ink); border-radius: 3mm; padding: 5mm 6mm; }
+  .urlcard .lbl { font-size: 9pt; color: var(--muted); }
+  .urlcard .url { font-family: Consolas, monospace; font-size: 11.5pt; font-weight: 700; word-break: break-all; margin: 1mm 0 2mm; }
+  #qr svg, #qr img { width: 32mm; height: 32mm; display: block; }
+  .tag { display: inline-block; font-size: 8.5pt; padding: .3mm 2.2mm; border-radius: 10mm; font-weight: 700; }
+  .tag.ok { background: var(--okbg); color: var(--ok); }
+  .tag.no { background: var(--errbg); color: var(--err); }
+  table.urls { width: 100%; border-collapse: collapse; margin-top: 4mm; font-size: 9.5pt; }
+  table.urls td { border-top: 1px solid var(--line); padding: 2mm 2mm; vertical-align: top; }
+  table.urls td:first-child { width: 22mm; }
+
+  /* 畫面示意 */
+  .mock { width: 70mm; border: 1px solid #c9ced8; border-radius: 2mm; background: #f0f2f6; padding: 3mm 3.5mm; font-size: 9pt;
+    box-shadow: 0 1mm 3mm rgba(0,0,0,.08); font-family: "Microsoft JhengHei", sans-serif; }
+  .mock.wide { width: 100%; background: #fff; }
+  .mock .cap { font-size: 7.5pt; color: var(--muted); margin: -1mm 0 2mm; letter-spacing: .5px; }
+  .mock h4 { margin: 0 0 3mm; font-size: 11pt; }
+  .mock .field { margin-bottom: 2mm; }
+  .mock .field label { display: block; font-size: 8pt; margin-bottom: .8mm; }
+  .mock .input { background: #fff; border: 1px solid #d0d4dc; border-radius: 1.2mm; padding: 1.2mm 2mm; min-height: 6mm; color: #333; }
+  .mock .btn { display: inline-block; border: 1px solid #c4c8d0; border-radius: 1.2mm; padding: 1.3mm 4mm; background: #fff; }
+  .mock .btn.primary { background: #ff4b4b; color: #fff; border-color: #ff4b4b; }
+  .mock .small { font-size: 7.5pt; color: #6b7280; margin-top: 2mm; line-height: 1.5; }
+  .mock .alert { border-radius: 1.2mm; padding: 1.5mm 2.5mm; margin-bottom: 2mm; }
+  .mock .alert.ok { background: #dff3e6; color: #17643c; }
+  .mock .alert.warn { background: #fff4cc; color: #7a5300; }
+  .mock .alert.err { background: #fde2e1; color: #9b1c1c; }
+  .mock .alert.info { background: #e1ecfb; color: #174a86; }
+  .mock .exp { border: 1px solid #d0d4dc; border-radius: 1.2mm; padding: 1mm 2.5mm; background: #fff; margin-bottom: 2mm; }
+  .hl { outline: 2px solid var(--brand); outline-offset: 1mm; border-radius: 1.2mm; position: relative; }
+  .pin { position: absolute; right: -4mm; top: -3.5mm; width: 5.5mm; height: 5.5mm; border-radius: 50%; background: var(--brand);
+    color: #fff; font-size: 8pt; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  .radio { display: inline-flex; align-items: center; gap: 1.2mm; margin-right: 3mm; }
+  .radio i { width: 3mm; height: 3mm; border-radius: 50%; border: 1px solid #999; display: inline-block; background: #fff; }
+  .radio i.on { border: 1mm solid #ff4b4b; }
+
+  /* 瀏覽器框 */
+  .browser { border: 1px solid #c9ced8; border-radius: 2mm; overflow: hidden; box-shadow: 0 1mm 3mm rgba(0,0,0,.08); }
+  .browser .bar { background: #e9ecf1; padding: 2mm 3mm; display: flex; align-items: center; gap: 2mm; }
+  .browser .dots i { display: inline-block; width: 2.2mm; height: 2.2mm; border-radius: 50%; background: #c3c8d1; margin-right: 1mm; }
+  .browser .addr { flex: 1; background: #fff; border-radius: 1.5mm; padding: 1mm 3mm; font-family: Consolas, monospace; font-size: 8pt; color: #333; }
+  .browser .body { display: flex; min-height: 50mm; }
+  .browser .side { width: 34%; background: #f0f2f6; padding: 3mm; font-size: 8pt; }
+  .browser .main { flex: 1; padding: 3mm 4mm; font-size: 8pt; }
+  .browser .main .ph { background: var(--soft); border-radius: 1mm; height: 4mm; margin: 2mm 0; }
+
+  .note { border-radius: 2mm; padding: 3mm 4mm; font-size: 9.5pt; }
+  .note.warn { background: var(--warnbg); color: #5c3d00; }
+  .note.info { background: var(--infobg); color: #173d70; }
+  .note.err  { background: var(--errbg); color: #7a1a12; }
+  .note b { color: inherit; }
+
+  table.faq { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  table.faq th, table.faq td { border-bottom: 1px solid var(--line); text-align: left; padding: 1.5mm 2mm; vertical-align: top; }
+  table.faq th { background: var(--soft); font-weight: 700; }
+  table.faq td:first-child { width: 45%; }
+  .foot { margin-top: 3mm; font-size: 8.5pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: 2mm; }
+  .flow { display: flex; align-items: stretch; gap: 2mm; margin: 2mm 0 6mm; }
+  .flow div { flex: 1; background: var(--soft); border-radius: 2mm; padding: 2.5mm 2mm; text-align: center; font-size: 9pt; }
+  .flow div b { display: block; font-size: 10pt; }
+  .flow span { align-self: center; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- ========== 第 1 頁：網址 + 流程總覽 ========== -->
+<div class="page">
+  <div class="cover-band">
+    <h1>newcue 排 CUE 系統｜登入圖解指南</h1>
+    <div class="sub" style="margin:0">聲活數位　2026-11 新版適用（含 Ragic 存檔、訂檔）｜問題請找 Jonathan</div>
+  </div>
+
+  <div class="flow">
+    <div><b>① 打開網址</b>用書籤或掃 QR</div><span>›</span>
+    <div><b>② 登入</b>信箱／工號＋密碼</div><span>›</span>
+    <div><b>③ 第一次改密碼</b>只有第一次</div><span>›</span>
+    <div><b>④ 選客戶、排 CUE</b>照平常操作</div><span>›</span>
+    <div><b>⑤ 存檔 → 下載</b>存了才能下載</div>
+  </div>
+
+  <section>
+    <h2><span class="step">1</span>只用這一個網址</h2>
+    <div class="urlcard">
+      <div id="qr"></div>
+      <div>
+        <div class="lbl">正式版網址（請加入書籤）　<span class="tag ok">✔ 請用這個</span></div>
+        <div class="url">https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/</div>
+        <div style="font-size:9pt;color:var(--muted)">手機可直接掃左邊 QR Code。電腦請用 Chrome 或 Edge 開啟。</div>
+      </div>
+    </div>
+    <table class="urls">
+      <tr><td><span class="tag no">✘ 不要用</span></td><td><b>舊網址</b>（2026-10-05 以前的書籤）：已經失效，打開會找不到 app。請把舊書籤刪掉，換成上面這個。</td></tr>
+      <tr><td><span class="tag no">✘ 不要用</span></td><td><b>測試版網址</b>（網址開頭是 <span class="mono">newcue-gffrnq…</span>）：Jonathan 測新功能用的，內容可能還沒完成。<br>11/23–24 排 CUE 測試大家用的是正式版，<b>從現在起也一律用正式版</b>。</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2><span class="step">!</span>打開看到英文畫面、或一直轉圈？</h2>
+    <div class="row">
+      <div class="shot">
+        <div class="mock" style="width:78mm;background:#fff;text-align:center">
+          <div class="cap">示意畫面</div>
+          <div style="font-size:16pt">😴</div>
+          <div style="font-weight:700;margin:1mm 0 2mm">This app has gone to sleep due to inactivity.<br>Would you like to wake it back up?</div>
+          <span class="btn hl" style="background:#0e1117;color:#fff;border-color:#0e1117">Yes, get this app back up!<span class="pin">1</span></span>
+        </div>
+      </div>
+      <div class="text">
+        <ul>
+          <li>系統一段時間沒人用會「睡著」，這是正常的。</li>
+          <li>按 <b class="k">Yes, get this app back up!</b>，等 <b>30 秒～1 分鐘</b>就會開好。</li>
+          <li>如果一直轉圈超過 3 分鐘：先按鍵盤 <b>F5</b> 重新整理；還是不行請截圖給 Jonathan。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <div class="note info"><b>為什麼要登入？</b>新版每一張出過的 CUE 都會存到 Ragic、給一個編號，方便之後查詢、改版、訂檔與統計業績。所以要<b>先登入、存檔後才能下載</b> Excel／PDF。</div>
+</div>
+
+<!-- ========== 第 2 頁：登入 + 第一次改密碼 ========== -->
+<div class="page">
+  <section>
+    <h2><span class="step">2</span>登入（畫面左側欄）</h2>
+    <div class="row">
+      <div class="shot">
+        <div class="mock">
+          <div class="cap">左側欄示意</div>
+          <h4>👤 Ragic 帳號</h4>
+          <div class="field hl"><label>公司信箱或員工工號</label><div class="input">你的公司信箱（或員工工號）</div><span class="pin">1</span></div>
+          <div class="field hl"><label>密碼</label><div class="input">••••••</div><span class="pin">2</span></div>
+          <span class="btn hl">登入<span class="pin">3</span></span>
+          <div class="small">登入後才能存檔、下載與從 Ragic 帶入客戶。第一次登入密碼 123456；忘記密碼請找 Jonathan。這是本 app 專用密碼，和 Ragic 密碼分開、不會同步。</div>
+        </div>
+      </div>
+      <div class="text">
+        <ol>
+          <li><b>帳號</b>：填<b class="k">公司信箱</b>，或<b class="k">員工工號</b>（就是你在 Ragic 的帳號）。</li>
+          <li><b>密碼</b>：
+            <ul>
+              <li>第一次登入：<b class="k">123456</b></li>
+              <li>之後：你自己設定的密碼</li>
+            </ul>
+          </li>
+          <li>按「<b>登入</b>」。</li>
+        </ol>
+        <div class="note warn" style="margin-top:3mm">
+          <b>這不是 Ragic 密碼！</b><br>
+          這組密碼只用在 newcue，跟你的 Ragic 密碼<b>分開、不會同步</b>。改 Ragic 密碼不會影響這裡，反過來也一樣。
+        </div>
+        <div class="note info" style="margin-top:3mm">
+          <b>手機上看不到左側欄？</b>點畫面左上角的 <b>「›」</b> 箭頭就會展開。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="step">3</span>第一次登入：設定自己的密碼</h2>
+    <div class="row">
+      <div class="shot">
+        <div class="mock">
+          <div class="cap">左側欄示意</div>
+          <h4>👤 Ragic 帳號</h4>
+          <div class="alert warn">王小美，第一次登入請先設定自己的密碼（預設密碼 123456 不能繼續使用）。</div>
+          <div class="field hl"><label>新密碼（至少 6 個字）</label><div class="input">••••••••</div><span class="pin">1</span></div>
+          <div class="field hl"><label>再輸入一次新密碼</label><div class="input">••••••••</div><span class="pin">2</span></div>
+          <span class="btn primary hl">更新密碼<span class="pin">3</span></span>
+        </div>
+      </div>
+      <div class="text">
+        <ul>
+          <li>用 123456 登入後會先出現這個畫面，<b>設好密碼才算登入完成</b>。</li>
+          <li>新密碼規則：<b>至少 6 個字</b>，且<b>不能是 123456</b>。</li>
+          <li>兩次要輸入一樣，再按「<b>更新密碼</b>」。</li>
+          <li>之後就用這組新密碼登入。</li>
+        </ul>
+        <div class="note info" style="margin-top:3mm">已經在測試版改過密碼的同事：<b>正式版沿用同一組密碼</b>，不用再改一次。</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="step">✓</span>登入成功的樣子</h2>
+    <div class="row">
+      <div class="shot">
+        <div class="mock">
+          <div class="cap">左側欄示意</div>
+          <h4>👤 Ragic 帳號</h4>
+          <div class="alert ok">✅ 王小美</div>
+          <div class="exp">▸ 帳號資訊</div>
+          <div class="exp hl">▸ 🔑 修改密碼<span class="pin">A</span></div>
+          <span class="btn hl">登出<span class="pin">B</span></span>
+        </div>
+      </div>
+      <div class="text">
+        <ul>
+          <li>左側欄出現綠色的「✅ 你的名字」就是登入成功。</li>
+          <li><b>A　想換密碼</b>：展開「🔑 修改密碼」，輸入目前密碼＋新密碼。</li>
+          <li><b>B　用公用電腦</b>：用完記得按「登出」。</li>
+          <li><b>忘記密碼</b>：找 Jonathan 重設回 123456，再照步驟 3 重新設定。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ========== 第 3 頁：開始排 CUE、存檔下載、FAQ ========== -->
+<div class="page">
+  <section>
+    <h2><span class="step">4</span>先選「這次的客戶」，再排 CUE</h2>
+    <div class="row">
+      <div class="shot">
+        <div class="mock" style="background:#fff">
+          <div class="cap">主畫面示意</div>
+          <div style="margin-bottom:2mm">這次的客戶是？</div>
+          <div class="hl" style="padding:1mm 1.5mm"><span class="radio"><i class="on"></i>Ragic 既有客戶</span><span class="radio"><i></i>新客戶</span><span class="radio"><i></i>先估價，暫不指定</span><span class="pin">1</span></div>
+          <div class="field" style="margin-top:3mm"><label>輸入統一編號、客戶名稱或客戶編號</label><div class="input">28710100</div></div>
+        </div>
+      </div>
+      <div class="text">
+        <ul>
+          <li><b>Ragic 既有客戶</b>：輸入統編／名稱／客戶編號搜尋，點選後自動帶入客戶名稱、統編、產品。</li>
+          <li><b>新客戶</b>：可以在畫面上直接新增到 Ragic；或先手填名稱，訂檔前再建。</li>
+          <li><b>先估價，暫不指定</b>：只是試算給客戶看，不用先選客戶。</li>
+          <li>選完下面才會出現排 CUE 的表單，之後操作跟以前一樣。</li>
+          <li>要排下一張：按標題旁的「<b>開新的 CUE</b>」，不用重新登入。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="step">5</span>存檔後才能下載</h2>
+    <div class="row">
+      <div class="shot">
+        <div class="mock" style="background:#fff">
+          <div class="cap">畫面下方示意</div>
+          <div class="small" style="margin:0 0 2mm">⬇️ 存檔後即可下載 Excel／PDF（內容有修改需再存一次）。</div>
+          <span class="btn primary hl">💾 存檔到 Ragic<span class="pin">1</span></span>
+          <div class="alert ok" style="margin-top:3mm">✅ 已存檔 A2611-003（v1）</div>
+          <span class="btn hl">⬇️ 下載 Excel<span class="pin">2</span></span>　<span class="btn">⬇️ 下載 PDF</span>
+        </div>
+      </div>
+      <div class="text">
+        <ol>
+          <li>排好後按「<b>💾 存檔到 Ragic</b>」，系統給一個存檔編號（例：A2611-003＝業務代碼＋年月＋流水號）。</li>
+          <li>存好之後才會出現「<b>⬇️ 下載 Excel／PDF</b>」。</li>
+        </ol>
+        <ul style="margin-top:2mm">
+          <li>內容<b>改過</b>會顯示「⚠️ 內容已修改，尚未存檔」→ 再存一次（版本 v1 → v2），才能下載新版。</li>
+          <li>同一張 CUE 改版請選「更新」；完全不同的提案選「另存為新的一筆」。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="step">?</span>常見問題</h2>
+    <table class="faq">
+      <tr><th>看到的訊息／狀況</th><th>怎麼辦</th></tr>
+      <tr><td>「帳號或密碼錯誤（忘記密碼請找 Jonathan 重設為 123456）」</td><td>確認密碼是 <b>newcue 自己的密碼</b>，不是 Ragic 密碼。忘記就找 Jonathan 重設。</td></tr>
+      <tr><td>「找不到這個信箱／員工工號（需為公司 Ragic 使用者）」</td><td>信箱打錯，或你還沒有公司 Ragic 帳號 → 請找 Jonathan／管理部開帳號。</td></tr>
+      <tr><td>「此 Ragic 帳號已停用，無法登入」</td><td>請找管理部確認帳號狀態。</td></tr>
+      <tr><td>「新密碼至少 6 個字」／「新密碼不能是預設密碼 123456」</td><td>換一組 6 個字以上、不是 123456 的密碼。</td></tr>
+      <tr><td>看不到下載按鈕</td><td>還沒存檔，或存檔後又改了內容 → 按「💾 存檔到 Ragic」。</td></tr>
+      <tr><td>帶入客戶的欄位出現紅框、或畫面怪怪的</td><td>按 <b>Ctrl＋F5</b> 強制重新整理（手機：關掉分頁重開）。</td></tr>
+      <tr><td>整個畫面一直轉圈、或出現紅色英文錯誤</td><td>F5 重新整理；還是一樣請截圖給 Jonathan（系統可能要重新啟動）。</td></tr>
+    </table>
+  </section>
+
+  <div class="foot">newcue 排 CUE 系統｜正式版網址 https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/ ｜ 帳號／密碼／系統問題：Jonathan</div>
+</div>
+
+<script>
+  try {
+    var q = qrcode(0, 'M');
+    q.addData('https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/');
+    q.make();
+    document.getElementById('qr').innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+  } catch (e) {}
+</script>
+</body>
+</html>
