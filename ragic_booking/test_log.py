@@ -59,7 +59,7 @@ def quota_block(limit: int, getter=None, now=None) -> str:
     """達上限回提示文字；未達回空字串。"""
     n = count_this_month(getter, now)
     if n >= limit:
-        return f"本月測試申請 CUE號已達 {limit} 筆上限（目前 {n} 筆），下個月才能再申請；急用請找 Jonathan。"
+        return f"本月測試申請 CUE號已達 {limit} 筆上限（目前 {n} 筆），下個月才能再申請；急用請找系統管理員。"
     return ""
 
 

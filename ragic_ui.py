@@ -90,7 +90,7 @@ def login(account_id, pwd):
     except ap.PasswordError as e:
         raise auth.RagicAuthError(str(e)) from e
     if not ok:
-        raise auth.RagicAuthError("帳號或密碼錯誤（忘記密碼請找 Jonathan 重設為 123456）")
+        raise auth.RagicAuthError("帳號或密碼錯誤（忘記密碼請找系統管理員 重設為 123456）")
     return user, must_change
 
 
@@ -165,7 +165,7 @@ def render_login_sidebar():
         pwd = st.text_input("密碼", type="password", key="ragic_login_pwd",
                             help="第一次登入請用預設密碼 123456，登入後會要求設定自己的密碼。")
         ok = st.form_submit_button("登入")
-    st.caption("登入後才能存檔、下載與從 Ragic 帶入客戶。第一次登入密碼 123456；忘記密碼請找 Jonathan。"
+    st.caption("登入後才能存檔、下載與從 Ragic 帶入客戶。第一次登入密碼 123456；忘記密碼請找系統管理員。"
                "這是本 app 專用密碼，和 Ragic 密碼分開、不會同步（Ragic 擋雲端登入）。")
     if ok:
         try:
@@ -672,7 +672,7 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     with st.spinner("存檔中…"):
         res = cue2.save_record(url, key, fields, up, rid=save_rid)
     if not res.ok:
-        extra = f"（訂檔已建立：CUE號 {final['booking'].get('cue_id')}，請記下並通知 Jonathan）" if do_book else ""
+        extra = f"（訂檔已建立：CUE號 {final['booking'].get('cue_id')}，請記下並通知系統管理員）" if do_book else ""
         st.error(f"存檔失敗：{res.error}{extra}")
         return
     st.session_state[SS_RECORD] = {"rid": res.rid, "serial": res.serial, "mode": snap.get("mode"), "snap": final}
@@ -1260,7 +1260,7 @@ def _cue_box(snap, key_prefix, cue_saver, serial=""):
             lg = test_log.log_cue(r["cue_apply"]["cue_id"])
             _test_month_count.clear()
             if not lg.ok:
-                warn = "；".join(x for x in (warn, f"測試紀錄表寫入失敗：{lg.error}，請通知 Jonathan") if x)
+                warn = "；".join(x for x in (warn, f"測試紀錄表寫入失敗：{lg.error}，請通知系統管理員") if x)
         _cue_save(cue_saver, lambda s: s.__setitem__("cue_apply", r["cue_apply"]),
                   f"✅ 已申請 CUE號 {r['cue_apply']['cue_id']}" + (f"（{warn}）" if warn else ""))
     with c2.popover("已在 Ragic 申請過 CUE號？"):
@@ -1276,7 +1276,7 @@ def _cue_box(snap, key_prefix, cue_saver, serial=""):
 def _cue_save(cue_saver, fn, msg):
     res = cue_saver(fn)
     if not res.ok:
-        st.error(f"CUE號已處理，但寫回存檔失敗：{res.error}（請記下 CUE號並通知 Jonathan）")
+        st.error(f"CUE號已處理，但寫回存檔失敗：{res.error}（請記下 CUE號並通知系統管理員）")
         return
     st.session_state["_cue_msg"] = msg
     st.rerun()

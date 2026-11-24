@@ -240,7 +240,7 @@ def _submit_box(rec, snap):
         up[ragic_ui.SIGNBACK_FIELD] = (od["signback"].name, od["signback"].getvalue(), "application/octet-stream")
     sres = cue2.save_record(url, key, {RAGIC_MAP["details"]: cs.details_text(final, legacy)}, up, rid=rec["_ragicId"])
     if not sres.ok:
-        st.error(f"訂檔已建立（CUE號 {final['booking'].get('cue_id')}），但回寫存檔失敗：{sres.error}，請通知 Jonathan。")
+        st.error(f"訂檔已建立（CUE號 {final['booking'].get('cue_id')}），但回寫存檔失敗：{sres.error}，請通知系統管理員。")
         return
     ragic_ui.all_saved.clear()
     st.session_state["adm_msg"] = (f"✅ {reg.display_no(final)} 已送出訂檔：CUE號 {final['booking'].get('cue_id')}"
