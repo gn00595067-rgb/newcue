@@ -50,6 +50,45 @@ def _slice_rows_to_segment(rows, start_date, seg_start, seg_end):
     return out
 
 
+_PLAT_PERIOD_LABEL = {"全家廣播": "全家廣播", "新鮮視": "新鮮視", "家樂福": "萬家福．樂家康"}
+
+
+def _render_platform_period_ui(medias, start_date, end_date):
+    """各平台不同走期（小花 1124-4：12/1–14 走新鮮視、12/15–28 走萬家福，同一張 CUE）。
+    回傳 {media: (開始, 結束)}，只含與整張走期不同的平台；未啟用回傳 {}。做法同「各區走期不同」：檔次照預算算、平均排進該平台走期。"""
+    ss = st.session_state
+    with st.expander("📅 各平台走期不同", expanded=bool(ss.get("plat_period_on"))):
+        if not st.checkbox("啟用各平台走期", key="plat_period_on",
+                           help="例：12/1～12/14 走新鮮視、12/15～12/28 走萬家福，同一張 CUE。各平台檔次照預算算，平均排進自己的走期，其他日子 CUE 上留空。"):
+            return {}
+        st.caption(f"每個平台的走期須在 {start_date:%Y/%m/%d}～{end_date:%Y/%m/%d} 內；回饋門檻、付款日仍以整張走期為準。")
+        out = {}
+        for m in medias:
+            ks, ke = f"plat_period_s_{m}", f"plat_period_e_{m}"
+            ss[ks] = min(max(ss.get(ks, start_date), start_date), end_date)
+            ss[ke] = min(max(ss.get(ke, end_date), start_date), end_date)
+            c1, c2 = st.columns(2)
+            s_ = c1.date_input(f"{_PLAT_PERIOD_LABEL.get(m, m)} 開始", key=ks, min_value=start_date, max_value=end_date)
+            e_ = c2.date_input(f"{_PLAT_PERIOD_LABEL.get(m, m)} 結束", key=ke, min_value=start_date, max_value=end_date)
+            if e_ < s_:
+                st.warning(f"{_PLAT_PERIOD_LABEL.get(m, m)}：結束日早於開始日，沿用整張走期。")
+                continue
+            if (s_, e_) != (start_date, end_date):
+                out[m] = (s_, e_)
+        return out
+
+
+def _merge_platform_periods(region_periods, plat_periods, rows):
+    """平台走期展開成該平台每一區的走期；該區已有自己的走期（各區走期不同）時以區為準。"""
+    for m, period in (plat_periods or {}).items():
+        rp = dict(region_periods.get(m) or {})
+        for r in rows:
+            if r.get("media") == m and r.get("region") not in rp:
+                rp[r.get("region")] = period
+        region_periods[m] = rp
+    return region_periods
+
+
 def _render_region_period_ui(prefix, regs, start_date, end_date):
     """各區不同走期（spec：各區不同走期.md）：回傳 {區域: (開始, 結束)}，只含與整張走期不同的區；未啟用回傳 {}。"""
     ss = st.session_state
@@ -433,6 +472,12 @@ def _get_ragic_extra_state(row_groups):
             for key in (f"fv_region_{r}", f"fv_region_amt_{r}"):
                 if key in ss:
                     state[key] = ss[key]
+    # 各平台不同走期（開關＋各平台起訖日）
+    if ss.get("plat_period_on"):
+        state["plat_period_on"] = True
+        for k, v in list(ss.items()):
+            if isinstance(k, str) and k.startswith(("plat_period_s_", "plat_period_e_")):
+                state[k] = v
     # 各區不同走期（開關＋各區起訖日）
     for pre in ("rad_", "fv_"):
         if ss.get(f"{pre}use_region_period"):
@@ -1715,6 +1760,8 @@ def main():
 
         # --- 運算與輸出邏輯 ---
         if config:
+            _plat_periods = (_render_platform_period_ui(list(config), start_date, end_date)
+                             if len(config) >= 2 and not use_date_segments else {})
             # 檔次依「執行天數」計算；若有分段則產出後再展開為完整日曆（未執行日填 0）
             # 交換合約：檔次依定價計算（use_list_price_for_spots=True），且不套用回饋
             rows, total_list_accum, logs = calculate_plan_data(config, total_budget_input, active_days, PRICING_DB, SEC_FACTORS, STORE_COUNTS_NUM, REGIONS_ORDER, use_list_price_for_spots=is_barter_contract)
@@ -1953,6 +2000,7 @@ def main():
                 for row in rows:
                     if (row.get("is_rebate") or row.get("is_custom_bonus")) and "schedule" in row:
                         row["schedule"] = expand_schedule_to_calendar(row["schedule"], segments, start_date, end_date)
+            _merge_platform_periods(region_periods, _plat_periods, rows)
             if region_periods:
                 apply_region_periods(rows, region_periods, start_date, end_date)
             prod_cost = prod_cost_input 

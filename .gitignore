@@ -32,3 +32,6 @@ cues/
 tests/_visual_out/
 
 tests/_gsheet_cache/
+
+# 給老闆／主管的報告、截圖只留本機（repo 是公開的，2026-11-25）
+docs/reports/
