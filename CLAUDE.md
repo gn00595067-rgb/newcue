@@ -36,6 +36,7 @@
 - 測試：`tests/`（含 fidelity／visual_check／各模式 smoke）
 
 ## 下次續做
+- 11-26 主管回覆第二階段決策（DECISIONS 11-26）：第 1 批已上線（新回饋表 `rebate_rules.py`、鉑霖實收價列 `net_terms.py`、含離島、備註第 7 點、一般CUE VAT 含製作費）；2-1 加碼提示、2-2 媒體效益說明（`pitch.py`）接續上線。下一步 2-3 兩版效益比較、2-4 報價頁、2-5 贈檔權限申請（spec `docs/specs/第二階段_主管決策實作.md`）。請業務用 1123／1124 題目重測。
 - 11-24 正式版合併上線、Jonathan 已 Reboot 並實測登入正常。下一步：把 `docs/guides/newcue登入指南.pdf` 發給同事；先前各則「待 Reboot 後請宜歆重測」現在都在正式版，可請宜歆／業務一起重測。訂檔仍是測試期（`RAGIC_TEST_MODE` 未設＝CUE號記 cue/6、每月 15 筆），正式訂檔時設 `RAGIC_TEST_MODE="false"`。
 - 11-24 第二階段 A 批先做三項已上線：預算 % 拉桿改數字輸入（手填保留、沒填的補剩下，`utils.rebalance_shares`）、TV→全家新鮮視、分段執行改名「分段執行／跳週」加提示（spec `docs/specs/第二階段A批小修.md`）。需 Reboot（app.py 新 import）；請業務用 1123 第 2、4 題重測。
 - 11-24 總經理＋業務排CUE測試回饋 → 第二階段規劃 `docs/plans/2026-11-24_業務排CUE測試回饋_第二階段規劃.md`。待總經理／Peggy 回 §4 六題（11/24 回饋比例表、專案價顯示、加碼上限、報價頁版型、離島寫法、流量說明文字），再依 §5 分批：A 小修 → B 彈性 → C 報價頁／方案比較 → 權限請示。

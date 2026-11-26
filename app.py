@@ -150,6 +150,25 @@ def _bolin_net_terms_inputs():
     return (reb, disc)
 
 
+def _render_benefit_panel(rows, ndays, net_price, start, end):
+    """第二階段 2-2：媒體效益說明（主管 LINE：產出媒體效益分析／效益說明話術）。"""
+    s = benefit_summary(rows, ndays, net_price, start, end)
+    t = s["total"]
+    if not t["impressions"]:
+        return
+    with st.expander("📣 媒體效益說明（可複製給客戶）", expanded=False):
+        c = st.columns(4)
+        c[0].metric("總曝光次數", f"{t['impressions']:,}")
+        c[1].metric("店舖人流（人次）", f"{t['traffic']:,}")
+        c[2].metric("每千次曝光成本", f"${t['cpm']:,.0f}" if t["cpm"] else "—")
+        c[3].metric("總檔次（含加贈）", f"{t['spots']:,}", f"加贈 {t['gift_spots']:,} 檔" if t["gift_spots"] else None)
+        st.dataframe([{"平台": p["name"], "店／面數": f"{p['stores']:,} {p['unit']}", "檔次": p["spots"],
+                       "其中加贈": p["gift_spots"], "曝光": p["impressions"], "加贈帶來曝光": p["gift_impressions"],
+                       "店舖人流": p["traffic"]} for p in s["platforms"]], hide_index=True, use_container_width=True)
+        st.caption("說明文字（右上角可一鍵複製）：")
+        st.code("\n".join(s["text"]), language=None)
+
+
 def _warn_share_total(keys, label="預算"):
     total = sum(int(st.session_state.get(k) or 0) for k in keys)
     if keys and total != 100:
@@ -225,6 +244,7 @@ from config import (
 from share_rebalance import rebalance_shares
 from rebate_rules import project_negotiation_platforms
 from net_terms import pct_value, net_terms_label, apply_cash_discount
+from pitch import upsell_hints, benefit_summary
 from utils import (
     safe_filename,
     build_cue_filename,
@@ -1735,6 +1755,9 @@ def main():
                 apply_rebate = False
             if rebate_summary and not is_barter_contract:
                 st.caption(f"📌 **本次可回饋：** {rebate_summary}")
+            if not is_barter_contract:   # 第二階段 2-1：加碼優惠提示（主管 LINE）
+                for _h in upsell_hints(config, total_budget_input):
+                    st.info(f"💡 **加碼提示**：{_h}")
             # 主管加贈回饋：僅主管可填 %，回饋金額可任意分配至平台／區域／秒數（仿 3. 媒體投放設定，無自訂區域比例）
             bonus_pct_val = None
             bonus_config = {}
@@ -1899,7 +1922,8 @@ def main():
 
             # 顯示運算邏輯（含回饋檔次計算、主管額外回饋計算）
             render_logic_panel(logs, use_list_price_for_spots=is_barter_contract, rebate_logs=rebate_logs if not is_barter_contract else [], bonus_rebate_logs=bonus_rebate_logs)
-            
+            _render_benefit_panel(rows, active_days, final_budget_val, start_date, end_date)
+
             st.markdown("---")
             st.subheader("📥 檔案下載區")
 
