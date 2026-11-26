@@ -133,10 +133,13 @@ def _bolin_net_terms_inputs():
     ss = st.session_state
     cust = ss.get("ragic_customer") or {}
     ck = str(cust.get("編號") or "")
-    if ss.get("_bolin_terms_cust") != ck or "bolin_rebate_pct" not in ss:
+    # 第一次、或換了客戶才重帶；讀回存檔（有值但沒有標記）時保留存檔的值
+    if "bolin_rebate_pct" not in ss or (ss.get("_bolin_terms_cust") is not None and ss["_bolin_terms_cust"] != ck):
         ss["bolin_rebate_pct"] = pct_value(cust.get("退佣"))
         ss["bolin_cash_pct"] = pct_value(cust.get("現折"))
-        ss["_bolin_terms_cust"] = ck
+    ss["bolin_rebate_pct"] = float(ss["bolin_rebate_pct"] or 0)
+    ss["bolin_cash_pct"] = float(ss.get("bolin_cash_pct") or 0)
+    ss["_bolin_terms_cust"] = ck
     with st.expander("💰 鉑霖實收價（已計退傭＋現折）", expanded=bool(ss["bolin_rebate_pct"] or ss["bolin_cash_pct"])):
         b1, b2 = st.columns(2)
         b1.number_input("退傭 %", 0.0, 100.0, step=1.0, key="bolin_rebate_pct")
@@ -148,6 +151,16 @@ def _bolin_net_terms_inputs():
         else:
             st.caption("兩者都是 0 時不顯示實收價列。預設帶 Ragic 客戶的退佣／現折。")
     return (reb, disc)
+
+
+def _current_gift(pct):
+    """第二階段 2-5：這次存檔的加贈申請（主管設定＝直接核准；業務同 % 沿用上一版核准結果）。"""
+    ss = st.session_state
+    rec = ss.get(ragic_ui.SS_RECORD) or {}
+    prev = rec.get("snap") if rec.get("mode") == "一般CUE" else None
+    u = ragic_ui.current_user() or {}
+    return build_gift(pct, ss.get("gift_reason", ""), u.get("name", ""),
+                      by_supervisor=bool(ss.get("is_supervisor")), prev_snap=prev)
 
 
 def _save_plan(rows, ndays, net_price, start, end):
@@ -287,6 +300,7 @@ from net_terms import pct_value, net_terms_label, apply_cash_discount
 from pitch import upsell_hints, benefit_summary
 from plan_compare import make_plan, add_plan, next_name, compare_rows, best_notes, MAX_PLANS
 from quote_page import build_quote_pdf, build_compare_pdf
+from gift_review import build_gift, pending_remark
 from utils import (
     safe_filename,
     build_cue_filename,
@@ -1803,12 +1817,17 @@ def main():
             # 主管加贈回饋：僅主管可填 %，回饋金額可任意分配至平台／區域／秒數（仿 3. 媒體投放設定，無自訂區域比例）
             bonus_pct_val = None
             bonus_config = {}
-            if not is_barter_contract and st.session_state.get("is_supervisor"):
-                bonus_input = st.number_input("加贈回饋 %（主管）", min_value=0, max_value=100, value=st.session_state.get("bonus_rebate_pct", 0) or 0, step=1, key="bonus_rebate_pct", help="例如廣告預算 100 萬、回饋 5% → 5 萬元可於下方自由分配至平台、區域、秒數及比重。")
+            _is_sup = bool(st.session_state.get("is_supervisor"))
+            if not is_barter_contract:   # 第二階段 2-5：業務也可填，存檔後送主管核准（主管 11/26 Q3）
+                bonus_input = st.number_input("加贈回饋 %（主管）" if _is_sup else "申請加贈回饋 %（需主管核准）", min_value=0, max_value=100, value=st.session_state.get("bonus_rebate_pct", 0) or 0, step=1, key="bonus_rebate_pct",
+                                              help="例如廣告預算 100 萬、回饋 5% → 5 萬元可於下方自由分配至平台、區域、秒數及比重。"
+                                                   + ("" if _is_sup else "業務填寫後存檔會標「待主管核准」，核准前不能送出訂檔。"))
                 if bonus_input and bonus_input > 0:
                     bonus_pct_val = int(bonus_input)
                     rebate_budget = int(round(total_budget_input * bonus_pct_val / 100.0))
-                    st.caption(f"💰 **主管回饋金額：${rebate_budget:,}**（可於下方分配至平台／區域／秒數）")
+                    st.caption(f"💰 **加贈回饋金額：${rebate_budget:,}**（可於下方分配至平台／區域／秒數）")
+                    if not _is_sup:
+                        st.text_input("申請理由（給主管看）", key="gift_reason", placeholder="例：年底掃單，客戶承諾 1 月續約；100 萬以上專案洽談")
 
                     # 主管回饋分配 UI：仿「3. 媒體投放設定」，無自訂區域比例
                     def bonus_on_media_change():
@@ -1958,6 +1977,11 @@ def main():
                     rem = get_remarks_text(_sig, _bill, _pay)
             if net_terms:
                 rem = apply_cash_discount(rem, net_terms[1])
+            _gift = _current_gift(bonus_pct_val)   # 第二階段 2-5：加贈申請狀態
+            _gift_rem = pending_remark(_gift)
+            if _gift_rem:
+                rem = list(rem) + [_gift_rem]
+                st.warning(f"🎁 {_gift_rem.lstrip('※')}" + ("　申請理由：" + _gift["reason"] if _gift.get("reason") else ""))
             sign_deadline = _sig
             billing_month = _bill
             payment_date = _pay
@@ -1984,6 +2008,8 @@ def main():
                     seg_rem = _get_cue_segment_rem(i, seg_end, _cue_def_s)
                     if net_terms:
                         seg_rem = apply_cash_discount(seg_rem, net_terms[1])
+                    if _gift_rem:
+                        seg_rem = list(seg_rem) + [_gift_rem]
                     segment_rows = _slice_rows_to_segment(rows, start_date, seg_start, seg_end)
                     seg_days = (seg_end - seg_start).days + 1
                     html_seg = generate_html_preview(segment_rows, seg_days, seg_start, seg_end, client_name, client_tax_id, p_str, format_type, seg_rem, total_list_accum, grand_total, final_budget_val, prod_cost, net_terms=net_terms)
@@ -2003,6 +2029,8 @@ def main():
                 _seg0_rem = _get_cue_segment_rem(0, seg0_end, _cue_def_s)
                 if net_terms:
                     _seg0_rem = apply_cash_discount(_seg0_rem, net_terms[1])
+                if _gift_rem:
+                    _seg0_rem = list(_seg0_rem) + [_gift_rem]
                 _seg0_rows = _slice_rows_to_segment(rows, start_date, seg0_start, seg0_end)
                 _xlsx_ragic = generate_excel_from_scratch(format_type, seg0_start, seg0_end, client_name, client_tax_id, product_name, _seg0_rows, _seg0_rem, final_budget_val, prod_cost, sales_person, total_list_accum, net_terms=net_terms)
                 _pdf_ragic, _, _ = xlsx_bytes_to_pdf_bytes(_xlsx_ragic)
@@ -2040,6 +2068,8 @@ def main():
                  "sales": SALES_MAP.get(sales_person, sales_person), "start": start_date, "end": end_date,
                  "budget": total_budget_input, "final": final_budget_val, "prod_cost": prod_cost_input},
                 _waves, customer=st.session_state.get(ragic_ui.SS_CUSTOMER))
+            if _gift:
+                _snap["gift"] = _gift
             # 一般CUE 讀回沿用原本 [EXT] 還原，欄位與舊上傳一致
             _extra = {
                 RAGIC_MAP['budget_raw']: total_budget_input,

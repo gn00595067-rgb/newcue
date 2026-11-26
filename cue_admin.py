@@ -15,7 +15,7 @@ import cue_registry as reg
 import cue_store as cs
 import ragic_ui
 
-STATUS_FILTER = ["全部", "待審", "未成交", "成交", "退回"]
+STATUS_FILTER = ["全部", "待審", "加贈待核准", "未成交", "成交", "退回"]
 
 
 def _need_login():
@@ -66,11 +66,19 @@ def _row(rec, snap):
         "CUE號": (snap.get("booking") or {}).get("cue_id", ""),
         "版本": snap.get("version"),
         "最後修改": f"{last.get('at', '')} {last.get('by', '')}",
-        "標記": "🎁營運加贈" if snap.get("ops") else "",
+        "標記": "　".join(x for x in ("🎁營運加贈" if snap.get("ops") else "",
+                                    _gift_label(snap)) if x),
     }
 
 
+def _gift_label(snap):
+    g = snap.get("gift") or {}
+    return f"🎁加贈{g.get('pct')}%{g.get('status')}" if g else ""
+
+
 def _status_ok(snap, flt):
+    if flt == "加贈待核准":   # 第二階段 2-5
+        return (snap.get("gift") or {}).get("status") == "待核准"
     if flt == "待審":
         return cs.audit_of(snap) == cs.AUDIT_PENDING
     if flt == "成交":
@@ -103,6 +111,7 @@ def render_manage():
             items = owners[folder]
         with st.expander("❓ 主管／營運怎麼用（審核、退回、加贈）", expanded=False):
             st.markdown(
+                "- **加贈申請**：狀態選「加贈待核准」→ 選一份 → 看申請 % 與理由 → 核准或退回（要看加贈分配可「📂 開啟」）。\n"
                 "- **審核**：狀態選「待審」→ 下方「選一份」→ 出現「🗂 主管審核」→ 載入附件看 CUE／回簽檔 → 核准或退回（退回要填原因）。\n"
                 "- 業務按「存檔並送出訂檔」後才會出現在「待審」；待審是空的＝目前沒有人送出。\n"
                 "- **營運加贈**：選一份 → 「📂 開啟（編輯／加贈）」→ 在 CUE 的「檔次調整（加贈）」加檔次 → "
@@ -139,6 +148,8 @@ def render_manage():
             st.caption(f"v{h['v']}｜{h['at']}｜{h['by']}：" + "；".join(h.get("changes", [])))
     if reviewer and cs.audit_of(snap) == cs.AUDIT_PENDING:
         _audit_box(rec, snap)
+    if reviewer and (snap.get("gift") or {}).get("status") == "待核准":
+        _gift_box(rec, snap)
     b1, _b2 = st.columns(2)
     if b1.button("📂 開啟（編輯／加贈）", key="adm_open", type="primary"):
         ragic_ui.open_record(rec, snap)
@@ -184,6 +195,23 @@ def _audit_box(rec, snap):
     if ragic_ui.render_audit_box(snap, save, "adm"):
         ragic_ui.all_saved.clear()
         st.session_state["adm_msg"] = f"✅ {reg.display_no(snap) or '#' + str(rec['_ragicId'])} 已完成審核"
+        st.rerun()
+
+
+def _gift_box(rec, snap):
+    """第二階段 2-5：主管核准業務的加贈回饋申請（不用開啟 CUE）。"""
+    from config import RAGIC_MAP
+    from ragic_booking import cue2
+    st.markdown("#### 🎁 加贈回饋申請")
+    url, key = ragic_ui._ragic_conn()
+
+    def save(new):
+        legacy = cs.legacy_part(cue2.details_of(rec))
+        return cue2.save_record(url, key, {RAGIC_MAP["details"]: cs.details_text(new, legacy)}, rid=rec["_ragicId"])
+
+    if ragic_ui.render_gift_review_box(snap, save, "adm"):
+        ragic_ui.all_saved.clear()
+        st.session_state["adm_msg"] = f"✅ {reg.display_no(snap) or '#' + str(rec['_ragicId'])} 加贈申請已處理"
         st.rerun()
 
 

@@ -218,7 +218,7 @@ def remark_color(text, blue_payment=False):
     """一般 CUE 備註字色（Excel RGB）。依內容判斷，不看編號，舊版手改備註（素材在第 4 點）也不會錯色。
     紅：回簽期限、託播方素材；藍：專案限定條款（限定N席），聲活／鉑霖另含付款兌現日。"""
     t = (text or "").strip()
-    if "回簽及進單" in t or "託播方需於上檔前" in t:
+    if "回簽及進單" in t or "託播方需於上檔前" in t or t.startswith("※本排程"):   # ※：加贈待主管核准（2-5）
         return "FF0000"
     if "限定" in t and "席" in t:
         return "0000FF"
@@ -247,7 +247,7 @@ RAGIC_EXT_KEYS = [
     "bonus_cb_fv", "bonus_fv_nat", "bonus_fv_reg", "bonus_fv_share", "bonus_fv_sec",
     "bonus_cb_cf", "bonus_cf_share", "bonus_cf_sec",
     "cue_sign_deadline", "cue_billing_month", "cue_payment_date", "cue_live_update_remarks", "cue_remarks_text",
-    "cue_seg_remarks", "custom_bonus",
+    "cue_seg_remarks", "custom_bonus", "gift_reason", "bolin_rebate_pct", "bolin_cash_pct",
     "rad_use_region_share", "fv_use_region_share", "_rad_region_list", "_fv_region_list",
 ]
 

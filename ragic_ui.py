@@ -621,6 +621,9 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     if save_block:   # 呼叫端指定的存檔必填（如簡易模式的請款月份、付款兌現日）
         st.warning("存檔前請先在上方「客戶名稱／業務／產品／付款／甲乙方」填寫：" + "、".join(save_block))
         block = list(save_block) + block
+    _g = final.get("gift") or {}
+    if _g.get("status") in ("待核准", "退回"):   # 第二階段 2-5：加贈未核准不能送出訂檔
+        block = block + [f"加贈回饋 {_g.get('pct')}% " + ("待主管核准（先存檔，主管核准後再送出）" if _g["status"] == "待核准" else "主管未核准")]
     b1, b2 = st.columns(2)
     do_save = b1.button("💾 存檔到 Ragic", key=f"{key_prefix}_btn", type="primary",
                         disabled=not live or bool(save_block))
@@ -635,6 +638,10 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
         b2.caption("⚠️ 還不能送出，尚缺：" + "、".join(block))
     if linked and is_reviewer() and cs.audit_of(lsnap) == cs.AUDIT_PENDING and not dirty:
         _render_audit(linked, legacy_details, key_prefix)
+    if linked and is_reviewer() and (lsnap.get("gift") or {}).get("status") == "待核准" and not dirty:
+        with st.expander("🎁 主管核准：加贈回饋申請", expanded=True):
+            if render_gift_review_box(lsnap, lambda new: _save_snapshot_only(linked, new, legacy_details), key_prefix):
+                st.rerun()
     if not (do_save or do_book):
         return
 
@@ -825,6 +832,27 @@ def render_audit_box(snap, save, key_prefix):
     res = save(cs.mark_audited(json_copy(snap), u.get("name", ""), ok, reason="" if ok else reason.strip()))
     if not res.ok:
         st.error(f"審核寫入失敗：{res.error}")
+        return False
+    return True
+
+
+def render_gift_review_box(snap, save, key_prefix):
+    """第二階段 2-5：主管核准／退回業務的加贈回饋申請。save(新快照) → 寫回 Ragic 的結果。成功回傳 True。"""
+    import gift_review as gr
+    g = gr.gift_of(snap)
+    st.markdown(f"**{g.get('by', '')}** 申請加贈回饋 **{g.get('pct')}%**（{g.get('at', '')}）"
+                + (f"　理由：{g['reason']}" if g.get("reason") else ""))
+    st.caption("核准後業務從「我的 CUE」重新開啟這份，即可下載正式版、送出訂檔；退回時業務會看到原因。加贈列的分配內容請開啟 CUE 檢視。")
+    reason = st.text_input("退回原因（退回時必填）", key=f"{key_prefix}_gift_reason")
+    c1, c2 = st.columns(2)
+    ok = c1.button("✅ 核准加贈", key=f"{key_prefix}_gift_ok", type="primary", disabled=not write_enabled())
+    no = c2.button("↩️ 退回加贈", key=f"{key_prefix}_gift_no", disabled=not write_enabled() or not reason.strip())
+    if not (ok or no):
+        return False
+    u = current_user() or {}
+    res = save(gr.mark_gift_reviewed(json_copy(snap), u.get("name", ""), ok, reason="" if ok else reason.strip()))
+    if not res.ok:
+        st.error(f"寫入失敗：{res.error}")
         return False
     return True
 
