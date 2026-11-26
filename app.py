@@ -150,8 +150,16 @@ def _bolin_net_terms_inputs():
     return (reb, disc)
 
 
-def _render_benefit_panel(rows, ndays, net_price, start, end):
-    """第二階段 2-2：媒體效益說明（主管 LINE：產出媒體效益分析／效益說明話術）。"""
+def _save_plan(rows, ndays, net_price, start, end):
+    ss = st.session_state
+    name = (ss.get("plan_name") or "").strip() or next_name(ss.get("cue_plans", []))
+    ss["cue_plans"] = add_plan(ss.get("cue_plans", []), make_plan(name, rows, ndays, net_price, start, end))
+    ss["plan_name"] = next_name(ss["cue_plans"])
+
+
+def _render_benefit_panel(rows, ndays, net_price, start, end, grand_total=None, client="", product=""):
+    """第二階段 2-2：媒體效益說明（主管 LINE：產出媒體效益分析／效益說明話術）；
+    2-3 存成方案、兩版效益比較；2-4 一頁式報價頁（主管 Q4）。"""
     s = benefit_summary(rows, ndays, net_price, start, end)
     t = s["total"]
     if not t["impressions"]:
@@ -167,6 +175,38 @@ def _render_benefit_panel(rows, ndays, net_price, start, end):
                        "店舖人流": p["traffic"]} for p in s["platforms"]], hide_index=True, use_container_width=True)
         st.caption("說明文字（右上角可一鍵複製）：")
         st.code("\n".join(s["text"]), language=None)
+
+        st.markdown("**📄 一頁式報價頁**（貼提案用，不是合約）")
+        try:
+            _q = build_quote_pdf(rows, ndays, net_price, grand_total or net_price, start, end, client=client, product=product)
+            st.download_button("⬇️ 下載報價頁 PDF", _q, file_name=f"{client or '客戶'} 報價頁.pdf", mime="application/pdf",
+                               key="quote_pdf_dl")
+        except Exception as e:  # noqa: BLE001
+            st.caption(f"報價頁產生失敗：{e}")
+
+        st.markdown("**⚖️ 方案比較**（同一客戶想比較兩、三種排法時：每排好一種就存一次）")
+        ss = st.session_state
+        plans = ss.get("cue_plans", [])
+        ss.setdefault("plan_name", next_name(plans))
+        pc1, pc2, pc3 = st.columns([2, 1, 1])
+        pc1.text_input("方案名稱", key="plan_name", label_visibility="collapsed")
+        pc2.button("➕ 存成方案", key="plan_save", on_click=_save_plan, args=(rows, ndays, net_price, start, end),
+                   help=f"最多 {MAX_PLANS} 個，只存在這次開啟的畫面，重新整理會清空。")
+        if plans and pc3.button("清空方案", key="plan_clear"):
+            ss["cue_plans"] = []
+            ss["plan_name"] = next_name([])
+            st.rerun()
+        if plans:
+            st.caption("已存：" + "、".join(p["name"] for p in plans))
+        if len(plans) >= 2:
+            st.dataframe(compare_rows(plans), hide_index=True, use_container_width=True)
+            for n in best_notes(plans):
+                st.markdown(f"- {n}")
+            try:
+                st.download_button("⬇️ 下載方案總覽 PDF", build_compare_pdf(plans, client=client),
+                                   file_name=f"{client or '客戶'} 方案總覽.pdf", mime="application/pdf", key="plan_pdf_dl")
+            except Exception as e:  # noqa: BLE001
+                st.caption(f"方案總覽產生失敗：{e}")
 
 
 def _warn_share_total(keys, label="預算"):
@@ -245,6 +285,8 @@ from share_rebalance import rebalance_shares
 from rebate_rules import project_negotiation_platforms
 from net_terms import pct_value, net_terms_label, apply_cash_discount
 from pitch import upsell_hints, benefit_summary
+from plan_compare import make_plan, add_plan, next_name, compare_rows, best_notes, MAX_PLANS
+from quote_page import build_quote_pdf, build_compare_pdf
 from utils import (
     safe_filename,
     build_cue_filename,
@@ -1922,7 +1964,7 @@ def main():
 
             # 顯示運算邏輯（含回饋檔次計算、主管額外回饋計算）
             render_logic_panel(logs, use_list_price_for_spots=is_barter_contract, rebate_logs=rebate_logs if not is_barter_contract else [], bonus_rebate_logs=bonus_rebate_logs)
-            _render_benefit_panel(rows, active_days, final_budget_val, start_date, end_date)
+            _render_benefit_panel(rows, active_days, final_budget_val, start_date, end_date, grand_total, client_name, product_name)
 
             st.markdown("---")
             st.subheader("📥 檔案下載區")
