@@ -180,7 +180,7 @@ def test_reach_lines_do_not_overflow_into_fee_labels():
                            client="客", product="30秒", campaign="C", data=sheetdata())
         ws = load_workbook(io.BytesIO(se.render(m, formulas=False))).worksheets[0]
         for cell in ws["A"]:
-            if not (isinstance(cell.value, str) and "總曝光次數" in cell.value):
+            if not (isinstance(cell.value, str) and cell.value.startswith("【") and "總曝光次數" in cell.value):   # 備註第 7 點也有此字
                 continue
             if cell.alignment.wrap_text:
                 continue

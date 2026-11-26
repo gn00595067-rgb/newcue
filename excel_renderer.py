@@ -13,6 +13,7 @@ import openpyxl
 from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
 from openpyxl.drawing.image import Image as OpenpyxlImage
+from net_terms import net_after_terms, net_terms_label
 from config import (
     FONT_MAIN, BS_THIN, BS_MEDIUM, BS_HAIR, FMT_MONEY, FMT_NUMBER
 )
@@ -51,12 +52,12 @@ def _round_half_up(value):
 
 
 @st.cache_data(show_spinner="正在生成 Excel 報表...", ttl=3600)
-def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum=None, medium_label=None):
+def generate_excel_from_scratch(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum=None, medium_label=None, net_terms=None):
     """快取版入口（一般CUE／年約季約／專案CUE 用），參數說明見 render_excel_into。"""
-    return render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum, medium_label)
+    return render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum, medium_label, net_terms=net_terms)
 
 
-def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum=None, medium_label=None, wb=None, sheet_prefix=""):
+def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, product_name, rows, remarks_list, final_budget_val, prod_cost, sales_person, total_list_accum=None, medium_label=None, wb=None, sheet_prefix="", net_terms=None):
     """
     主函式：根據格式類型生成 Excel 報表
 
@@ -73,6 +74,7 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
         medium_label: 東吳 Medium 欄覆寫文字（固定專案用），None 時依平台自動組
         wb: 傳入既有 Workbook 時改為「追加工作表」（一鍵CUE 多秒數版併成一檔用），回傳 None
         sheet_prefix: 工作表名稱前綴（例：「10秒」→「10秒」或「10秒-9月」）
+        net_terms: (退傭%, 現折%)；鉑霖格式在 Grand Total 下加黃底「實收價(含稅)」列（主管 11/26 Q2），皆 0／None 不加
     """
     if total_list_accum is None:
         total_list_accum = final_budget_val
@@ -307,7 +309,7 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
         curr_row += 1
 
         # 頁尾 (費用與簽名)
-        vat = _round_half_up(budget * 0.05); grand_total = budget + vat
+        vat = _round_half_up((budget + (prod or 0)) * 0.05); grand_total = budget + (prod or 0) + vat
         footer_items = [("媒體", budget), ("製作", prod), ("5% VAT", vat), ("Grand Total", grand_total)]
         for label, val in footer_items:
             if label == "媒體": continue 
@@ -505,7 +507,7 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
         ws.cell(curr_row, end_c_start - 1).border = Border(top=SIDE_MEDIUM, bottom=SIDE_MEDIUM, left=SIDE_THIN, right=SIDE_THIN)  # 同上，細線
         curr_row += 1
 
-        vat = _round_half_up(budget * 0.05); grand_total = budget + vat
+        vat = _round_half_up((budget + (prod or 0)) * 0.05); grand_total = budget + (prod or 0) + vat
         footer_stack = [("製作", prod), ("5% VAT", vat), ("Grand Total", grand_total)]
         for lbl, val in footer_stack:
             ws.row_dimensions[curr_row].height = 30; c_l = ws.cell(curr_row, end_c_start+1); c_l.value = lbl; c_l.alignment = ALIGN_RIGHT; c_l.font = FONT_16
@@ -805,7 +807,7 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
         ws.cell(curr_row, end_c_start - 1).border = Border(top=SIDE_MEDIUM, bottom=SIDE_MEDIUM, left=SIDE_THIN, right=SIDE_THIN)  # 同上，細線
         curr_row += 1
 
-        vat = _round_half_up(budget * 0.05); grand_total = budget + vat
+        vat = _round_half_up((budget + (prod or 0)) * 0.05); grand_total = budget + (prod or 0) + vat
         footer_stack = [("製作", prod), ("5% VAT", vat), ("Grand Total", grand_total)]
         for lbl, val in footer_stack:
             ws.row_dimensions[curr_row].height = 30; c_l = ws.cell(curr_row, end_c_start+1); c_l.value = lbl; c_l.alignment = ALIGN_RIGHT; c_l.font = FONT_16
@@ -818,7 +820,19 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
             c_v.border = Border(top=Side(style=t), bottom=Side(style=b), left=Side(style=l), right=Side(style=r))
             curr_row += 1
         write_reach_lines(ws, range(curr_row - 3, curr_row), rows, eff_days, 16)
-        
+        net_row = net_after_terms(grand_total, net_terms)
+        if net_row is not None:   # 主管 11/26 Q2：實收價(含稅)＝Grand Total×(1−退傭)×(1−現折)
+            reb, disc = net_terms
+            ws.row_dimensions[curr_row].height = 44
+            c_l = ws.cell(curr_row, end_c_start+1); c_v = ws.cell(curr_row, end_c_start+2)
+            c_l.value = "實收價(含稅)\n已計" + net_terms_label(reb, disc); c_l.alignment = ALIGN_RIGHT
+            c_l.font = Font(name=FONT_MAIN, size=14, bold=True)
+            c_v.value = net_row; c_v.number_format = FMT_MONEY; c_v.alignment = ALIGN_CENTER; c_v.font = FONT_16_BOLD
+            for c, (l, r) in ((c_l, (BS_MEDIUM, BS_THIN)), (c_v, (BS_THIN, BS_MEDIUM))):
+                c.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+                c.border = Border(top=Side(style=BS_MEDIUM), bottom=Side(style=BS_MEDIUM), left=Side(style=l), right=Side(style=r))
+            curr_row += 1
+
         # Footer & 簽名區 (舊版樣式 + 統編對齊修正)
         # Remarks 欄位起點：<14 天對齊「秒數規格」欄；>=14 天對齊其右側欄
         curr_row += 1; start_footer = curr_row; r_col_start = 5 if eff_days < 14 else 6

@@ -6,6 +6,7 @@ HTML 預覽生成模組 (HTML Preview Generator)
 from itertools import groupby
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from net_terms import net_after_terms, net_terms_label
 from utils import html_escape, split_period_by_months, cue_station, cue_location
 from simple_reach import compute_reach_from_rows
 
@@ -99,14 +100,14 @@ def _render_one_month_table(rows, days_in_month, month_start, month_end, full_to
         grand_total_spots += day_sum
         total_row_html += f"<td style='font-weight:bold; background-color:#e0e0e0;'>{'' if day_sum == 0 else day_sum}</td>"
     total_row_html += f"<td style='font-weight:bold; background-color:#d0d0d0; border: 2px solid #000;'>{grand_total_spots}</td></tr>"
-    vat_month = _round_half_up(budget_month * 0.05)
+    vat_month = _round_half_up((budget_month + (prod_month or 0)) * 0.05)
     footer_html = f"<div style='margin-top:10px; font-weight:bold; text-align:right;'>製作費: ${prod_month:,}<br>5% VAT: ${vat_month:,}<br>Grand Total: ${grand_total_month:,}</div>"
     footer_html = _reach_html(rows, days_in_month) + footer_html + "<div style='clear:both;'></div>"
     # Period 日期格式修正：%Y.%m.%d（原本誤用 'm' 導致畫面顯示 2026.m.01）
     return f"<div style='margin-bottom:24px;'><div style='margin-bottom:4px; font-weight:bold;'>Period: {month_start.strftime('%Y.%m.%d')} - {month_end.strftime('%Y.%m.%d')}</div><table><thead><tr>{th_fixed}{date_th1}{th_total_right}</tr><tr>{date_th2}</tr></thead><tbody>{tbody}{total_row_html}</tbody></table>{footer_html}</div>"
 
 
-def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_display, format_type, remarks, total_list, grand_total, budget, prod, medium_label=None):
+def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_display, format_type, remarks, total_list, grand_total, budget, prod, medium_label=None, net_terms=None):
     # medium_label：Medium 覆寫文字（固定專案用），None 時依平台自動組
     from utils import base_format
     format_type = base_format(format_type)   # 元朗＝聲活版面（預覽無公司抬頭）
@@ -150,7 +151,7 @@ def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_di
                 rows_month.append(r2)
             total_list_month = int(round(total_list * ratio))
             budget_month = int(round(budget * ratio))
-            grand_total_month = int(round((budget + _round_half_up(budget * 0.05)) * ratio))
+            grand_total_month = int(round((budget + (prod or 0) + _round_half_up((budget + (prod or 0)) * 0.05)) * ratio))
             prod_month = int(round(prod * ratio))
             table_html = _render_one_month_table(rows_month, days_in_month, m_start, m_end, total_days, format_type, header_cls, budget_month, total_list_month, grand_total_month, prod_month)
             page_header = f"<div style='margin-bottom:10px;'>{client_info_base}<br><b>Period：</b>{m_start.strftime('%Y.%m.%d')} - {m_end.strftime('%Y.%m.%d')}</div>"
@@ -255,8 +256,12 @@ def generate_html_preview(rows, days_cnt, start_dt, end_dt, c_name, tax_id, p_di
     total_row_html += f"<td style='font-weight:bold; background-color:#d0d0d0; border: 2px solid #000;'>{grand_total_spots}</td></tr>"
 
     remarks_html = "<br>".join([html_escape(x) for x in remarks])
-    vat = _round_half_up(budget * 0.05)
+    vat = _round_half_up((budget + (prod or 0)) * 0.05)
     footer_html = f"<div style='margin-top:10px; font-weight:bold; text-align:right;'>製作費: ${prod:,}<br>5% VAT: ${vat:,}<br>Grand Total: ${grand_total:,}</div>"
+    _net = net_after_terms(grand_total, net_terms) if format_type == "鉑霖" else None
+    if _net is not None:   # 主管 11/26 Q2：鉑霖實收價(含稅)
+        footer_html += (f"<div style='margin-top:4px; text-align:right;'><span style='background:#ffff00; font-weight:bold; padding:2px 6px;'>"
+                        f"實收價(含稅) 已計{net_terms_label(*net_terms)}：${_net:,}</span></div>")
     footer_html = _reach_html(rows, days_cnt) + footer_html + "<div style='clear:both;'></div>"
 
     # CSS 樣式

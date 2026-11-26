@@ -150,9 +150,14 @@ def apply_region_periods(rows, region_periods, start_date, end_date):
     return rows
 
 
+# 第 7 點：曝光／人流算法說明（主管 2026-11-26 Q6，算法同 simple_reach／各平台人流計算方式.xlsx）
+REACH_REMARK = ("7.曝光次數與店舖人流量為預估值：總曝光次數＝各區播出店數 × 檔次；全家店舖人流量以每店每日平均來客 1,000 人換算；"
+                "萬家福／樂家康依通路提供之每日來客數換算。實際數據以通路結案報告為準。")
+
+
 def get_remarks_text(sign_deadline, billing_month, payment_date, project_remark=None):
     """生成一般 CUE 合約備註文字（依 116 年度專案版 1~6 點）。
-    project_remark：固定專案限定的第 7 點（如中元專案），一般排程不傳。
+    project_remark：固定專案限定的第 8 點（如中元專案），一般排程不傳。第 7 點固定為曝光／人流算法說明。
     payment_date 可傳 date（轉民國年）或已排好的文字（簡易模式手填，原樣帶入）。簡易模式子公司組合也共用這份。"""
     d_str = (f"{sign_deadline.strftime('%Y/%m/%d')} ({'一二三四五六日'[sign_deadline.weekday()]})"
              if sign_deadline else "____/__/__ (__)")
@@ -168,9 +173,10 @@ def get_remarks_text(sign_deadline, billing_month, payment_date, project_remark=
         "4.結案資料以電子版提供為主，不另行提供紙本結案。雲端資料保留2個月（自提供日起算），敬請於期限內自行下載留存，逾期資料恕不保留。",
         f"5.雙方同意費用請款月份 : {billing_month}，如有修正必要，將另行E-Mail告知，並視為正式合約之一部分。",
         f"6.付款兌現日期：{p_str}",
+        REACH_REMARK,
     ]
     if project_remark:
-        lines.append(f"7.{project_remark}")
+        lines.append(f"8.{project_remark}")
     return lines
 
 
@@ -197,7 +203,7 @@ def base_format(fmt):
 
 # 東吳／聲活／鉑霖 CUE 的播出地區寫法（宜歆 10/21 #5，比照實際送客戶的 CUE）；
 # 只改顯示，rows 的 region 仍是 北區／中區／東區（定價、回饋、Ragic 靠它）
-CUE_REGION_NAMES = {"北區": "北北基", "中區": "中彰投", "東區": "宜花東"}
+CUE_REGION_NAMES = {"北區": "北北基", "中區": "中彰投", "雲嘉南": "雲嘉南（含離島）", "東區": "宜花東"}   # 含離島：主管 11/26 Q5
 
 
 def cue_location(r):

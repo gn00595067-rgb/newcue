@@ -11,6 +11,7 @@ from config import (
     REBATE_RULES_REGION,
 )
 from utils import get_sec_factor, calculate_schedule
+import rebate_rules
 
 
 def _days_bucket(days):
@@ -25,31 +26,13 @@ def _days_bucket(days):
 
 
 def _best_rebate_nat_rad(budget, days):
-    """全省全家廣播：依 115 年度表，回傳 (全家%, 家樂福%)，家樂福% 為全家達標時可選回饋家樂福的%。"""
-    bucket = _days_bucket(days)
-    for days_max, rad_lo, rad_hi, cf_lo, cf_hi, pct_rad, pct_cf in REBATE_RULES_NAT:
-        if days_max is not None and bucket is not None and bucket > days_max:
-            continue
-        if rad_lo is not None and budget < rad_lo:
-            continue
-        if rad_hi is not None and budget >= rad_hi:
-            continue
-        return (pct_rad, pct_cf)
-    return None
+    """全省全家廣播 → (全家%, 萬家福%)；主管 11/26 新表，不看走期（days 保留參數相容）。規則見 rebate_rules。"""
+    return rebate_rules.nat_rad_pct(budget)
 
 
 def _best_rebate_nat_cf(budget, days):
-    """全省家樂福：依 115 年度表，回傳家樂福達標時的回饋%。"""
-    bucket = _days_bucket(days)
-    for days_max, rad_lo, rad_hi, cf_lo, cf_hi, pct_rad, pct_cf in REBATE_RULES_NAT:
-        if days_max is not None and bucket is not None and bucket > days_max:
-            continue
-        if cf_lo is not None and budget < cf_lo:
-            continue
-        if cf_hi is not None and budget >= cf_hi:
-            continue
-        return pct_cf
-    return None
+    """全省萬家福 → 回饋%；主管 11/26 新表，不看走期。"""
+    return rebate_rules.nat_cf_pct(budget)
 
 
 def _best_rebate_nat(media, budget, days):

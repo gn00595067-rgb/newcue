@@ -128,6 +128,28 @@ def _rebalance_shares(keys, changed, manual_key):
         ss[k] = v
 
 
+def _bolin_net_terms_inputs():
+    """鉑霖格式：退傭％、現折％（主管 11/26 Q2）。預設帶 Ragic 客戶的退佣／現折，換客戶時重帶；回傳 (退傭, 現折)。"""
+    ss = st.session_state
+    cust = ss.get("ragic_customer") or {}
+    ck = str(cust.get("編號") or "")
+    if ss.get("_bolin_terms_cust") != ck or "bolin_rebate_pct" not in ss:
+        ss["bolin_rebate_pct"] = pct_value(cust.get("退佣"))
+        ss["bolin_cash_pct"] = pct_value(cust.get("現折"))
+        ss["_bolin_terms_cust"] = ck
+    with st.expander("💰 鉑霖實收價（已計退傭＋現折）", expanded=bool(ss["bolin_rebate_pct"] or ss["bolin_cash_pct"])):
+        b1, b2 = st.columns(2)
+        b1.number_input("退傭 %", 0.0, 100.0, step=1.0, key="bolin_rebate_pct")
+        b2.number_input("現折 %", 0.0, 100.0, step=0.5, key="bolin_cash_pct")
+        reb, disc = ss["bolin_rebate_pct"], ss["bolin_cash_pct"]
+        if reb or disc:
+            st.caption(f"CUE 費用區 Grand Total 下會多一列黃底「實收價(含稅) 已計{net_terms_label(reb, disc)}」"
+                       + ("；備註第 6 點加註現金折扣。" if disc else "。"))
+        else:
+            st.caption("兩者都是 0 時不顯示實收價列。預設帶 Ragic 客戶的退佣／現折。")
+    return (reb, disc)
+
+
 def _warn_share_total(keys, label="預算"):
     total = sum(int(st.session_state.get(k) or 0) for k in keys)
     if keys and total != 100:
@@ -201,6 +223,8 @@ from config import (
     AGENCY_PASSWORD
 )
 from share_rebalance import rebalance_shares
+from rebate_rules import project_negotiation_platforms
+from net_terms import pct_value, net_terms_label, apply_cash_discount
 from utils import (
     safe_filename,
     build_cue_filename,
@@ -1155,6 +1179,7 @@ def main():
                                          help="交換合約：檔次依定價計算（企頻全省 40 萬、新鮮視全省 15 萬），不提供優惠回饋檔次。元朗格式固定為交換合約。")
         if format_type == "元朗":   # 鎖住的勾是灰的、看不出已勾（宜歆 4-3 10/29）
             st.caption("✅ 元朗格式固定為交換合約，已自動勾選（不用手動勾）；檔次依定價核算。")
+        net_terms = _bolin_net_terms_inputs() if format_type == "鉑霖" else None
 
         c1, c2, c3, c4, c5_sales = st.columns(5)
         # 載入資料後的預設值
@@ -1622,6 +1647,9 @@ def main():
                     row["schedule"] = expand_schedule_to_calendar(row["schedule"], segments, start_date, end_date)
             # 回饋贈檔：最多三種回饋並存，每種可獨立選擇要/不要（交換合約不提供回饋）
             qual = get_rebate_qualification_detail(config, total_budget_input, active_days) if not is_barter_contract else {}
+            _proj_nego = project_negotiation_platforms(config, total_budget_input) if not is_barter_contract else []
+            if _proj_nego:   # 主管 11/26 Q1：100 萬以上專案談，不給預設回饋
+                st.info(f"💼 {'、'.join(_proj_nego)} 全省預算達 100 萬以上，依回饋比例表為**專案洽談**，系統不自動給回饋；需要回饋請由主管在「加贈回饋 %」設定。")
             apply_nat_rad = False
             rebate_nat_destination = None
             apply_nat_cf = False
@@ -1844,8 +1872,8 @@ def main():
             if region_periods:
                 apply_region_periods(rows, region_periods, start_date, end_date)
             prod_cost = prod_cost_input 
-            vat = _round_half_up(final_budget_val * 0.05)
-            grand_total = final_budget_val + vat
+            vat = _round_half_up((final_budget_val + (prod_cost or 0)) * 0.05)   # 製作費也課稅（同簡易模式、鉑霖樣張）
+            grand_total = final_budget_val + (prod_cost or 0) + vat
             
             p_str = f"{'、'.join([f'{s}秒' for s in sorted(list(set(r['seconds'] for r in rows)))])} {product_name}"
             _cue_live = st.session_state.get("cue_live_update_remarks", True)
@@ -1863,6 +1891,8 @@ def main():
                 rem = [line.strip() for line in _rem_raw if line.strip()]
                 if not rem:
                     rem = get_remarks_text(_sig, _bill, _pay)
+            if net_terms:
+                rem = apply_cash_discount(rem, net_terms[1])
             sign_deadline = _sig
             billing_month = _bill
             payment_date = _pay
@@ -1886,9 +1916,11 @@ def main():
             if use_date_segments and segments and len(segments) > 1:
                 for i, (seg_start, seg_end) in enumerate(segments):
                     seg_rem = _get_cue_segment_rem(i, seg_end, _cue_def_s)
+                    if net_terms:
+                        seg_rem = apply_cash_discount(seg_rem, net_terms[1])
                     segment_rows = _slice_rows_to_segment(rows, start_date, seg_start, seg_end)
                     seg_days = (seg_end - seg_start).days + 1
-                    html_seg = generate_html_preview(segment_rows, seg_days, seg_start, seg_end, client_name, client_tax_id, p_str, format_type, seg_rem, total_list_accum, grand_total, final_budget_val, prod_cost)
+                    html_seg = generate_html_preview(segment_rows, seg_days, seg_start, seg_end, client_name, client_tax_id, p_str, format_type, seg_rem, total_list_accum, grand_total, final_budget_val, prod_cost, net_terms=net_terms)
                     with st.expander(f"波段 {i+1}：{seg_start} ~ {seg_end}", expanded=(i == 0)):
                         if isinstance(html_seg, list):
                             for idx, one_html in enumerate(html_seg):
@@ -1896,26 +1928,28 @@ def main():
                                 st.components.v1.html(one_html, height=500, scrolling=True)
                         else:
                             st.components.v1.html(html_seg, height=500, scrolling=True)
-                        xlsx_seg = generate_excel_from_scratch(format_type, seg_start, seg_end, client_name, client_tax_id, product_name, segment_rows, seg_rem, final_budget_val, prod_cost, sales_person, total_list_accum)
+                        xlsx_seg = generate_excel_from_scratch(format_type, seg_start, seg_end, client_name, client_tax_id, product_name, segment_rows, seg_rem, final_budget_val, prod_cost, sales_person, total_list_accum, net_terms=net_terms)
                         pdf_seg, _, _ = xlsx_bytes_to_pdf_bytes(xlsx_seg)
                         _gen_extra.append((f"⬇️ 波段{i+1} Excel", _cue_fn(segment_rows, "xlsx", f"波段{i+1}"), xlsx_seg, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                         if pdf_seg:
                             _gen_extra.append((f"⬇️ 波段{i+1} PDF", _cue_fn(segment_rows, "pdf", f"波段{i+1}"), pdf_seg, "application/pdf"))
                 seg0_start, seg0_end = segments[0][0], segments[0][1]
                 _seg0_rem = _get_cue_segment_rem(0, seg0_end, _cue_def_s)
+                if net_terms:
+                    _seg0_rem = apply_cash_discount(_seg0_rem, net_terms[1])
                 _seg0_rows = _slice_rows_to_segment(rows, start_date, seg0_start, seg0_end)
-                _xlsx_ragic = generate_excel_from_scratch(format_type, seg0_start, seg0_end, client_name, client_tax_id, product_name, _seg0_rows, _seg0_rem, final_budget_val, prod_cost, sales_person, total_list_accum)
+                _xlsx_ragic = generate_excel_from_scratch(format_type, seg0_start, seg0_end, client_name, client_tax_id, product_name, _seg0_rows, _seg0_rem, final_budget_val, prod_cost, sales_person, total_list_accum, net_terms=net_terms)
                 _pdf_ragic, _, _ = xlsx_bytes_to_pdf_bytes(_xlsx_ragic)
             else:
                 # 單一預覽與下載（無分波段或僅一波段）
-                html_preview = generate_html_preview(rows, total_days, start_date, end_date, client_name, client_tax_id, p_str, format_type, rem, total_list_accum, grand_total, final_budget_val, prod_cost)
+                html_preview = generate_html_preview(rows, total_days, start_date, end_date, client_name, client_tax_id, p_str, format_type, rem, total_list_accum, grand_total, final_budget_val, prod_cost, net_terms=net_terms)
                 if isinstance(html_preview, list):
                     for idx, one_html in enumerate(html_preview):
                         st.caption(f"第 {idx+1} 頁")
                         st.components.v1.html(one_html, height=700, scrolling=True)
                 else:
                     st.components.v1.html(html_preview, height=700, scrolling=True)
-                xlsx_temp = generate_excel_from_scratch(format_type, start_date, end_date, client_name, client_tax_id, product_name, rows, rem, final_budget_val, prod_cost, sales_person, total_list_accum)
+                xlsx_temp = generate_excel_from_scratch(format_type, start_date, end_date, client_name, client_tax_id, product_name, rows, rem, final_budget_val, prod_cost, sales_person, total_list_accum, net_terms=net_terms)
                 pdf_bytes, method, err = xlsx_bytes_to_pdf_bytes(xlsx_temp)
                 if not pdf_bytes:
                     st.warning(f"PDF 生成失敗: {err}")

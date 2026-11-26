@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fixed_projects import FIXED_PROJECTS, build_project_rows, project_days, project_total_list
-from utils import get_remarks_text, remark_color, build_cue_filename
+from utils import get_remarks_text, remark_color, build_cue_filename, REACH_REMARK
 from excel_renderer import generate_excel_from_scratch
 from html_generator import generate_html_preview
 
@@ -65,12 +65,13 @@ def test_general_remarks_1_to_6():
         "4.結案資料以電子版提供為主，不另行提供紙本結案。雲端資料保留2個月（自提供日起算），敬請於期限內自行下載留存，逾期資料恕不保留。",
         "5.雙方同意費用請款月份 : 2月，如有修正必要，將另行E-Mail告知，並視為正式合約之一部分。",
         "6.付款兌現日期：116.03.10",
+        REACH_REMARK,
     ]
 
 
 def test_project_remark_7_only_for_project():
-    assert _rem()[-1] == "7.此為116年度中元專案，限定6席。"
-    assert len(get_remarks_text(date(2026, 11, 30), "2月", date(2027, 3, 10))) == 6
+    assert _rem()[-1] == "8.此為116年度中元專案，限定6席。"
+    assert len(get_remarks_text(date(2026, 11, 30), "2月", date(2027, 3, 10))) == 7
 
 
 def test_remarks_blank_dates():
@@ -80,7 +81,7 @@ def test_remarks_blank_dates():
 
 def test_remark_color_by_content():
     rem = _rem()
-    assert [remark_color(x) for x in rem] == ["FF0000", "000000", "FF0000", "000000", "000000", "000000", "0000FF"]
+    assert [remark_color(x) for x in rem] == ["FF0000", "000000", "FF0000", "000000", "000000", "000000", "000000", "0000FF"]
     assert remark_color(rem[5], blue_payment=True) == "0000FF"
     # 舊版手改備註：素材在第 4 點仍為紅字；舊第 2 點節目異動為黑字
     assert remark_color("4.託播方需於上檔前 5 個工作天，提供廣告帶(mp3)。") == "FF0000"
@@ -110,7 +111,7 @@ def test_excel_three_formats(fmt):
     assert 1317 in values                  # 總檔次 168+288+294+504+63
     assert "09-23 中元專區" in values and "00-24 中元專區" in values
     # 第 7 點只出現一次、藍字
-    c7 = [c for c in cells if isinstance(c.value, str) and c.value.startswith("7.此為116年度中元專案")]
+    c7 = [c for c in cells if isinstance(c.value, str) and c.value.startswith("8.此為116年度中元專案")]
     assert len(c7) == 1 and c7[0].font.color.rgb.endswith("0000FF")
     c1 = next(c for c in cells if isinstance(c.value, str) and c.value.startswith("1.請於"))
     assert c1.font.color.rgb.endswith("FF0000")
@@ -124,7 +125,7 @@ def test_html_preview_project():
     html = generate_html_preview(_rows(), 21, P["start"], P["end"], "客戶", "", "20秒 產品", "東吳", _rem(),
                                  469250, 315000, 300000, 0, medium_label=P["medium"])
     html = "".join(html) if isinstance(html, list) else html
-    assert P["medium"] in html and "$300,000" in html and "7.此為116年度中元專案" in html
+    assert P["medium"] in html and "$300,000" in html and "8.此為116年度中元專案" in html
     assert "rowspan='5'" in html
 
 
@@ -172,7 +173,7 @@ def test_new_year_excel_three_formats(fmt):
     assert len(wb.worksheets) == 1
     values = [c.value for c in _cells(wb.worksheets[0])]
     assert 300000 in values and 501975 in values and 1443 in values   # 總檔 126+168+288+294+504+63
-    assert "7.此為116年度過年專案，限定6席。" in values
+    assert "8.此為116年度過年專案，限定6席。" in values
     assert "00-24 賀歲拜年" in values
     if fmt == "東吳":
         assert NY["medium"] in values and "15秒、20秒 產品" in values
@@ -194,7 +195,7 @@ def test_simple_mode_remarks_same_as_general():
     combo = next(c for c in sc.COMBOS.values() if c.get("family", "subsidiary") == "subsidiary")
     out = sm._subsidiary_remarks(combo, date(2026, 11, 30), "2月", "116.03.10")
     assert [t for t, _ in out] == get_remarks_text(date(2026, 11, 30), "2月", date(2027, 3, 10))
-    assert [red for _, red in out] == [True, False, True, False, False, False]
+    assert [red for _, red in out] == [True, False, True, False, False, False, False]
 
 
 def test_payment_text_passthrough():

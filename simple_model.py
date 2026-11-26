@@ -567,8 +567,12 @@ def build_model(combo_key, budget, start, end, *, client="", tax_id="", product=
 
 
 def _subsidiary_remarks(combo, sign, billing, pay):
-    """與一般 CUE 同一份 1~6 點（utils.get_remarks_text）；紅字同 remark_color（回簽、素材）。"""
-    return [(t, remark_color(t) == "FF0000") for t in get_remarks_text(sign, billing, pay)]
+    """與一般 CUE 同一份備註（utils.get_remarks_text）；紅字同 remark_color（回簽、素材）。
+    不印曝光（SHOW_REACH_IN_CUE=False）時連第 7 點曝光算法說明也拿掉。"""
+    lines = get_remarks_text(sign, billing, pay)
+    if not sc.SHOW_REACH_IN_CUE:
+        lines = [t for t in lines if not t.startswith("7.曝光")]
+    return [(t, remark_color(t) == "FF0000") for t in lines]
 
 
 def _agency_remarks(combo, start, end, budget, sign=None):
