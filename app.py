@@ -219,7 +219,8 @@ def _render_benefit_panel(rows, ndays, net_price, start, end, grand_total=None, 
     with st.expander("📣 媒體效益說明（可複製給客戶）", expanded=False):
         c = st.columns(4)
         c[0].metric("總曝光次數", f"{t['impressions']:,}")
-        c[1].metric("店舖人流（人次）", f"{t['traffic']:,}")
+        c[1].metric("店舖人流（人次）", f"{t['traffic'] / 10000:,.0f} 萬" if t["traffic"] >= 100000 else f"{t['traffic']:,}",
+                    help=f"{t['traffic']:,} 人次")
         c[2].metric("每千次曝光成本", f"${t['cpm']:,.0f}" if t["cpm"] else "—")
         c[3].metric("總檔次（含加贈）", f"{t['spots']:,}", f"加贈 {t['gift_spots']:,} 檔" if t["gift_spots"] else None)
         st.dataframe([{"平台": p["name"], "店／面數": f"{p['stores']:,} {p['unit']}", "檔次": p["spots"],

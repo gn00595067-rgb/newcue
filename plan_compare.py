@@ -61,7 +61,8 @@ def compare_rows(plans):
             b = base.get(key)
             if i and v is not None and b not in (None, 0) and v != b:
                 pct = (v - b) / b * 100
-                cell += f"（{'+' if pct > 0 else '−'}{abs(pct):.0f}%）"
+                if abs(pct) >= 0.5:   # 四捨五入後 0% 不標
+                    cell += f"（{'+' if pct > 0 else '−'}{abs(pct):.0f}%）"
             row[p["name"]] = cell
         out.append(row)
     return out
