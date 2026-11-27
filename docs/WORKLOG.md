@@ -92,3 +92,4 @@
 - 2026-11-27 ｜ 緊急修正：正式版 TypeError upsell_hints() takes 2 positional arguments（Cloud 沿用舊 pitch，Jonathan 未 Reboot 前業務帶入客戶即整頁錯誤）→ app.py 呼叫改 try/except TypeError 相容舊版；只跑相關測試即推（線上故障），推後補跑全套 ｜ 業務 11/27 截圖回報 ｜ 補跑全套；CLAUDE.md 地雷補「既有函式加參數也會壞」
 - 2026-11-27 ｜ Jonathan 已設 RAGIC_SALES_CAN_BOOK="true" 並 Reboot，業務可開始依題目測試訂檔 ｜ 主管建議開放業務測試 ｜ 收業務回饋；測完改回 false；確認後 RAGIC_TEST_MODE="false" 正式開放
 - 2026-11-27 ｜ 修贈檔申請寄信少 import（畫面顯示 name reg is not defined、信寄不出；存檔不受影響）＋測試補「真的呼叫寄信」；申請 CUE號鈕變灰時直接列出尚缺原因；全套 793 綠 ｜ 做兩天更新報告截圖時發現 ｜ 推版免 Reboot
+- 2026-11-27 ｜ 做 11/26–11/27 更新總覽 PDF（9 頁，實際截圖；桌面 CUE系統_1126-1127更新總覽.pdf，不進版控） ｜ Jonathan 要給公司參考 ｜ —
