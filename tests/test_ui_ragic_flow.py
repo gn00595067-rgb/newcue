@@ -649,7 +649,8 @@ def test_業務加贈申請_主管核准():
     g = at.session_state["cue_record"]["snap"]["gift"]
     assert g["status"] == "待核准" and g["reason"] == "年底掃單"
     assert any("加贈回饋 5% 待主管核准" in c.value for c in at.caption)
-    assert any("請自行通知主管" in s.value for s in at.success)
+    msg = next(s.value for s in at.success if "已存檔" in s.value)
+    assert "尚未設定寄信帳號" in msg and "請自行通知主管" in msg and "not defined" not in msg
     at.session_state["is_supervisor"] = True
     at.run()
     at.button(key="gen_save_gift_ok").click().run()

@@ -59,3 +59,35 @@ def test_寄信失敗不丟例外(monkeypatch):
     monkeypatch.setattr(mn.smtplib, "SMTP_SSL", boom)
     ok, msg = mn.send(_secret({"MAIL_USER": "a@x.com", "MAIL_PASSWORD": "p", "MAIL_TO": "b@x.com"}), "s", "b")
     assert not ok and "連不上" in msg
+
+
+def test_存檔後真的呼叫寄信(monkeypatch):
+    """ragic_ui._notify_gift_request 整段走過（11/27 曾因少 import 而寄不出、只顯示錯誤字樣）。"""
+    import ragic_ui
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def login(self, u, p):
+            pass
+
+        def send_message(self, m):
+            sent.append(m)
+
+    monkeypatch.setattr(mn.smtplib, "SMTP_SSL", FakeSMTP)
+    monkeypatch.setenv("MAIL_USER", "cue@x.com")
+    monkeypatch.setenv("MAIL_PASSWORD", "pw")
+    monkeypatch.setenv("MAIL_TO", "boss@x.com")
+    snap = dict(SNAP, save_no="W2611-001")
+    msg = ragic_ui._notify_gift_request(snap, None)
+    assert "已寄 Email 通知主管" in msg and len(sent) == 1 and "W2611-001" in sent[0].get_content()
+    # 同 % 已在待核准：不重寄
+    assert ragic_ui._notify_gift_request(snap, snap) == "" and len(sent) == 1

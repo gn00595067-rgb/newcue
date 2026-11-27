@@ -706,6 +706,7 @@ def _notify_gift_request(final, prev):
     if g.get("status") != "待核准" or (pg.get("status") == "待核准" and pg.get("pct") == g.get("pct")):
         return ""
     try:
+        import cue_registry as reg
         import mail_notify as mn
         subj, body = mn.gift_request_mail(final, reg.display_no(final), _secret("APP_URL", ""))
         ok, msg = mn.send(_secret, subj, body)
@@ -1287,6 +1288,8 @@ def _cue_box(snap, key_prefix, cue_saver, serial=""):
         except Exception as e:  # noqa: BLE001
             miss = [f"讀不到測試紀錄表（{e}）"] + miss
     c1, c2 = st.columns([1, 2])
+    if miss:   # 按鈕變灰時直接列原因（同送出訂檔鈕，宜歆 10/27 #13；業務測試訂檔前補上）
+        st.caption("⚠️ 還不能申請 CUE號，尚缺：" + "、".join(miss))
     if c1.button("🎫 申請 CUE號", key=f"{key_prefix}_cue_apply", type="primary", disabled=bool(miss),
                  help=("尚缺：" + "、".join(m.split("（")[0] for m in miss)) if miss else
                  f"以客戶 {cust.get('編號', '')} 向 Ragic「新增CUE號申請表」申請；申請完才送出訂檔。"):
