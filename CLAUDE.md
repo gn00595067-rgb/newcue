@@ -36,7 +36,7 @@
 - 測試：`tests/`（含 fidelity／visual_check／各模式 smoke）
 
 ## 下次續做
-- 11-27 主管同意開放業務測試訂檔：Secrets `RAGIC_SALES_CAN_BOOK="true"` 開放（上限維持每月 15、不開測試客戶，Ragic 管理員清測試單）；測試題目在 Jonathan 桌面 `CUE系統_訂檔測試題目_1127.xlsx`（8 題，不進版控）。題目第 4 題會測出：鉑霖 CUE 的退傭／現折與訂檔區現折／退佣是兩組欄位，可能要改自動帶入。
+- 11-27 主管同意開放業務測試訂檔：Secrets `RAGIC_SALES_CAN_BOOK="true"` 已開（11-27 已設並 Reboot；測完記得關。上限維持每月 15、不開測試客戶，Ragic 管理員清測試單）；測試題目在 Jonathan 桌面 `CUE系統_訂檔測試題目_1127.xlsx`（8 題，不進版控）。題目第 4 題會測出：鉑霖 CUE 的退傭／現折與訂檔區現折／退佣是兩組欄位，可能要改自動帶入。
 - 11-27 主管勾選更新報告 p.7：曝光結論加「其中加贈帶來曝光」一行、加碼提示附檔數、贈檔申請 Email 通知主管（待 Jonathan 設 Secrets `MAIL_USER`／`MAIL_PASSWORD`）。佳聖素材日已改開始日前 6 個工作天；#6 正式開放訂檔、#7 GitHub 改私人由 Jonathan 決定。
 - 11-26 主管回覆第二階段決策（DECISIONS 11-26）：第 1 批已上線（新回饋表 `rebate_rules.py`、鉑霖實收價列 `net_terms.py`、含離島、備註第 7 點、一般CUE VAT 含製作費）；2-1 加碼提示、2-2 媒體效益說明（`pitch.py`）接續上線。2-3 方案比較、2-4 報價頁（`plan_compare.py`、`quote_page.py`）、2-5 贈檔權限申請（`gift_review.py`；CUE 管理「加贈待核准」）同批上線（spec `docs/specs/第二階段_主管決策實作.md`）。剩 2-6 各平台不同走期、購買／贈送分開列。請業務用 1123／1124 題目重測、主管試核准流程。
 - 11-24 正式版合併上線、Jonathan 已 Reboot 並實測登入正常。下一步：把 `docs/guides/newcue登入指南.pdf` 發給同事；先前各則「待 Reboot 後請宜歆重測」現在都在正式版，可請宜歆／業務一起重測。訂檔仍是測試期（`RAGIC_TEST_MODE` 未設＝CUE號記 cue/6、每月 15 筆），正式訂檔時設 `RAGIC_TEST_MODE="false"`。
