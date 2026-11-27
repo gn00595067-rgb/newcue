@@ -89,3 +89,4 @@
 - 2026-11-27 ｜ 依主管勾選（DECISIONS 11-27）：CUE 曝光結論有加贈時多一行「其中加贈帶來曝光次數」（reach_gift.py，Excel 三格式＋預覽）、加碼提示附約多送幾檔、贈檔申請存檔後 Email 通知主管（mail_notify.py，Secrets 未設時提示業務自行通知）；補 UI 測試（申請→核准） ｜ 主管 11/27 勾選更新報告第 7 頁 ｜ 待 Jonathan 設 MAIL_* Secrets；待確認佳聖「播前 6」單位；需重跑全套測試再推
 - 2026-11-27 ｜ 推上線 869da10（加贈曝光行、加碼提示檔數、Email 通知、萬顯示）：全套分段前景跑完全綠（被中止那輪前 72% 0 失敗＋補跑 270 個）；做第 6 項說明 PDF（只留第 6 項）；新增 RAGIC_SALES_CAN_BOOK 開關讓業務測試送訂檔；出訂檔測試題目 Excel（8 題，桌面） ｜ 主管建議開放業務測試、出題測到訂檔 ｜ Jonathan 設 RAGIC_SALES_CAN_BOOK="true"＋Reboot 後發題目
 - 2026-11-27 ｜ 佳聖一鍵 CUE 素材日改開始日前 6 個工作天（12/22 → 12/14） ｜ 主管手寫「播前 6」，Jonathan 確認為工作天 ｜ 隨下次推版上線
+- 2026-11-27 ｜ 緊急修正：正式版 TypeError upsell_hints() takes 2 positional arguments（Cloud 沿用舊 pitch，Jonathan 未 Reboot 前業務帶入客戶即整頁錯誤）→ app.py 呼叫改 try/except TypeError 相容舊版；只跑相關測試即推（線上故障），推後補跑全套 ｜ 業務 11/27 截圖回報 ｜ 補跑全套；CLAUDE.md 地雷補「既有函式加參數也會壞」

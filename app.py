@@ -1860,7 +1860,11 @@ def main():
             if rebate_summary and not is_barter_contract:
                 st.caption(f"📌 **本次可回饋：** {rebate_summary}")
             if not is_barter_contract:   # 第二階段 2-1：加碼優惠提示（主管 LINE）
-                for _h in upsell_hints(config, total_budget_input, rows):
+                try:
+                    _hints = upsell_hints(config, total_budget_input, rows)
+                except TypeError:   # Cloud 推版後可能沿用舊 pitch（無 rows 參數）→ 不帶檔數，避免整頁錯誤（11/27 業務回報）
+                    _hints = upsell_hints(config, total_budget_input)
+                for _h in _hints:
                     st.info(f"💡 **加碼提示**：{_h}")
             # 主管加贈回饋：僅主管可填 %，回饋金額可任意分配至平台／區域／秒數（仿 3. 媒體投放設定，無自訂區域比例）
             bonus_pct_val = None
