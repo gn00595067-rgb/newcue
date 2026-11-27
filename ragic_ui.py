@@ -687,9 +687,24 @@ def render_save_panel(snap, *, files=None, legacy_details="", extra_fields=None,
     st.session_state[msg_key] = fail_msg or (f"✅ 已存檔 {reg.display_no(final)}（v{final['version']}）"
                                              + (f"，已送出訂檔：CUE號 {final['booking'].get('cue_id')}，待主管審核"
                                                 if do_book else "，可下載"))
+    st.session_state[msg_key] += _notify_gift_request(final, prev)
     all_saved.clear()
     st.cache_data.clear()
     st.rerun()
+
+
+def _notify_gift_request(final, prev):
+    """主管 11/27：業務的加贈申請（新的或 % 改了）存檔後 Email 通知主管。回傳附在存檔訊息後的文字。"""
+    g, pg = final.get("gift") or {}, (prev or {}).get("gift") or {}
+    if g.get("status") != "待核准" or (pg.get("status") == "待核准" and pg.get("pct") == g.get("pct")):
+        return ""
+    try:
+        import mail_notify as mn
+        subj, body = mn.gift_request_mail(final, reg.display_no(final), _secret("APP_URL", ""))
+        ok, msg = mn.send(_secret, subj, body)
+    except Exception as e:  # noqa: BLE001  通知失敗不影響存檔
+        ok, msg = False, str(e)
+    return f"；🎁 {msg}" if ok else f"；🎁 加贈申請未寄出通知（{msg}），請自行通知主管核准"
 
 
 def oc_current(snap):

@@ -7,6 +7,7 @@ from itertools import groupby
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from net_terms import net_after_terms, net_terms_label
+from reach_gift import gift_reach_line
 from utils import html_escape, split_period_by_months, cue_station, cue_location
 from simple_reach import compute_reach_from_rows
 
@@ -21,6 +22,9 @@ def _media_disp(m):
 def _reach_html(rows, ndays):
     """預估曝光／人流（每平台一行），放在費用區左側；與 Excel 同文字。"""
     lines = compute_reach_from_rows(rows, ndays).get("lines") or []
+    gift = gift_reach_line(rows, ndays)   # 主管 11/27：其中加贈帶來曝光
+    if gift:
+        lines = lines + [gift]
     if not lines:
         return ""
     return "<div style='margin-top:10px; float:left; text-align:left;'>" + "<br>".join(html_escape(x) for x in lines) + "</div>"

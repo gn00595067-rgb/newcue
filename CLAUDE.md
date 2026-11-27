@@ -10,7 +10,7 @@
 - **2026-11-24 起只有一個 app、一條分支**：ragic-dev 已合併回 main（`22e5988`），測試 app 停用，Jonathan 直接在正式版測；之後一律推 `main`（ragic-dev 不再使用）。推版後記得提醒 Reboot。Ragic 寫入預設乾跑，Secrets `RAGIC_WRITE_ENABLED="true"` 才寫入（沒開＝存檔鈕灰、同事無法下載）。
 - 同事用指南：`docs/guides/newcue登入指南.pdf`（網址、登入、第一次改密碼、存檔才能下載；HTML 原稿同資料夾，改完用 Edge headless 重印）。
 - 線上：https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/（2026-10-05 重建，舊網址失效）
-- Secrets（只列名稱）：`[gcp_service_account]`（同事登入密碼表＝設定檔 Sheet 的「登入密碼」分頁，Sheet 要共用給服務帳號）、`DEV_LOGIN_PASSWORD`／`DEV_LOGIN_NAME`／`DEV_LOGIN_EMAIL`（開發者登入；11-24 起正式 app 也有設，同事側欄會看到入口，指南已註明不用理）、`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`、`AGENCY_PASSWORD`（代理商CUE 密碼，未設時預設 123）（見 `.streamlit/secrets.toml.example`）
+- Secrets（只列名稱）：`[gcp_service_account]`（同事登入密碼表＝設定檔 Sheet 的「登入密碼」分頁，Sheet 要共用給服務帳號）、`DEV_LOGIN_PASSWORD`／`DEV_LOGIN_NAME`／`DEV_LOGIN_EMAIL`（開發者登入；11-24 起正式 app 也有設，同事側欄會看到入口，指南已註明不用理）、`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`、`AGENCY_PASSWORD`（代理商CUE 密碼，未設時預設 123）、`MAIL_USER`／`MAIL_PASSWORD`／`MAIL_TO`／`APP_URL`（贈檔申請 Email 通知主管，未設＝不寄）（見 `.streamlit/secrets.toml.example`）
 
 ## 地雷（踩過的坑，改 code 前先看）
 - Excel 產出一律用「值版」下載；openpyxl 公式版在受保護檢視會空白。
@@ -36,6 +36,7 @@
 - 測試：`tests/`（含 fidelity／visual_check／各模式 smoke）
 
 ## 下次續做
+- 11-27 主管勾選更新報告 p.7：曝光結論加「其中加贈帶來曝光」一行、加碼提示附檔數、贈檔申請 Email 通知主管（待 Jonathan 設 Secrets `MAIL_USER`／`MAIL_PASSWORD`）。待確認：佳聖素材日主管寫「播前 6」是 6 天還是 6 個工作天；#6 正式開放訂檔、#7 GitHub 改私人由 Jonathan 決定。
 - 11-26 主管回覆第二階段決策（DECISIONS 11-26）：第 1 批已上線（新回饋表 `rebate_rules.py`、鉑霖實收價列 `net_terms.py`、含離島、備註第 7 點、一般CUE VAT 含製作費）；2-1 加碼提示、2-2 媒體效益說明（`pitch.py`）接續上線。2-3 方案比較、2-4 報價頁（`plan_compare.py`、`quote_page.py`）、2-5 贈檔權限申請（`gift_review.py`；CUE 管理「加贈待核准」）同批上線（spec `docs/specs/第二階段_主管決策實作.md`）。剩 2-6 各平台不同走期、購買／贈送分開列。請業務用 1123／1124 題目重測、主管試核准流程。
 - 11-24 正式版合併上線、Jonathan 已 Reboot 並實測登入正常。下一步：把 `docs/guides/newcue登入指南.pdf` 發給同事；先前各則「待 Reboot 後請宜歆重測」現在都在正式版，可請宜歆／業務一起重測。訂檔仍是測試期（`RAGIC_TEST_MODE` 未設＝CUE號記 cue/6、每月 15 筆），正式訂檔時設 `RAGIC_TEST_MODE="false"`。
 - 11-24 第二階段 A 批先做三項已上線：預算 % 拉桿改數字輸入（手填保留、沒填的補剩下，`utils.rebalance_shares`）、TV→全家新鮮視、分段執行改名「分段執行／跳週」加提示（spec `docs/specs/第二階段A批小修.md`）。需 Reboot（app.py 新 import）；請業務用 1123 第 2、4 題重測。

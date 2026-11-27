@@ -49,3 +49,12 @@ def test_效益說明():
     txt = "".join(s["text"])
     assert "全家便利商店店內廣播 850 店（每店每天約 33 檔）" in txt
     assert "其中加贈 93 檔" in txt and "2027/03/01～2027/03/31 共 31 天" in txt
+
+
+def test_加碼提示附檔數():
+    rows = [{"media": "全家廣播", "region": r, "spots": 796} for r in ("北區", "中區")]
+    h = pitch.upsell_hints(_cfg(rad=100), 450_000, rows)[0]
+    # 45 萬 796 檔 → 50 萬約 884 檔 × 10% ≈ 88 檔
+    assert "價值約 5萬元，約多送 88 檔" in h
+    rows_cf = [{"media": "家樂福", "region": "全省量販", "spots": 140}, {"media": "家樂福", "region": "全省超市", "spots": 240}]
+    assert "量販約多送 38 檔" in pitch.upsell_hints(_cfg(cf=100), 700_000, rows_cf)[0]

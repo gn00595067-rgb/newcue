@@ -631,3 +631,26 @@ def test_新鮮視前半月_萬家福後半月():
             assert nz[0] == 14 and nz[-1] == 27
         else:                                       # 新鮮視
             assert nz[0] == 0 and nz[-1] == 13
+
+
+# 贈檔權限申請（第二階段 2-5）＋ Email 通知（主管 11/27）：沒設寄信帳號時提示業務自行通知
+def test_業務加贈申請_主管核准():
+    at = AppTest.from_file(HARNESS, default_timeout=600)
+    at.session_state["ragic_user"] = {"email": "a@x.com", "name": "王小明", "groups": []}
+    at.session_state["cue_mode"] = "一般CUE"
+    at.session_state["一般CUE_gate"] = "先估價，暫不指定"
+    at.run()
+    if any("設定檔載入失敗" in e.value for e in at.error):
+        pytest.skip("讀不到 Google 試算表設定檔")
+    next(n for n in at.number_input if n.key == "bonus_rebate_pct").set_value(5).run()
+    at.text_input(key="gift_reason").input("年底掃單").run()
+    at.button(key="gen_save_btn").click().run()
+    assert not at.exception
+    g = at.session_state["cue_record"]["snap"]["gift"]
+    assert g["status"] == "待核准" and g["reason"] == "年底掃單"
+    assert any("加贈回饋 5% 待主管核准" in c.value for c in at.caption)
+    assert any("請自行通知主管" in s.value for s in at.success)
+    at.session_state["is_supervisor"] = True
+    at.run()
+    at.button(key="gen_save_gift_ok").click().run()
+    assert at.session_state["cue_record"]["snap"]["gift"]["status"] == "核准"

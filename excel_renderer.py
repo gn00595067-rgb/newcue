@@ -14,6 +14,7 @@ from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl.styles import Alignment, Font, Border, Side, PatternFill
 from openpyxl.drawing.image import Image as OpenpyxlImage
 from net_terms import net_after_terms, net_terms_label
+from reach_gift import gift_reach_line
 from config import (
     FONT_MAIN, BS_THIN, BS_MEDIUM, BS_HAIR, FMT_MONEY, FMT_NUMBER
 )
@@ -107,14 +108,21 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
         cell.border = Border(top=new_top, bottom=new_bottom, left=new_left, right=new_right)
 
     # 快速繪製外框 Helper
-    def write_reach_lines(ws, fee_rows, rows, ndays, size):
-        """預估曝光／人流（每平台一行）寫在費用區三列的 A 欄，左對齊、向右溢出到空白格（同簡易模式）。"""
-        lines = compute_reach_from_rows(rows, ndays).get("lines") or []
-        for r_idx, line in zip(fee_rows, lines[:3]):
+    def write_reach_lines(ws, fee_rows, rows, ndays, size, spare_row=None):
+        """預估曝光／人流（每平台一行）寫在費用區三列的 A 欄，左對齊、向右溢出到空白格（同簡易模式）。
+        有加贈時多一行「其中加贈帶來曝光次數」（主管 11/27）；費用區三列已滿就寫在 spare_row（費用區下一列）。"""
+        lines = (compute_reach_from_rows(rows, ndays).get("lines") or [])[:3]
+        gift = gift_reach_line(rows, ndays)
+        if gift:
+            lines.append(gift)
+        slots = list(fee_rows) + ([spare_row] if spare_row else [])
+        for r_idx, line in zip(slots, lines):
             c = ws.cell(r_idx, 1, line)
             c.font = Font(name=FONT_MAIN, size=size)
             c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
-        fit_overflow_fonts(ws, fee_rows)
+        if spare_row and len(lines) > len(list(fee_rows)):   # 加贈行落在費用區下一列（原為窄的空白列）→ 撐開列高
+            ws.row_dimensions[spare_row].height = max(ws.row_dimensions[spare_row].height or 0, size * 1.9)
+        fit_overflow_fonts(ws, slots[:len(lines)] or fee_rows)
 
     def draw_outer_border_fast(ws, min_r, max_r, min_c, max_c):
         for c in range(min_c, max_c + 1):
@@ -322,7 +330,7 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
                 set_border(ws.cell(curr_row, 6), top=BS_MEDIUM, bottom=BS_MEDIUM); set_border(ws.cell(curr_row, 7), top=BS_MEDIUM, bottom=BS_MEDIUM)
             curr_row += 1
         # 預估曝光／人流：A:E 空間較窄（約 90 字寬），字級 12 才放得下一行
-        write_reach_lines(ws, range(curr_row - 3, curr_row), rows, eff_days, 12)
+        write_reach_lines(ws, range(curr_row - 3, curr_row), rows, eff_days, 12, spare_row=curr_row)
         
         draw_outer_border_fast(ws, R(7), curr_row-1, 1, total_cols); curr_row += 1
         if skip_footer:
@@ -519,7 +527,7 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
             if lbl == "Grand Total": b = BS_MEDIUM 
             c_v.border = Border(top=Side(style=t), bottom=Side(style=b), left=Side(style=l), right=Side(style=r))
             curr_row += 1
-        write_reach_lines(ws, range(curr_row - 3, curr_row), rows, eff_days, 16)
+        write_reach_lines(ws, range(curr_row - 3, curr_row), rows, eff_days, 16, spare_row=curr_row)
         
         # Remarks 欄位起點比照鉑霖：<14 天對齊秒數規格欄，>=14 天對齊右側欄
         curr_row += 1; start_footer = curr_row; r_col_start = 5 if eff_days < 14 else 6
@@ -819,7 +827,7 @@ def render_excel_into(format_type, start_dt, end_dt, client_name, tax_id, produc
             if lbl == "Grand Total": b = BS_MEDIUM 
             c_v.border = Border(top=Side(style=t), bottom=Side(style=b), left=Side(style=l), right=Side(style=r))
             curr_row += 1
-        write_reach_lines(ws, range(curr_row - 3, curr_row), rows, eff_days, 16)
+        write_reach_lines(ws, range(curr_row - 3, curr_row), rows, eff_days, 16, spare_row=curr_row)
         net_row = net_after_terms(grand_total, net_terms)
         if net_row is not None:   # 主管 11/26 Q2：實收價(含稅)＝Grand Total×(1−退傭)×(1−現折)
             reb, disc = net_terms

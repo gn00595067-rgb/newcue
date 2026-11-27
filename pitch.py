@@ -21,8 +21,30 @@ def _platform_budget(cfg, total_budget):
     return total_budget * cfg.get("share", 0) / 100.0 * sum((cfg.get("sec_shares") or {}).values()) / 100.0
 
 
-def upsell_hints(config, total_budget):
-    """回傳提示文字 list。只看全省（全家需勾全省聯播）；已達最高級（100 萬以上專案談）不提示。"""
+def _even(n):
+    n = int(round(n))
+    return n + 1 if n % 2 else n
+
+
+def _base_spots(rows, media, region_kw=None):
+    """目前該平台主列（非加贈）的檔次；全省聯播六區同檔次，取最大值。"""
+    vals = [int(r.get("spots") or 0) for r in rows or []
+            if r.get("media") == media and not (r.get("is_rebate") or r.get("is_custom_bonus") or r.get("is_bonus_rebate"))
+            and (region_kw is None or region_kw in str(r.get("region", "")))]
+    return max(vals) if vals else 0
+
+
+def _gift_spots_text(rows, media, budget, target, pct, region_kw=None, label=""):
+    """加碼到 target 後回饋 pct% 約多送幾檔（同系統回饋算法：檔次 × 回饋%，取偶數）。"""
+    base = _base_spots(rows, media, region_kw)
+    if not base or not budget:
+        return ""
+    return f"，{label}約多送 {_even(base * target / budget * pct / 100):,} 檔"
+
+
+def upsell_hints(config, total_budget, rows=None):
+    """回傳提示文字 list。只看全省（全家需勾全省聯播）；已達最高級（100 萬以上專案談）不提示。
+    rows（已算好的 CUE 列）有給時，另換算約多送幾檔（主管 11/27：金額＋檔數都列）。"""
     out = []
     cfg = (config or {}).get("全家廣播")
     if cfg and cfg.get("is_national"):
@@ -31,7 +53,8 @@ def upsell_hints(config, total_budget):
         for lo, hi, p_rad, p_cf in rr.NAT_RAD_TIERS:
             if lo > b and (p_rad, p_cf) > cur and lo - b <= lo * UPSELL_GAP_RATIO:
                 out.append(f"全家企頻全省目前 {_wan(b)}，再加 {_wan(lo - b)}達 {_wan(lo)}，可回饋全家 {p_rad}%"
-                           f"（價值約 {_wan(lo * p_rad / 100)}元檔次）或改回饋萬家福 {p_cf}%（約 {_wan(lo * p_cf / 100)}元）。")
+                           f"（價值約 {_wan(lo * p_rad / 100)}元{_gift_spots_text(rows, '全家廣播', b, lo, p_rad)}）"
+                           f"或改回饋萬家福 {p_cf}%（約 {_wan(lo * p_cf / 100)}元）。")
                 break
     cfg = (config or {}).get("家樂福")
     if cfg:
@@ -39,7 +62,8 @@ def upsell_hints(config, total_budget):
         cur = rr.nat_cf_pct(b) or 0
         for lo, hi, p in rr.NAT_CF_TIERS:
             if lo > b and p > cur and lo - b <= lo * UPSELL_GAP_RATIO:
-                out.append(f"萬家福．樂家康目前 {_wan(b)}，再加 {_wan(lo - b)}達 {_wan(lo)}，可回饋 {p}%（價值約 {_wan(lo * p / 100)}元檔次）。")
+                out.append(f"萬家福．樂家康目前 {_wan(b)}，再加 {_wan(lo - b)}達 {_wan(lo)}，可回饋 {p}%"
+                           f"（價值約 {_wan(lo * p / 100)}元{_gift_spots_text(rows, '家樂福', b, lo, p, '量販', '量販')}）。")
                 break
     return out
 
