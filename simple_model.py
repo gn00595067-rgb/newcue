@@ -467,8 +467,8 @@ def _build_ddrive(combo, budget, start, end, data):
     ndays = len(days)
     agency = combo["agency"]
     builtin = SimpleNamespace(agency_pricing=sc.AGENCY_LIST_PRICE)   # 只查內建表
-    # 素材：開始日前 4 個工作天中午前（範例 12/22 → 12/16 1200前）
-    mat = ac.minus_business_days(start, 4)
+    # 素材：開始日前 6 個工作天中午前（主管 2026-11-27「播前 6」個工作天；原宜歆範例 4 個工作天）
+    mat = ac.minus_business_days(start, 6)
     material = f"{mat.month}/{mat.day}\n1200前"
     sheets = []
     for sec in combo["seconds"]:

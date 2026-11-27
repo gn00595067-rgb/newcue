@@ -10,7 +10,7 @@
 - **2026-11-24 起只有一個 app、一條分支**：ragic-dev 已合併回 main（`22e5988`），測試 app 停用，Jonathan 直接在正式版測；之後一律推 `main`（ragic-dev 不再使用）。推版後記得提醒 Reboot。Ragic 寫入預設乾跑，Secrets `RAGIC_WRITE_ENABLED="true"` 才寫入（沒開＝存檔鈕灰、同事無法下載）。
 - 同事用指南：`docs/guides/newcue登入指南.pdf`（網址、登入、第一次改密碼、存檔才能下載；HTML 原稿同資料夾，改完用 Edge headless 重印）。
 - 線上：https://newcue-abjxjcgtl2ticg9hnucixz.streamlit.app/（2026-10-05 重建，舊網址失效）
-- Secrets（只列名稱）：`[gcp_service_account]`（同事登入密碼表＝設定檔 Sheet 的「登入密碼」分頁，Sheet 要共用給服務帳號）、`DEV_LOGIN_PASSWORD`／`DEV_LOGIN_NAME`／`DEV_LOGIN_EMAIL`（開發者登入；11-24 起正式 app 也有設，同事側欄會看到入口，指南已註明不用理）、`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`、`AGENCY_PASSWORD`（代理商CUE 密碼，未設時預設 123）、`MAIL_USER`／`MAIL_PASSWORD`／`MAIL_TO`／`APP_URL`（贈檔申請 Email 通知主管，未設＝不寄）（見 `.streamlit/secrets.toml.example`）
+- Secrets（只列名稱）：`[gcp_service_account]`（同事登入密碼表＝設定檔 Sheet 的「登入密碼」分頁，Sheet 要共用給服務帳號）、`DEV_LOGIN_PASSWORD`／`DEV_LOGIN_NAME`／`DEV_LOGIN_EMAIL`（開發者登入；11-24 起正式 app 也有設，同事側欄會看到入口，指南已註明不用理）、`RAGIC_API_KEY`、`RAGIC_URL`、`SUPERVISOR_PASSWORD`、`AGENCY_PASSWORD`（代理商CUE 密碼，未設時預設 123）、`MAIL_USER`／`MAIL_PASSWORD`／`MAIL_TO`／`APP_URL`（贈檔申請 Email 通知主管，未設＝不寄）、`RAGIC_SALES_CAN_BOOK`（"true"＝業務也能申請 CUE號／送出訂檔，測試期保護仍在）（見 `.streamlit/secrets.toml.example`）
 
 ## 地雷（踩過的坑，改 code 前先看）
 - Excel 產出一律用「值版」下載；openpyxl 公式版在受保護檢視會空白。
@@ -36,13 +36,14 @@
 - 測試：`tests/`（含 fidelity／visual_check／各模式 smoke）
 
 ## 下次續做
-- 11-27 主管勾選更新報告 p.7：曝光結論加「其中加贈帶來曝光」一行、加碼提示附檔數、贈檔申請 Email 通知主管（待 Jonathan 設 Secrets `MAIL_USER`／`MAIL_PASSWORD`）。待確認：佳聖素材日主管寫「播前 6」是 6 天還是 6 個工作天；#6 正式開放訂檔、#7 GitHub 改私人由 Jonathan 決定。
+- 11-27 主管同意開放業務測試訂檔：Secrets `RAGIC_SALES_CAN_BOOK="true"` 開放（上限維持每月 15、不開測試客戶，Ragic 管理員清測試單）；測試題目在 Jonathan 桌面 `CUE系統_訂檔測試題目_1127.xlsx`（8 題，不進版控）。題目第 4 題會測出：鉑霖 CUE 的退傭／現折與訂檔區現折／退佣是兩組欄位，可能要改自動帶入。
+- 11-27 主管勾選更新報告 p.7：曝光結論加「其中加贈帶來曝光」一行、加碼提示附檔數、贈檔申請 Email 通知主管（待 Jonathan 設 Secrets `MAIL_USER`／`MAIL_PASSWORD`）。佳聖素材日已改開始日前 6 個工作天；#6 正式開放訂檔、#7 GitHub 改私人由 Jonathan 決定。
 - 11-26 主管回覆第二階段決策（DECISIONS 11-26）：第 1 批已上線（新回饋表 `rebate_rules.py`、鉑霖實收價列 `net_terms.py`、含離島、備註第 7 點、一般CUE VAT 含製作費）；2-1 加碼提示、2-2 媒體效益說明（`pitch.py`）接續上線。2-3 方案比較、2-4 報價頁（`plan_compare.py`、`quote_page.py`）、2-5 贈檔權限申請（`gift_review.py`；CUE 管理「加贈待核准」）同批上線（spec `docs/specs/第二階段_主管決策實作.md`）。剩 2-6 各平台不同走期、購買／贈送分開列。請業務用 1123／1124 題目重測、主管試核准流程。
 - 11-24 正式版合併上線、Jonathan 已 Reboot 並實測登入正常。下一步：把 `docs/guides/newcue登入指南.pdf` 發給同事；先前各則「待 Reboot 後請宜歆重測」現在都在正式版，可請宜歆／業務一起重測。訂檔仍是測試期（`RAGIC_TEST_MODE` 未設＝CUE號記 cue/6、每月 15 筆），正式訂檔時設 `RAGIC_TEST_MODE="false"`。
 - 11-24 第二階段 A 批先做三項已上線：預算 % 拉桿改數字輸入（手填保留、沒填的補剩下，`utils.rebalance_shares`）、TV→全家新鮮視、分段執行改名「分段執行／跳週」加提示（spec `docs/specs/第二階段A批小修.md`）。需 Reboot（app.py 新 import）；請業務用 1123 第 2、4 題重測。
 - 11-24 總經理＋業務排CUE測試回饋 → 第二階段規劃 `docs/plans/2026-11-24_業務排CUE測試回饋_第二階段規劃.md`。待總經理／Peggy 回 §4 六題（11/24 回饋比例表、專案價顯示、加碼上限、報價頁版型、離島寫法、流量說明文字），再依 §5 分批：A 小修 → B 彈性 → C 報價頁／方案比較 → 權限請示。
 - 11-13 宜歆 11/12 #12／#13：2008 萬家福定價 20秒 4,000（15秒 3,400、10秒 2,600）；代理商 Excel 定價格改「=單價*檔次」公式（補快取值，`xlsx_formula_cache.py`）。待 Reboot 後請宜歆重測；#14 只寫「另請問」沒內容，待補。
-- 11-11 宜歆 #11：代理商一鍵CUE 加 ⑤／⑥ 佳聖（spec `docs/specs/佳聖一鍵CUE.md`）。待 Reboot 後請宜歆試；待確認佳聖全家定價（暫用 15 秒 1,300）、素材日（開始日前 4 個工作天）。
+- 11-11 宜歆 #11：代理商一鍵CUE 加 ⑤／⑥ 佳聖（spec `docs/specs/佳聖一鍵CUE.md`）。待 Reboot 後請宜歆試；待確認佳聖全家定價（暫用 15 秒 1,300）；素材日 11/27 改開始日前 6 個工作天。
 - 11-06 測試期 CUE號上限：申請 CUE號／送出訂檔記到 Ragic cue/6「CUE系統訂檔測試」，每月 15 筆（`RAGIC_TEST_CUE_LIMIT`）、訂檔需求說明加【newcue 系統測試】；正式上線設 `RAGIC_TEST_MODE="false"`（spec `docs/specs/測試期CUE號上限.md`）。cue/6 有一筆欄位測試資料「TEST-欄位測試」佔本月 1 筆，Jonathan 確認後刪。
 - 11-04 宜歆 #9／#10：健康視CUE 可加「加贈／其他列」、每列可自行填入曝光（🧮 檔次試算）、專案價欄紅字自填（公益贈檔等）；spec `docs/specs/健康視CUE.md` §6-1。待 Reboot 後請宜歆重測，並回覆 #10 定價應以 750,000 算（281,250）。
 （2026-10-16 停在這裡；ragic-dev 最新 `47fcb5d`，完整測試 615 綠；main 最新 `44867dd`）

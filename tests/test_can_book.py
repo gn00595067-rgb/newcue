@@ -31,3 +31,15 @@ def test_sales_and_supervisor_password_cannot_book(monkeypatch):
     assert not can_book()
     _login(None)
     assert not can_book()
+
+
+def test_開關打開後業務可送出(monkeypatch):
+    monkeypatch.setenv("RAGIC_REVIEWERS", "boss@x.com")
+    monkeypatch.setenv("RAGIC_SALES_CAN_BOOK", "true")
+    _login({"email": "a@x.com", "name": "業務", "groups": []})
+    assert can_book()
+    _login(None)
+    assert not can_book()   # 沒登入仍不行
+    monkeypatch.setenv("RAGIC_SALES_CAN_BOOK", "false")
+    _login({"email": "a@x.com", "name": "業務", "groups": []})
+    assert not can_book()

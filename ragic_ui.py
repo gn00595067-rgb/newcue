@@ -415,7 +415,14 @@ def can_book():
     """可真的申請 CUE號／送出訂檔的人：RAGIC_REVIEWERS 名單的主管信箱，或開發者登入。
     測試期間開放業務試用，只能存檔／下載，不能動到正式 CUE號與訂檔（主管密碼不算，避免業務知道密碼就能送）。"""
     u = current_user() or {}
+    if u and sales_can_book():   # 2026-11-27 主管：出題讓業務測到訂檔（測試期保護仍在：cue/6、每月上限、【newcue 系統測試】）
+        return True
     return bool(u) and (u.get("email", "").lower() in reviewers() or "開發者" in (u.get("groups") or []))
+
+
+def sales_can_book():
+    """Secrets RAGIC_SALES_CAN_BOOK="true"：開放所有登入的業務申請 CUE號／送出訂檔（測完改回 false 或刪除）。"""
+    return str(_secret("RAGIC_SALES_CAN_BOOK", "")).strip().lower() in ("1", "true", "yes")
 
 
 BOOK_DENIED = "限主管／開發者操作（業務請存檔後通知主管送出）"

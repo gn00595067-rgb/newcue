@@ -32,7 +32,7 @@ def test_ddrive_wjf_matches_example():
     assert (mag.list_total, sup.list_total) == (672_000, 1_152_000)   # 每檔 3,000，兩列都計
     assert mag.net_display == 100000 and sup.net_display == "計於萬家福"
     assert mag.station == '萬家福-15"量販店' and sup.station == '樂家康-15"超市'
-    assert mag.material == "12/16\n1200前"
+    assert mag.material == "12/14\n1200前"   # 12/22 往前 6 個工作天（主管 11/27「播前 6」）
     assert len(sh.blocks[0].rows) == 2                                # 不附回饋列
     assert sh.fees == {"type": "ddrive", "net": 100000, "vat": 5000, "gross": 105000, "grand": 105000}
     assert m.remarks == [("* 請款金額：12月份Net$100,000元(未稅)。", False)]
